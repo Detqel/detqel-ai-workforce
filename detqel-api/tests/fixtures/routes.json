@@ -1,0 +1,290 @@
+[
+  {
+    "method": "GET",
+    "url": "/api/analytics/predictions"
+  },
+  {
+    "method": "POST",
+    "url": "/api/analytics/predictions"
+  },
+  {
+    "method": "GET",
+    "url": "/api/analytics/simulations"
+  },
+  {
+    "method": "POST",
+    "url": "/api/analytics/simulations"
+  },
+  {
+    "method": "GET",
+    "url": "/api/analytics/activity-heatmap"
+  },
+  {
+    "method": "GET",
+    "url": "/api/analytics/activities"
+  },
+  {
+    "method": "POST",
+    "url": "/api/analytics/activities"
+  },
+  {
+    "method": "GET",
+    "url": "/api/approvals"
+  },
+  {
+    "method": "POST",
+    "url": "/api/approvals"
+  },
+  {
+    "method": "POST",
+    "url": "/api/approvals/:id/review"
+  },
+  {
+    "method": "GET",
+    "url": "/api/auth/check-user"
+  },
+  {
+    "method": "POST",
+    "url": "/api/auth/login"
+  },
+  {
+    "method": "POST",
+    "url": "/api/auth/register"
+  },
+  {
+    "method": "GET",
+    "url": "/api/auth/me"
+  },
+  {
+    "method": "GET",
+    "url": "/api/automations"
+  },
+  {
+    "method": "POST",
+    "url": "/api/automations"
+  },
+  {
+    "method": "POST",
+    "url": "/api/automations/:id/trigger"
+  },
+  {
+    "method": "GET",
+    "url": "/api/automations/:id/runs"
+  },
+  {
+    "method": "GET",
+    "url": "/api/scheduled-tasks"
+  },
+  {
+    "method": "POST",
+    "url": "/api/scheduled-tasks"
+  },
+  {
+    "method": "GET",
+    "url": "/api/business/workspaces/:workspaceId/profile"
+  },
+  {
+    "method": "PUT",
+    "url": "/api/business/workspaces/:workspaceId/profile"
+  },
+  {
+    "method": "GET",
+    "url": "/api/business/workspaces/:workspaceId/knowledge"
+  },
+  {
+    "method": "POST",
+    "url": "/api/business/workspaces/:workspaceId/knowledge"
+  },
+  {
+    "method": "DELETE",
+    "url": "/api/business/knowledge/:id"
+  },
+  {
+    "method": "GET",
+    "url": "/api/business/workspaces/:workspaceId/goals"
+  },
+  {
+    "method": "POST",
+    "url": "/api/business/workspaces/:workspaceId/goals"
+  },
+  {
+    "method": "GET",
+    "url": "/api/business/workspaces/:workspaceId/rules"
+  },
+  {
+    "method": "POST",
+    "url": "/api/business/workspaces/:workspaceId/rules"
+  },
+  {
+    "method": "GET",
+    "url": "/api/business/workspaces/:workspaceId/state"
+  },
+  {
+    "method": "POST",
+    "url": "/api/business/workspaces/:workspaceId/state"
+  },
+  {
+    "method": "GET",
+    "url": "/api/business/workspaces/:workspaceId/memory"
+  },
+  {
+    "method": "POST",
+    "url": "/api/business/workspaces/:workspaceId/memory"
+  },
+  {
+    "method": "GET",
+    "url": "/api/connections"
+  },
+  {
+    "method": "POST",
+    "url": "/api/connections"
+  },
+  {
+    "method": "GET",
+    "url": "/api/connections/:id"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/connections/:id/sync"
+  },
+  {
+    "method": "DELETE",
+    "url": "/api/connections/:id"
+  },
+  {
+    "method": "GET",
+    "url": "/api/domains"
+  },
+  {
+    "method": "POST",
+    "url": "/api/domains"
+  },
+  {
+    "method": "POST",
+    "url": "/api/executions"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/executions/:id"
+  },
+  {
+    "method": "GET",
+    "url": "/health"
+  },
+  {
+    "method": "GET",
+    "url": "/api/missions"
+  },
+  {
+    "method": "POST",
+    "url": "/api/missions"
+  },
+  {
+    "method": "GET",
+    "url": "/api/missions/:id"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/missions/:id/status"
+  },
+  {
+    "method": "POST",
+    "url": "/api/missions/:id/events"
+  },
+  {
+    "method": "POST",
+    "url": "/api/missions/:id/sources"
+  },
+  {
+    "method": "GET",
+    "url": "/api/notifications"
+  },
+  {
+    "method": "POST",
+    "url": "/api/notifications"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/notifications/:id/read"
+  },
+  {
+    "method": "POST",
+    "url": "/api/notifications/mark-all-read"
+  },
+  {
+    "method": "GET",
+    "url": "/api/users"
+  },
+  {
+    "method": "POST",
+    "url": "/api/users"
+  },
+  {
+    "method": "GET",
+    "url": "/api/users/:id"
+  },
+  {
+    "method": "GET",
+    "url": "/api/agents"
+  },
+  {
+    "method": "POST",
+    "url": "/api/agents"
+  },
+  {
+    "method": "GET",
+    "url": "/api/agents/:id"
+  },
+  {
+    "method": "POST",
+    "url": "/api/agents/:id/connections"
+  },
+  {
+    "method": "GET",
+    "url": "/api/agents/:id/memory"
+  },
+  {
+    "method": "POST",
+    "url": "/api/agents/:id/memory"
+  },
+  {
+    "method": "GET",
+    "url": "/api/workspaces"
+  },
+  {
+    "method": "GET",
+    "url": "/api/workspaces/user/:userId"
+  },
+  {
+    "method": "POST",
+    "url": "/api/workspaces"
+  },
+  {
+    "method": "GET",
+    "url": "/api/workspaces/:id"
+  },
+  {
+    "method": "PUT",
+    "url": "/api/workspaces/:id"
+  },
+  {
+    "method": "PATCH",
+    "url": "/api/workspaces/:id"
+  },
+  {
+    "method": "DELETE",
+    "url": "/api/workspaces/:id"
+  },
+  {
+    "method": "GET",
+    "url": "/api/workspaces/:id/members"
+  },
+  {
+    "method": "POST",
+    "url": "/api/workspaces/:id/members"
+  },
+  {
+    "method": "DELETE",
+    "url": "/api/workspaces/:id/members/:userId"
+  }
+]

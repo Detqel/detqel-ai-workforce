@@ -7,8 +7,7 @@ async function main() {
             if (health.database !== "connected")
                 throw new Error("Database unavailable. Provision the database and run db:migrate before starting the API.");
         });
-        const address = await app.listen({ port: env.PORT, host: env.HOST });
-        app.log.info(`DETQEL Workforce API listening at ${address}`);
+        await app.listen({ port: env.PORT, host: env.HOST });
     }
     catch (error) {
         await app.close();
@@ -20,9 +19,9 @@ async function main() {
             if (stopping)
                 return;
             stopping = true;
-            app.log.info({ signal }, "Shutting down");
+            app.log.info({ context: "Server", signal }, "Shutting down");
             app.close().catch(error => {
-                app.log.error(error);
+                app.log.error({ context: "Server", err: error });
                 process.exitCode = 1;
             });
         });

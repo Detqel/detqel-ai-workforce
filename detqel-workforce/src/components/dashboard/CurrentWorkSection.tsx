@@ -1,5 +1,6 @@
 import React from "react";
-import Link from "next/link";
+import { WorkspaceLink as Link } from "@/components/navigation/WorkspaceLink";
+import { defaultPageId } from "@/lib/navigation";
 import { Activity, ArrowRight, Inbox } from "lucide-react";
 
 export const CurrentWorkSection: React.FC = () => {
@@ -11,15 +12,15 @@ export const CurrentWorkSection: React.FC = () => {
             <Activity className="w-3.5 h-3.5" />
           </div>
           <div>
-            <h2 className="text-sm font-bold text-slate-900 dark:text-purple-100">Current Work</h2>
-            <p className="text-[11px] text-slate-500 dark:text-purple-300/70">
+            <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">Current Work</h2>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
               Your active investigations, predictions and automations.
             </p>
           </div>
         </div>
         <Link
-          href="/dashboard"
-          className="text-xs font-semibold text-slate-500 dark:text-[#a855f7] hover:text-slate-900 dark:hover:text-[#c084fc] flex items-center gap-1 transition-colors"
+          href={defaultPageId}
+          className="text-xs font-semibold text-slate-500 dark:text-[#FFA500] hover:text-slate-900 dark:hover:text-[#FFA500] flex items-center gap-1 transition-colors"
         >
           <span>View all</span>
           <ArrowRight className="w-3.5 h-3.5" />
@@ -27,14 +28,14 @@ export const CurrentWorkSection: React.FC = () => {
       </div>
 
       <div className="py-10 flex flex-col items-center justify-center text-center space-y-3">
-        <div className="w-12 h-12 rounded-2xl bg-slate-50 dark:bg-[#151f32] border border-slate-200 dark:border-slate-800 flex items-center justify-center text-slate-400 dark:text-purple-400/60">
+        <div className="w-12 h-12 rounded-2xl bg-slate-50 dark:bg-[#151f32] border border-slate-200 dark:border-slate-800 flex items-center justify-center text-slate-400 dark:text-[#FFA500]/80">
           <Inbox className="w-6 h-6" />
         </div>
         <div>
-          <div className="text-sm font-bold text-slate-900 dark:text-purple-100">
+          <div className="text-sm font-bold text-slate-900 dark:text-slate-100">
             Nothing in progress yet
           </div>
-          <p className="text-xs text-slate-500 dark:text-purple-300/70 max-w-sm mx-auto mt-1 leading-relaxed">
+          <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto mt-1 leading-relaxed">
             Start an investigation, prediction, simulation or automation to put
             DETQEL to work for your business.
           </p>
@@ -42,14 +43,14 @@ export const CurrentWorkSection: React.FC = () => {
         <div className="flex items-center gap-3 pt-2">
           <button
             type="button"
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#8a2be2] hover:bg-[#7823c9] text-white text-xs font-semibold transition-all shadow-xs cursor-pointer"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#8a2be2] dark:bg-[#FFA500] hover:bg-[#7823c9] dark:hover:bg-[#FFA500]/90 text-white dark:text-slate-950 font-bold text-xs transition-all shadow-xs cursor-pointer"
           >
             <span>Start a new mission</span>
             <ArrowRight className="w-3.5 h-3.5" />
           </button>
           <button
             type="button"
-            className="px-4 py-2 rounded-xl bg-white dark:bg-[#151f32] hover:bg-slate-50 dark:hover:bg-[#1e2a40] text-slate-700 dark:text-purple-200 border border-slate-200 dark:border-slate-700 text-xs font-semibold transition-colors cursor-pointer shadow-2xs"
+            className="px-4 py-2 rounded-xl bg-white dark:bg-[#151f32] hover:bg-slate-50 dark:hover:bg-[#1e2a40] text-slate-700 dark:text-slate-300 dark:hover:text-[#FFA500] border border-slate-200 dark:border-slate-700 text-xs font-semibold transition-colors cursor-pointer shadow-2xs"
           >
             Explore use cases
           </button>

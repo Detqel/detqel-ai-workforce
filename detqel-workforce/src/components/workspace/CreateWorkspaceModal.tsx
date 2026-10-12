@@ -20,10 +20,11 @@ import {
   apiGetDomains,
   type IndustryDomainItem,
 } from "@/lib/api";
-import { useRouter } from "next/navigation";
+import { useNavigation } from "@/context/NavigationContext";
+import { defaultPageId } from "@/lib/navigation";
 
 export const CreateWorkspaceModal: React.FC = () => {
-  const router = useRouter();
+  const { navigate } = useNavigation();
   const {
     user,
     workspaces,
@@ -112,7 +113,7 @@ export const CreateWorkspaceModal: React.FC = () => {
       });
 
       addNewWorkspace(created);
-      router.push("/dashboard");
+      navigate(defaultPageId);
     } catch (err: unknown) {
       const errorMessage =
         err instanceof Error ? err.message : "Workspace creation failed";
@@ -223,15 +224,15 @@ export const CreateWorkspaceModal: React.FC = () => {
         <div className="w-full md:w-[410px] lg:w-[450px] xl:w-[480px] bg-white dark:bg-[#182234] p-7 sm:p-9 flex flex-col justify-between shrink-0 overflow-y-auto">
           <div>
             <div className="flex items-center gap-2 mb-2">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-[#8a2be2] dark:text-[#c084fc] bg-purple-50 dark:bg-purple-950/60 px-2.5 py-1 rounded-lg border border-purple-100 dark:border-purple-900/60">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#8a2be2] dark:text-[#FFA500] bg-purple-50 dark:bg-[#FFA500]/15 px-2.5 py-1 rounded-lg border border-purple-100 dark:border-[#FFA500]/30">
                 Workspace Initialization
               </span>
             </div>
 
-            <h3 className="text-xl font-bold text-slate-900 dark:text-purple-100 tracking-tight">
+            <h3 className="text-xl font-bold text-slate-900 dark:text-slate-100 tracking-tight">
               Create Your Workspace
             </h3>
-            <p className="text-xs text-slate-500 dark:text-purple-300/70 mt-1 leading-relaxed">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
               Name your organization hub to initiate your AI Workforce environment and launch your dashboard.
             </p>
 
@@ -244,11 +245,11 @@ export const CreateWorkspaceModal: React.FC = () => {
 
             <form id="create-workspace-form" onSubmit={handleSubmit} className="mt-5 space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-purple-200 uppercase tracking-wider mb-1.5">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
                   Workspace Name <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400 dark:text-purple-400/60">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400 dark:text-slate-400">
                     <Building2 className="w-4 h-4" />
                   </div>
                   <input
@@ -257,24 +258,24 @@ export const CreateWorkspaceModal: React.FC = () => {
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="e.g. Acme Global, Apex Logistics"
-                    className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#151f32] text-xs font-medium text-slate-900 dark:text-purple-100 placeholder:text-slate-400 dark:placeholder:text-purple-400/50 outline-none focus:border-[#8a2be2] focus:bg-white dark:focus:bg-[#1e2a40] focus:ring-2 focus:ring-[#8a2be2]/20 transition-all"
+                    className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#151f32] text-xs font-medium text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none focus:border-[#8a2be2] dark:focus:border-[#FFA500] focus:bg-white dark:focus:bg-[#1e2a40] focus:ring-2 focus:ring-[#8a2be2]/20 dark:focus:ring-[#FFA500]/20 transition-all"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-purple-200 uppercase tracking-wider mb-1.5">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
                   Industry Domain
                 </label>
                 <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400 dark:text-purple-400/60">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400 dark:text-slate-400">
                     <Layers className="w-4 h-4" />
                   </div>
                   <select
                     value={industry}
                     disabled={loadingDomains}
                     onChange={(e) => setIndustry(e.target.value)}
-                    className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#151f32] text-xs font-medium text-slate-900 dark:text-purple-100 outline-none focus:border-[#8a2be2] focus:bg-white dark:focus:bg-[#1e2a40] focus:ring-2 focus:ring-[#8a2be2]/20 transition-all cursor-pointer disabled:opacity-60"
+                    className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#151f32] text-xs font-medium text-slate-900 dark:text-slate-100 outline-none focus:border-[#8a2be2] dark:focus:border-[#FFA500] focus:bg-white dark:focus:bg-[#1e2a40] focus:ring-2 focus:ring-[#8a2be2]/20 dark:focus:ring-[#FFA500]/20 transition-all cursor-pointer disabled:opacity-60"
                   >
                     {domains.map((dom) => (
                       <option key={dom.id} value={dom.name} className="dark:bg-[#182234]">
@@ -288,7 +289,7 @@ export const CreateWorkspaceModal: React.FC = () => {
                 {/* Free-form text input popped up when Add Domain + is selected */}
                 {industry === "ADD_DOMAIN_CUSTOM" && (
                   <div className="mt-2.5 animate-in fade-in slide-in-from-top-1 duration-200">
-                    <label className="block text-[11px] font-bold text-slate-700 dark:text-purple-200 uppercase tracking-wider mb-1">
+                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
                       Custom Domain Name <span className="text-red-500">*</span>
                     </label>
                     <input
@@ -297,22 +298,22 @@ export const CreateWorkspaceModal: React.FC = () => {
                       value={customDomain}
                       onChange={(e) => setCustomDomain(e.target.value)}
                       placeholder="Enter custom domain (e.g. Aerospace, Robotics, Gaming...)"
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-[#8a2be2]/40 bg-purple-50/20 dark:bg-[#151f32] text-xs font-medium text-slate-900 dark:text-purple-100 placeholder:text-slate-400 dark:placeholder:text-purple-400/50 outline-none focus:border-[#8a2be2] focus:bg-white dark:focus:bg-[#1e2a40] focus:ring-2 focus:ring-[#8a2be2]/20 transition-all"
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-[#8a2be2]/40 dark:border-[#FFA500]/40 bg-purple-50/20 dark:bg-[#151f32] text-xs font-medium text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none focus:border-[#8a2be2] dark:focus:border-[#FFA500] focus:bg-white dark:focus:bg-[#1e2a40] focus:ring-2 focus:ring-[#8a2be2]/20 dark:focus:ring-[#FFA500]/20 transition-all"
                     />
                   </div>
                 )}
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-purple-200 uppercase tracking-wider mb-1.5">
-                  Description <span className="text-slate-400 dark:text-purple-400/60 font-normal">(Optional)</span>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                  Description <span className="text-slate-400 dark:text-slate-400 font-normal">(Optional)</span>
                 </label>
                 <textarea
                   rows={3}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="Brief summary of operations, product lines, or business goals..."
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#151f32] text-xs text-slate-900 dark:text-purple-100 placeholder:text-slate-400 dark:placeholder:text-purple-400/50 outline-none focus:border-[#8a2be2] focus:bg-white dark:focus:bg-[#1e2a40] focus:ring-2 focus:ring-[#8a2be2]/20 transition-all resize-none"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#151f32] text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none focus:border-[#8a2be2] dark:focus:border-[#FFA500] focus:bg-white dark:focus:bg-[#1e2a40] focus:ring-2 focus:ring-[#8a2be2]/20 dark:focus:ring-[#FFA500]/20 transition-all resize-none"
                 />
               </div>
             </form>
@@ -323,7 +324,7 @@ export const CreateWorkspaceModal: React.FC = () => {
               type="submit"
               form="create-workspace-form"
               disabled={isSubmitting}
-              className="w-full py-3.5 px-4 rounded-xl bg-[#8a2be2] hover:bg-[#7b24ca] active:scale-[0.99] text-white font-bold text-xs shadow-md shadow-[#8a2be2]/25 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-60"
+              className="w-full py-3.5 px-4 rounded-xl bg-[#8a2be2] dark:bg-[#FFA500] hover:bg-[#7b24ca] dark:hover:bg-[#FFA500]/90 active:scale-[0.99] text-white dark:text-slate-950 font-bold text-xs shadow-md shadow-[#8a2be2]/25 dark:shadow-[#FFA500]/25 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-60"
             >
               {isSubmitting ? (
                 <>
@@ -338,7 +339,7 @@ export const CreateWorkspaceModal: React.FC = () => {
               )}
             </button>
 
-            <p className="text-[10px] text-slate-400 dark:text-purple-400/60 text-center mt-3 leading-normal">
+            <p className="text-[10px] text-slate-400 dark:text-slate-400 text-center mt-3 leading-normal">
               You can invite team members and configure connectors at any time from your command center settings.
             </p>
           </div>

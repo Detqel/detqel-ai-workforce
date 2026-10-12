@@ -1,5 +1,6 @@
 import React from "react";
-import Link from "next/link";
+import { WorkspaceLink as Link } from "@/components/navigation/WorkspaceLink";
+import { defaultPageId } from "@/lib/navigation";
 import { CheckCircle2, ArrowRight, FileText, ExternalLink } from "lucide-react";
 
 export const DecisionsSection: React.FC = () => {
@@ -11,17 +12,17 @@ export const DecisionsSection: React.FC = () => {
             <CheckCircle2 className="w-3.5 h-3.5" />
           </div>
           <div>
-            <h2 className="text-sm font-bold text-slate-900 dark:text-purple-100">
+            <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
               Decisions Waiting for You
             </h2>
-            <p className="text-[11px] text-slate-500 dark:text-purple-300/70">
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
               AI recommendations that need your review.
             </p>
           </div>
         </div>
         <Link
-          href="/dashboard#decisions"
-          className="text-xs font-semibold text-slate-500 dark:text-[#a855f7] hover:text-slate-900 dark:hover:text-[#c084fc] flex items-center gap-1 transition-colors"
+          href={`${defaultPageId}#decisions`}
+          className="text-xs font-semibold text-slate-500 dark:text-[#FFA500] hover:text-slate-900 dark:hover:text-[#FFA500] flex items-center gap-1 transition-colors"
         >
           <span>View all</span>
           <ArrowRight className="w-3.5 h-3.5" />
@@ -29,14 +30,14 @@ export const DecisionsSection: React.FC = () => {
       </div>
 
       <div className="py-10 flex flex-col items-center justify-center text-center space-y-3">
-        <div className="w-12 h-12 rounded-2xl bg-slate-50 dark:bg-[#151f32] border border-slate-200 dark:border-slate-800 flex items-center justify-center text-slate-400 dark:text-purple-400/60">
+        <div className="w-12 h-12 rounded-2xl bg-slate-50 dark:bg-[#151f32] border border-slate-200 dark:border-slate-800 flex items-center justify-center text-slate-400 dark:text-[#FFA500]/80">
           <FileText className="w-6 h-6" />
         </div>
         <div>
-          <div className="text-sm font-bold text-slate-900 dark:text-purple-100">
+          <div className="text-sm font-bold text-slate-900 dark:text-slate-100">
             No pending decisions
           </div>
-          <p className="text-xs text-slate-500 dark:text-purple-300/70 max-w-sm mx-auto mt-1 leading-relaxed">
+          <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto mt-1 leading-relaxed">
             When our AI agents find important insights or recommendations,
             they will appear here for your review.
           </p>
@@ -44,10 +45,10 @@ export const DecisionsSection: React.FC = () => {
         <div className="pt-2">
           <button
             type="button"
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white dark:bg-[#151f32] hover:bg-slate-50 dark:hover:bg-[#1e2a40] text-slate-700 dark:text-purple-200 border border-slate-200 dark:border-slate-700 text-xs font-semibold transition-colors cursor-pointer shadow-2xs"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white dark:bg-[#151f32] hover:bg-slate-50 dark:hover:bg-[#1e2a40] text-slate-700 dark:text-slate-300 dark:hover:text-[#FFA500] border border-slate-200 dark:border-slate-700 text-xs font-semibold transition-colors cursor-pointer shadow-2xs"
           >
             <span>Learn how it works</span>
-            <ExternalLink className="w-3.5 h-3.5 text-slate-400 dark:text-purple-400/60" />
+            <ExternalLink className="w-3.5 h-3.5 text-slate-400 dark:text-slate-400" />
           </button>
         </div>
       </div>

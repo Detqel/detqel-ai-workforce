@@ -24,12 +24,12 @@ export const ActivityHeatmapSection: React.FC<ActivityHeatmapSectionProps> = ({
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
           <div className="flex items-center gap-2.5 min-w-0">
-            <LayoutGrid className="w-4 h-4 text-slate-500 dark:text-[#a855f7] shrink-0" />
+            <LayoutGrid className="w-4 h-4 text-slate-500 dark:text-[#FFA500] shrink-0" />
             <div className="min-w-0 truncate">
-              <h2 className="text-sm font-bold text-slate-900 dark:text-purple-100">
+              <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
                 AI Activity
               </h2>
-              <p className="text-[11px] text-slate-500 dark:text-purple-300/70 truncate">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
                 Activity across your business over the last {weeksCount} weeks
                 {heatmapData?.totalActivities !== undefined
                   ? ` • ${heatmapData.totalActivities} tracked in database`
@@ -38,9 +38,9 @@ export const ActivityHeatmapSection: React.FC<ActivityHeatmapSectionProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-50 dark:bg-[#151f32] border border-slate-200 dark:border-slate-700 text-[11px] font-medium text-slate-700 dark:text-purple-200 shrink-0">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-50 dark:bg-[#151f32] border border-slate-200 dark:border-slate-700 text-[11px] font-medium text-slate-700 dark:text-slate-300 shrink-0">
             <span>Last {weeksCount} weeks</span>
-            <ChevronDown className="w-3 h-3 text-slate-400 dark:text-purple-400/60" />
+            <ChevronDown className="w-3 h-3 text-slate-400 dark:text-slate-400" />
           </div>
         </div>
 
@@ -61,7 +61,7 @@ export const ActivityHeatmapSection: React.FC<ActivityHeatmapSectionProps> = ({
                 key={rowName}
                 className="flex items-center gap-2 sm:gap-3 w-full min-w-0"
               >
-                <span className="w-18 sm:w-20 text-[11px] font-medium text-slate-500 dark:text-purple-300/70 text-left shrink-0 truncate">
+                <span className="w-18 sm:w-20 text-[11px] font-medium text-slate-500 dark:text-slate-400 text-left shrink-0 truncate">
                   {rowName}
                 </span>
 
@@ -76,13 +76,13 @@ export const ActivityHeatmapSection: React.FC<ActivityHeatmapSectionProps> = ({
                       "bg-slate-100 dark:bg-[#151f32] border-slate-200/70 dark:border-slate-700/60 hover:bg-slate-200 dark:hover:bg-[#1e2a40]";
                     if (cell.level === 1) {
                       cellColor =
-                        "bg-[#8a2be2]/25 border-[#8a2be2]/40 hover:bg-[#8a2be2]/45";
+                        "bg-[#8a2be2]/25 dark:bg-[#FFA500]/25 border-[#8a2be2]/40 dark:border-[#FFA500]/40 hover:bg-[#8a2be2]/45 dark:hover:bg-[#FFA500]/45";
                     } else if (cell.level === 2) {
                       cellColor =
-                        "bg-[#8a2be2]/55 border-[#8a2be2]/75 hover:bg-[#8a2be2]/75 shadow-[0_0_6px_rgba(138,43,226,0.25)]";
+                        "bg-[#8a2be2]/55 dark:bg-[#FFA500]/55 border-[#8a2be2]/75 dark:border-[#FFA500]/75 hover:bg-[#8a2be2]/75 dark:hover:bg-[#FFA500]/75 shadow-[0_0_6px_rgba(138,43,226,0.25)] dark:shadow-[0_0_6px_rgba(255,165,0,0.25)]";
                     } else if (cell.level === 3) {
                       cellColor =
-                        "bg-[#8a2be2] border-purple-400 hover:bg-[#7823c9] shadow-[0_0_8px_rgba(138,43,226,0.4)]";
+                        "bg-[#8a2be2] dark:bg-[#FFA500] border-purple-400 dark:border-[#FFA500] hover:bg-[#7823c9] dark:hover:bg-[#FFA500]/90 shadow-[0_0_8px_rgba(138,43,226,0.4)] dark:shadow-[0_0_8px_rgba(255,165,0,0.4)]";
                     } else if (cell.level >= 4) {
                       cellColor =
                         "bg-emerald-500 border-emerald-400 hover:bg-emerald-600 shadow-[0_0_8px_rgba(16,185,129,0.4)]";

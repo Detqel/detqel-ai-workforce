@@ -4,7 +4,7 @@
 
 :root {
   --purple-primary: #8a2be2;
-  --emerald-primary: #00503D;
+  --emerald-primary: #0A3C30;
   --bg-midnight: #0f172a;
   --surface-midnight: #131c2d;
   --card-midnight: #182234;
@@ -13,6 +13,7 @@
 
 .dark {
   color-scheme: dark;
+  --purple-primary: #FFA500;
 }
 
 .font-title {
@@ -59,7 +60,7 @@ html, body {
 }
 
 .dark ::-webkit-scrollbar-thumb:hover {
-  background: #8a2be2;
+  background: #FFA500;
 }
 
 .primary-purple-text {

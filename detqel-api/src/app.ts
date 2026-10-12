@@ -2,7 +2,7 @@ import cors from "@fastify/cors";
 import sensible from "@fastify/sensible";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
-import fastify, { FastifyInstance } from "fastify";
+import fastify, { FastifyInstance, LogController } from "fastify";
 import { ZodError } from "zod";
 import { createServices, type ApplicationServices } from "./bootstrap/services.js";
 import { env, type Environment } from "./config/env.js";
@@ -24,6 +24,7 @@ import { userRoutes } from "./modules/users/routes/user.routes.js";
 import { agentRoutes } from "./modules/workforce/routes/agent.routes.js";
 import { workspaceRoutes } from "./modules/workspaces/routes/workspace.routes.js";
 import { AppError } from "./shared/errors/app-error.js";
+import { createLogStream } from "./shared/logging/logger.js";
 export interface BuildAppOptions {
     config?: Environment;
     services?: ApplicationServices;
@@ -35,8 +36,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     const config = options.config ?? env;
     const connection = options.services ? undefined : createDatabase(config);
     const app = fastify({
+        // UI refreshes make several API calls; keep routine request logs quiet.
+        logController: new LogController({ disableRequestLogging: true }),
         logger: options.logger === false ? false : {
             level: config.NODE_ENV === "development" ? "info" : "warn",
+            stream: createLogStream(),
             redact: ["req.headers.authorization", "req.headers.cookie", "password", "passwordHash"],
         },
     });

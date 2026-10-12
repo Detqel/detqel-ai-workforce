@@ -7,7 +7,6 @@ import {
   apiDeleteWorkspace,
   apiUpdateWorkspace,
 } from "@/lib/api";
-import { useRouter } from "next/navigation";
 
 interface WorkspaceContextType {
   user: UserProfile | null;
@@ -35,7 +34,6 @@ const WorkspaceContext = createContext<WorkspaceContextType | undefined>(
 export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const router = useRouter();
   const [user, setUser] = useState<UserProfile | null>(null);
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
   const [currentWorkspace, setCurrentWorkspace] = useState<WorkspaceSummary | null>(null);
@@ -178,7 +176,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
     localStorage.removeItem("detqel_user");
     localStorage.removeItem("detqel_workspaces");
     localStorage.removeItem("detqel_current_workspace");
-    router.push("/");
+    setIsCreateWorkspaceModalOpen(false);
   };
 
   return (

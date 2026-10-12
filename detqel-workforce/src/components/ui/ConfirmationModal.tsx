@@ -68,7 +68,7 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
         return <Info className="w-4 h-4 text-blue-500 shrink-0" />;
       case "primary":
       default:
-        return <AlertCircle className="w-4 h-4 text-[#8a2be2] shrink-0" />;
+        return <AlertCircle className="w-4 h-4 text-[#8a2be2] dark:text-[#FFA500] shrink-0" />;
     }
   };
 
@@ -82,7 +82,7 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
         return "bg-blue-600 hover:bg-blue-700 text-white shadow-xs shadow-blue-600/20";
       case "primary":
       default:
-        return "bg-[#8a2be2] hover:bg-[#7b24ca] text-white shadow-xs shadow-[#8a2be2]/20";
+        return "bg-[#8a2be2] dark:bg-[#FFA500] hover:bg-[#7b24ca] dark:hover:bg-[#FFA500]/90 text-white dark:text-slate-950 font-bold shadow-xs shadow-[#8a2be2]/20 dark:shadow-[#FFA500]/20";
     }
   };
 
@@ -108,7 +108,7 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
             {renderHeaderIcon()}
             <h3
               id="confirmation-modal-title"
-              className="text-sm sm:text-base font-bold text-slate-900 dark:text-purple-100 tracking-tight truncate"
+              className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100 tracking-tight truncate"
             >
               {title}
             </h3>
@@ -117,7 +117,7 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
             type="button"
             onClick={onClose}
             disabled={isLoading}
-            className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-purple-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+            className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer shrink-0 disabled:opacity-50"
             aria-label="Close modal"
           >
             <X className="w-4 h-4" />
@@ -126,7 +126,7 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
 
         {/* SECTION 2: MIDDLE (Message content and optional error) */}
         <div className="px-6 py-5">
-          <p className="text-xs sm:text-sm text-slate-600 dark:text-purple-200/90 leading-relaxed font-normal">
+          <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed font-normal">
             {message}
           </p>
 
@@ -144,7 +144,7 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
             type="button"
             onClick={onClose}
             disabled={isLoading}
-            className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#161f30] text-xs font-semibold text-slate-700 dark:text-purple-200 hover:bg-slate-50 dark:hover:bg-[#1d2940] active:scale-[0.99] transition-all cursor-pointer shadow-2xs disabled:opacity-50"
+            className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#161f30] text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#1d2940] active:scale-[0.99] transition-all cursor-pointer shadow-2xs disabled:opacity-50"
           >
             {cancelText}
           </button>

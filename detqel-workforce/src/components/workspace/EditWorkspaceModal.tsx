@@ -158,21 +158,21 @@ export const EditWorkspaceModal: React.FC<EditWorkspaceModalProps> = ({
         <button
           type="button"
           onClick={onClose}
-          className="absolute top-5 right-5 p-1.5 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-purple-200 hover:bg-slate-100 dark:hover:bg-[#151f32] transition-colors cursor-pointer"
+          className="absolute top-5 right-5 p-1.5 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#151f32] transition-colors cursor-pointer"
           aria-label="Close edit modal"
         >
           <X className="w-5 h-5" />
         </button>
 
         <div className="flex items-center gap-3 mb-5">
-          <div className="w-10 h-10 rounded-xl bg-[#8a2be2]/10 border border-[#8a2be2]/20 text-[#8a2be2] dark:text-[#c084fc] flex items-center justify-center shrink-0">
+          <div className="w-10 h-10 rounded-xl bg-[#8a2be2]/10 dark:bg-[#FFA500]/15 border border-[#8a2be2]/20 dark:border-[#FFA500]/30 text-[#8a2be2] dark:text-[#FFA500] flex items-center justify-center shrink-0">
             <Building2 className="w-5 h-5" />
           </div>
           <div>
-            <h3 className="text-base font-bold text-slate-900 dark:text-purple-100 tracking-tight">
+            <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 tracking-tight">
               Edit Workspace
             </h3>
-            <p className="text-[11px] text-slate-500 dark:text-purple-300/70 mt-0.5">
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
               Update name and business domain for {workspace.name}
             </p>
           </div>
@@ -187,11 +187,11 @@ export const EditWorkspaceModal: React.FC<EditWorkspaceModalProps> = ({
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-[11px] font-bold text-slate-700 dark:text-purple-200 uppercase tracking-wider mb-1.5">
+            <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
               Workspace Name <span className="text-red-500">*</span>
             </label>
             <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400 dark:text-purple-400/60">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400 dark:text-slate-400">
                 <Building2 className="w-4 h-4" />
               </div>
               <input
@@ -200,24 +200,24 @@ export const EditWorkspaceModal: React.FC<EditWorkspaceModalProps> = ({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="e.g. Acme Global, Apex Logistics"
-                className="w-full pl-9 pr-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#151f32] text-xs font-medium text-slate-900 dark:text-purple-100 placeholder:text-slate-400 dark:placeholder:text-purple-400/50 outline-none focus:border-[#8a2be2] focus:bg-white dark:focus:bg-[#1e2a40] focus:ring-2 focus:ring-[#8a2be2]/20 transition-all"
+                className="w-full pl-9 pr-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#151f32] text-xs font-medium text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none focus:border-[#8a2be2] dark:focus:border-[#FFA500] focus:bg-white dark:focus:bg-[#1e2a40] focus:ring-2 focus:ring-[#8a2be2]/20 dark:focus:ring-[#FFA500]/20 transition-all"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-[11px] font-bold text-slate-700 dark:text-purple-200 uppercase tracking-wider mb-1.5">
+            <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
               Industry Domain
             </label>
             <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400 dark:text-purple-400/60">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400 dark:text-slate-400">
                 <Layers className="w-4 h-4" />
               </div>
               <select
                 value={industry}
                 disabled={loadingDomains}
                 onChange={(e) => setIndustry(e.target.value)}
-                className="w-full pl-9 pr-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#151f32] text-xs font-medium text-slate-900 dark:text-purple-100 outline-none focus:border-[#8a2be2] focus:bg-white dark:focus:bg-[#1e2a40] focus:ring-2 focus:ring-[#8a2be2]/20 transition-all cursor-pointer disabled:opacity-60"
+                className="w-full pl-9 pr-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#151f32] text-xs font-medium text-slate-900 dark:text-slate-100 outline-none focus:border-[#8a2be2] dark:focus:border-[#FFA500] focus:bg-white dark:focus:bg-[#1e2a40] focus:ring-2 focus:ring-[#8a2be2]/20 dark:focus:ring-[#FFA500]/20 transition-all cursor-pointer disabled:opacity-60"
               >
                 {domains.map((dom) => (
                   <option key={dom.id} value={dom.name} className="dark:bg-[#182234]">
@@ -230,7 +230,7 @@ export const EditWorkspaceModal: React.FC<EditWorkspaceModalProps> = ({
 
             {industry === "ADD_DOMAIN_CUSTOM" && (
               <div className="mt-2.5 animate-in fade-in slide-in-from-top-1 duration-200">
-                <label className="block text-[10px] font-bold text-slate-700 dark:text-purple-200 uppercase tracking-wider mb-1">
+                <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
                   Custom Domain Name <span className="text-red-500">*</span>
                 </label>
                 <input
@@ -239,22 +239,22 @@ export const EditWorkspaceModal: React.FC<EditWorkspaceModalProps> = ({
                   value={customDomain}
                   onChange={(e) => setCustomDomain(e.target.value)}
                   placeholder="Enter custom domain name..."
-                  className="w-full px-3.5 py-2 rounded-xl border border-[#8a2be2]/40 bg-purple-50/20 dark:bg-[#151f32] text-xs font-medium text-slate-900 dark:text-purple-100 placeholder:text-slate-400 dark:placeholder:text-purple-400/50 outline-none focus:border-[#8a2be2] focus:ring-2 focus:ring-[#8a2be2]/20 transition-all"
+                  className="w-full px-3.5 py-2 rounded-xl border border-[#8a2be2]/40 dark:border-[#FFA500]/40 bg-purple-50/20 dark:bg-[#151f32] text-xs font-medium text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none focus:border-[#8a2be2] dark:focus:border-[#FFA500] focus:ring-2 focus:ring-[#8a2be2]/20 dark:focus:ring-[#FFA500]/20 transition-all"
                 />
               </div>
             )}
           </div>
 
           <div>
-            <label className="block text-[11px] font-bold text-slate-700 dark:text-purple-200 uppercase tracking-wider mb-1.5">
-              Description <span className="text-slate-400 dark:text-purple-400/60 font-normal">(Optional)</span>
+            <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+              Description <span className="text-slate-400 dark:text-slate-400 font-normal">(Optional)</span>
             </label>
             <textarea
               rows={2}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Brief summary of operations..."
-              className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#151f32] text-xs text-slate-900 dark:text-purple-100 placeholder:text-slate-400 dark:placeholder:text-purple-400/50 outline-none focus:border-[#8a2be2] focus:bg-white dark:focus:bg-[#1e2a40] focus:ring-2 focus:ring-[#8a2be2]/20 transition-all resize-none"
+              className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#151f32] text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none focus:border-[#8a2be2] dark:focus:border-[#FFA500] focus:bg-white dark:focus:bg-[#1e2a40] focus:ring-2 focus:ring-[#8a2be2]/20 dark:focus:ring-[#FFA500]/20 transition-all resize-none"
             />
           </div>
 
@@ -263,14 +263,14 @@ export const EditWorkspaceModal: React.FC<EditWorkspaceModalProps> = ({
               type="button"
               onClick={onClose}
               disabled={isSubmitting}
-              className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-purple-200 hover:bg-slate-50 dark:hover:bg-[#151f32] transition-colors cursor-pointer"
+              className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#151f32] transition-colors cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="px-4 py-2 rounded-xl bg-[#8a2be2] hover:bg-[#7b24ca] active:scale-[0.99] text-white font-semibold text-xs shadow-md shadow-[#8a2be2]/25 flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-60"
+              className="px-4 py-2 rounded-xl bg-[#8a2be2] dark:bg-[#FFA500] hover:bg-[#7b24ca] dark:hover:bg-[#FFA500]/90 active:scale-[0.99] text-white dark:text-slate-950 font-bold text-xs shadow-md shadow-[#8a2be2]/25 dark:shadow-[#FFA500]/25 flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-60"
             >
               {isSubmitting ? (
                 <>

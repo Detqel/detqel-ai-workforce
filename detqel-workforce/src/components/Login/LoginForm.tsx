@@ -2,7 +2,6 @@
 
 import React, { useState } from "react";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
 import {
   Mail,
   Lock,
@@ -28,7 +27,6 @@ import {
 } from "@/lib/api";
 
 export const LoginForm: React.FC = () => {
-  const router = useRouter();
   const { setSession } = useWorkspace();
   const [activeTab, setActiveTab] = useState<"signin" | "signup">("signin");
   const [showSignInPassword, setShowSignInPassword] = useState(false);
@@ -141,18 +139,12 @@ export const LoginForm: React.FC = () => {
               matchedWorkspace?.name || response.workspaces[0].name
             }...`
           );
-          setTimeout(() => {
-            setIsSubmitting(false);
-            router.push("/dashboard");
-          }, 600);
+          setIsSubmitting(false);
         } else {
           // First time user with no workspace -> Redirect to dashboard (full setup modal covers page there)
           setSession(response.user, []);
           setAuthSuccess("Authentication successful! Welcome to DETQEL.");
-          setTimeout(() => {
-            setIsSubmitting(false);
-            router.push("/dashboard");
-          }, 600);
+          setIsSubmitting(false);
         }
       } catch (err: unknown) {
         // Fallback demo credentials if API backend is not reached
@@ -179,10 +171,7 @@ export const LoginForm: React.FC = () => {
           };
           setSession(fallbackUser, [fallbackWorkspace]);
           setAuthSuccess("Welcome back, DETQEL Admin!");
-          setTimeout(() => {
-            setIsSubmitting(false);
-            router.push("/dashboard");
-          }, 600);
+          setIsSubmitting(false);
           return;
         }
 
@@ -238,18 +227,12 @@ export const LoginForm: React.FC = () => {
           setAuthSuccess(
             `Welcome back, ${response.user.name}! Connecting to your workspace (${response.workspaces[0].name})...`
           );
-          setTimeout(() => {
-            setIsSubmitting(false);
-            router.push("/dashboard");
-          }, 600);
+          setIsSubmitting(false);
         } else {
           // First-time user with 0 workspaces -> Redirect to dashboard (full setup modal covers page there)
           setSession(response.user, []);
           setAuthSuccess("Account created! Welcome to DETQEL.");
-          setTimeout(() => {
-            setIsSubmitting(false);
-            router.push("/dashboard");
-          }, 600);
+          setIsSubmitting(false);
         }
       } catch (err: unknown) {
         setIsSubmitting(false);

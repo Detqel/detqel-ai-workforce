@@ -55,7 +55,7 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className="min-h-full flex flex-col antialiased selection:bg-[#8a2be2] selection:text-white bg-white dark:bg-[#0f172a] text-slate-900 dark:text-purple-100 transition-colors duration-200">
+      <body className="min-h-full flex flex-col antialiased selection:bg-[#8a2be2] dark:selection:bg-[#FFA500] selection:text-white dark:selection:text-slate-950 bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 transition-colors duration-200">
         <ThemeProvider>
           <WorkspaceProvider>
             {children}

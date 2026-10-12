@@ -58,7 +58,7 @@ export default function DashboardOverviewPage() {
   const displayDates = heatmapData?.milestoneDates || defaultDates;
 
   return (
-    <div className="w-full px-6 sm:px-8 xl:px-10 py-6 sm:py-8 space-y-6 select-none bg-slate-50/60 dark:bg-[#0e1422] text-slate-900 dark:text-purple-100 transition-colors">
+    <div className="w-full px-6 sm:px-8 xl:px-10 py-6 sm:py-8 space-y-6 select-none bg-slate-50/60 dark:bg-[#0e1422] text-slate-900 dark:text-slate-100 transition-colors">
       <DashboardHeroBanner userName={userName} />
 
       <CapabilitiesGrid />

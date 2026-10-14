@@ -350,3 +350,227 @@ export async function apiMarkAllNotificationsRead(params: {
   }
 }
 
+export interface AIProviderModel {
+  id: string;
+  name: string;
+  description: string;
+  isDefault?: boolean;
+}
+
+export interface AIProvider {
+  id: string;
+  name: string;
+  iconKey: string;
+  description?: string | null;
+  badge?: string | null;
+  models: AIProviderModel[];
+  apiKey?: string | null;
+  status: string;
+  isConnected: boolean;
+  sortOrder: number;
+}
+
+export interface VyraInstructions {
+  core: string;
+  behaviour: string;
+  knowledge: string;
+  boundaries: string;
+  responseStyle: string;
+}
+
+export interface VyraTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  instructions: VyraInstructions;
+}
+
+export interface SamplePrompt {
+  id: string;
+  title: string;
+  prompt: string;
+}
+
+export interface AgentTrait {
+  title: string;
+  description: string;
+  icon: string;
+}
+
+export interface VyraSettings {
+  id: string;
+  workspaceId?: string | null;
+  agentName: string;
+  slogan: string;
+  quote: string;
+  selectedProviderId: string;
+  selectedModelId: string;
+  apiKey?: string | null;
+  keyStatus: string;
+  isValidKey: boolean;
+  instructions: VyraInstructions;
+  templates: VyraTemplate[];
+  samplePrompts: SamplePrompt[];
+  traits: AgentTrait[];
+  previewMode: string;
+}
+
+export async function apiGetAIProviders(): Promise<AIProvider[]> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/settings/providers`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.providers || [];
+  } catch {
+    return [];
+  }
+}
+
+export async function apiGetProviderModels(
+  providerId: string,
+  apiKey?: string
+): Promise<AIProviderModel[]> {
+  if (!providerId) return [];
+  try {
+    const query = apiKey ? `?apiKey=${encodeURIComponent(apiKey)}` : "";
+    const res = await fetch(
+      `${API_BASE_URL}/api/settings/providers/${encodeURIComponent(providerId)}/models${query}`
+    );
+    if (!res.ok) {
+      // Fallback to /api/v1/models?provider=...
+      const fallbackRes = await fetch(
+        `${API_BASE_URL}/api/v1/models?provider=${encodeURIComponent(providerId)}${apiKey ? `&apiKey=${encodeURIComponent(apiKey)}` : ""}`
+      );
+      if (fallbackRes.ok) {
+        const fallbackData = await fallbackRes.json();
+        return fallbackData.models || [];
+      }
+      return [];
+    }
+    const data = await res.json();
+    return data.models || [];
+  } catch {
+    return [];
+  }
+}
+
+export async function apiUpdateAIProvider(
+  id: string,
+  updates: Partial<AIProvider>
+): Promise<AIProvider | null> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/settings/providers/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.provider || null;
+  } catch {
+    return null;
+  }
+}
+
+export async function apiTestConnection(params: {
+  providerId: string;
+  apiKey?: string;
+  modelId?: string;
+}): Promise<{
+  success: boolean;
+  status: string;
+  message: string;
+  latencyMs: number;
+}> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/settings/test-connection`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    if (!res.ok) {
+      return {
+        success: false,
+        status: "error",
+        message: "Network error during connection test",
+        latencyMs: 0,
+      };
+    }
+    return res.json();
+  } catch {
+    return {
+      success: false,
+      status: "error",
+      message: "Connection test request failed",
+      latencyMs: 0,
+    };
+  }
+}
+
+export async function apiGetVyraSettings(workspaceId?: string): Promise<VyraSettings | null> {
+  try {
+    const query = workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : "";
+    const res = await fetch(`${API_BASE_URL}/api/settings/vyra${query}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.settings || null;
+  } catch {
+    return null;
+  }
+}
+
+export async function apiUpdateVyraSettings(
+  workspaceId: string | undefined,
+  updates: Partial<VyraSettings>
+): Promise<VyraSettings | null> {
+  try {
+    const query = workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : "";
+    const res = await fetch(`${API_BASE_URL}/api/settings/vyra${query}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.settings || null;
+  } catch {
+    return null;
+  }
+}
+
+export async function apiTestVyraPrompt(params: {
+  prompt: string;
+  providerId?: string;
+  modelId?: string;
+  mode?: "chat" | "structured";
+  systemPrompt?: string;
+}): Promise<{
+  success: boolean;
+  output: string;
+  structuredOutput?: Record<string, unknown>;
+  tokensUsed: number;
+  latencyMs: number;
+  timestamp: string;
+}> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/settings/vyra/test-prompt`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    if (!res.ok) {
+      throw new Error("Failed to test prompt");
+    }
+    return res.json();
+  } catch (error: any) {
+    return {
+      success: false,
+      output: `Error testing prompt: ${error?.message || "Failed to connect to agent"}`,
+      tokensUsed: 0,
+      latencyMs: 0,
+      timestamp: new Date().toISOString(),
+    };
+  }
+}
+
+

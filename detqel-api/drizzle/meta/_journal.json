@@ -29,6 +29,13 @@
       "when": 1791470068407,
       "tag": "0003_enterprise_database_lifecycle",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791800000000,
+      "tag": "0004_settings_vyra",
+      "breakpoints": true
     }
   ]
 }

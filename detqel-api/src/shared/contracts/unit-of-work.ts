@@ -9,6 +9,7 @@ import type { INotificationRepository } from "../../modules/notifications/reposi
 import type { IUserRepository } from "../../modules/users/repositories/user.repository.js";
 import type { IWorkforceRepository } from "../../modules/workforce/repositories/workforce.repository.js";
 import type { IWorkspaceRepository } from "../../modules/workspaces/repositories/workspace.repository.js";
+import type { ISettingsRepository } from "../../modules/settings/repositories/settings.repository.js";
 export interface IRepositorySet {
     readonly users: IUserRepository;
     readonly workspaces: IWorkspaceRepository;
@@ -21,6 +22,7 @@ export interface IRepositorySet {
     readonly activities: IActivityRepository;
     readonly notifications: INotificationRepository;
     readonly domains: IDomainRepository;
+    readonly settings: ISettingsRepository;
 }
 export interface IUnitOfWork extends IRepositorySet {
     transaction<T>(operation: (repositories: IUnitOfWork) => Promise<T>): Promise<T>;

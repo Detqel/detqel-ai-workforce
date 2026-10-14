@@ -23,6 +23,7 @@ import { notificationRoutes } from "./modules/notifications/routes/notification.
 import { userRoutes } from "./modules/users/routes/user.routes.js";
 import { agentRoutes } from "./modules/workforce/routes/agent.routes.js";
 import { workspaceRoutes } from "./modules/workspaces/routes/workspace.routes.js";
+import { settingsRoutes } from "./modules/settings/routes/settings.routes.js";
 import { AppError } from "./shared/errors/app-error.js";
 import { createLogStream } from "./shared/logging/logger.js";
 export interface BuildAppOptions {
@@ -152,6 +153,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
             await apiRouter.register(automationRoutes);
             await apiRouter.register(notificationRoutes);
             await apiRouter.register(domainRoutes);
+            await apiRouter.register(settingsRoutes);
         }, { prefix: "/api" });
         return app;
     }

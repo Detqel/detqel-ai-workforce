@@ -12,6 +12,7 @@ import { NotificationService } from "../modules/notifications/services/notificat
 import { UserService } from "../modules/users/services/user.service.js";
 import { WorkforceService } from "../modules/workforce/services/agent.service.js";
 import { WorkspaceService } from "../modules/workspaces/services/workspace.service.js";
+import { SettingsService } from "../modules/settings/services/settings.service.js";
 import type { IUnitOfWork } from "../shared/contracts/unit-of-work.js";
 export function createServices(unit: IUnitOfWork, checkDatabase: () => Promise<void>) {
     return {
@@ -29,6 +30,7 @@ export function createServices(unit: IUnitOfWork, checkDatabase: () => Promise<v
         automations: new AutomationService(unit.automations),
         notifications: new NotificationService(unit.notifications),
         health: new HealthService(checkDatabase),
+        settings: new SettingsService(unit.settings),
     };
 }
 export type ApplicationServices = ReturnType<typeof createServices>;

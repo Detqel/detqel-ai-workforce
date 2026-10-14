@@ -1,9 +1,10 @@
-import type { ISettingsRepository } from "../repositories/settings.repository.js";
 import type {
+  ISettingsRepository,
   AIProvider,
   AIProviderModel,
   VyraSettings,
-} from "../../../infrastructure/database/schema/settings.js";
+} from "../repositories/settings.repository.js";
+import { env } from "../../../config/env.js";
 
 export class SettingsService {
   constructor(private readonly repository: ISettingsRepository) {}
@@ -22,7 +23,7 @@ export class SettingsService {
 
   async getProviderModels(providerId: string, apiKey?: string): Promise<AIProviderModel[]> {
     const provider = await this.repository.getProviderById(providerId);
-    const keyToUse = apiKey || provider?.apiKey || undefined;
+    const keyToUse = apiKey?.trim() ? apiKey.trim() : provider?.apiKey?.trim();
 
     if (keyToUse) {
       const liveModels = await this.fetchLiveModelsFromProvider(providerId, keyToUse);
@@ -32,6 +33,7 @@ export class SettingsService {
         }
         return liveModels;
       }
+      return [];
     }
 
     if (provider?.models && provider.models.length > 0) {
@@ -45,13 +47,13 @@ export class SettingsService {
     providerId: string,
     apiKey: string
   ): Promise<AIProviderModel[] | null> {
-    const pId = providerId.toLowerCase();
+    const pId = providerId.toLowerCase().trim();
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000);
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
 
     try {
       if (pId === "openai") {
-        const res = await fetch("https://api.openai.com/v1/models", {
+        const res = await fetch(env.OPENAI_MODELS_URL, {
           headers: { Authorization: `Bearer ${apiKey}` },
           signal: controller.signal,
         });
@@ -59,49 +61,17 @@ export class SettingsService {
         const data = (await res.json()) as { data?: Array<{ id: string }> };
         if (!data.data || !Array.isArray(data.data)) return null;
 
-        const chatModels = data.data
-          .filter((m) =>
-            /^(gpt-4|gpt-3\.5|o1|o3|chatgpt)/i.test(m.id) &&
-            !/audio|realtime|transcription|tts|embedding|moderation|dall-e|instruct/i.test(m.id)
-          )
-          .sort((a, b) => a.id.localeCompare(b.id))
+        return data.data
           .map((m) => ({
             id: m.id,
             name: m.id,
-            description: m.id.includes("mini")
-              ? "Fast, cost-efficient operational model"
-              : m.id.startsWith("o")
-              ? "Deep deliberate reasoning model"
-              : "High intelligence multimodal foundation model",
-            isDefault: m.id === "gpt-4o",
-          }));
-
-        return chatModels.length > 0 ? chatModels : null;
+            description: "",
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name));
       }
 
       if (pId === "groq") {
-        const res = await fetch("https://api.groq.com/openai/v1/models", {
-          headers: { Authorization: `Bearer ${apiKey}` },
-          signal: controller.signal,
-        });
-        if (!res.ok) return null;
-        const data = (await res.json()) as { data?: Array<{ id: string; active?: boolean }> };
-        if (!data.data || !Array.isArray(data.data)) return null;
-
-        const groqModels = data.data
-          .filter((m) => m.active !== false && !/whisper|guard/i.test(m.id))
-          .map((m) => ({
-            id: m.id,
-            name: m.id,
-            description: "LPU-accelerated sub-second inference model",
-            isDefault: m.id.includes("llama-3.3-70b"),
-          }));
-
-        return groqModels.length > 0 ? groqModels : null;
-      }
-
-      if (pId === "deepseek") {
-        const res = await fetch("https://api.deepseek.com/models", {
+        const res = await fetch(env.GROQ_MODELS_URL, {
           headers: { Authorization: `Bearer ${apiKey}` },
           signal: controller.signal,
         });
@@ -109,18 +79,35 @@ export class SettingsService {
         const data = (await res.json()) as { data?: Array<{ id: string }> };
         if (!data.data || !Array.isArray(data.data)) return null;
 
-        return data.data.map((m) => ({
-          id: m.id,
-          name: m.id,
-          description: m.id.includes("reasoner")
-            ? "Deep reasoning model with transparent chain-of-thought"
-            : "High efficiency general intelligence conversational model",
-          isDefault: m.id === "deepseek-reasoner",
-        }));
+        return data.data
+          .map((m) => ({
+            id: m.id,
+            name: m.id,
+            description: "",
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+      }
+
+      if (pId === "deepseek") {
+        const res = await fetch(env.DEEPSEEK_MODELS_URL, {
+          headers: { Authorization: `Bearer ${apiKey}` },
+          signal: controller.signal,
+        });
+        if (!res.ok) return null;
+        const data = (await res.json()) as { data?: Array<{ id: string }> };
+        if (!data.data || !Array.isArray(data.data)) return null;
+
+        return data.data
+          .map((m) => ({
+            id: m.id,
+            name: m.id,
+            description: "",
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name));
       }
 
       if (pId === "anthropic") {
-        const res = await fetch("https://api.anthropic.com/v1/models", {
+        const res = await fetch(env.ANTHROPIC_MODELS_URL, {
           headers: {
             "x-api-key": apiKey,
             "anthropic-version": "2023-06-01",
@@ -131,38 +118,58 @@ export class SettingsService {
         const data = (await res.json()) as { data?: Array<{ id: string; display_name?: string }> };
         if (!data.data || !Array.isArray(data.data)) return null;
 
-        return data.data.map((m) => ({
-          id: m.id,
-          name: m.display_name || m.id,
-          description: "Safety-aligned Claude intelligence model",
-          isDefault: m.id.includes("3-7-sonnet"),
-        }));
+        return data.data
+          .map((m) => ({
+            id: m.id,
+            name: m.display_name && m.display_name.trim() !== "" ? m.display_name : m.id,
+            description: "",
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name));
       }
 
       if (pId === "google") {
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
-          { signal: controller.signal }
-        );
+        const googleUrl = env.GOOGLE_MODELS_URL.includes("?")
+          ? `${env.GOOGLE_MODELS_URL}&key=${encodeURIComponent(apiKey)}`
+          : `${env.GOOGLE_MODELS_URL}?key=${encodeURIComponent(apiKey)}`;
+        const res = await fetch(googleUrl, { signal: controller.signal });
         if (!res.ok) return null;
         const data = (await res.json()) as {
           models?: Array<{ name: string; displayName?: string; description?: string }>;
         };
         if (!data.models || !Array.isArray(data.models)) return null;
 
-        const geminiModels = data.models
-          .filter((m) => /gemini/i.test(m.name))
+        return data.models
           .map((m) => {
             const cleanId = m.name.replace(/^models\//, "");
             return {
               id: cleanId,
-              name: m.displayName || cleanId,
-              description: m.description || "Gemini multimodal foundation model",
-              isDefault: cleanId.includes("2.0-flash"),
+              name: m.displayName && m.displayName.trim() !== "" ? m.displayName : cleanId,
+              description: m.description ? m.description : "",
             };
-          });
+          })
+          .sort((a, b) => a.name.localeCompare(b.name));
+      }
 
-        return geminiModels.length > 0 ? geminiModels : null;
+      const genericUrl = apiKey.startsWith("http")
+        ? `${apiKey.replace(/\/$/, "")}/v1/models`
+        : `https://api.${pId}.com/v1/models`;
+
+      const genericRes = await fetch(genericUrl, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: controller.signal,
+      }).catch(() => null);
+
+      if (genericRes && genericRes.ok) {
+        const genericData = (await genericRes.json()) as { data?: Array<{ id: string }> };
+        if (genericData.data && Array.isArray(genericData.data)) {
+          return genericData.data
+            .map((m) => ({
+              id: m.id,
+              name: m.id,
+              description: "",
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name));
+        }
       }
 
       return null;
@@ -182,18 +189,30 @@ export class SettingsService {
     modelId?: string;
   }> {
     const provider = await this.repository.getProviderById(providerId);
-    const keyToTest = apiKey || provider?.apiKey;
-    
-    // Simulate connection test
-    const latencyMs = Math.floor(Math.random() * 80) + 110; // 110ms - 190ms
-    const isValid = Boolean(keyToTest && keyToTest.length >= 6);
+    const keyToTest = apiKey?.trim() ? apiKey.trim() : provider?.apiKey?.trim();
 
-    if (isValid) {
+    if (!keyToTest) {
+      return {
+        success: false,
+        status: "error",
+        message: "API key is required to test connection.",
+        latencyMs: 0,
+        providerId,
+        modelId,
+      };
+    }
+
+    const start = Date.now();
+    const liveModels = await this.fetchLiveModelsFromProvider(providerId, keyToTest);
+    const latencyMs = Date.now() - start;
+
+    if (liveModels && liveModels.length > 0) {
       if (provider) {
         await this.repository.updateProvider(providerId, {
           status: "connected",
           isConnected: true,
           apiKey: keyToTest,
+          models: liveModels,
         });
       }
       return {
@@ -202,14 +221,14 @@ export class SettingsService {
         message: "Valid key · Connected successfully",
         latencyMs,
         providerId,
-        modelId: modelId || provider?.models[0]?.id,
+        modelId: modelId ? modelId : liveModels[0]?.id,
       };
     }
 
     return {
       success: false,
       status: "error",
-      message: "Authentication failed. Please verify your API key.",
+      message: "Authentication failed. Could not fetch models from provider.",
       latencyMs,
       providerId,
       modelId,
@@ -256,6 +275,7 @@ export class SettingsService {
     prompt: string;
     providerId?: string;
     modelId?: string;
+    apiKey?: string;
     mode?: "chat" | "structured";
     systemPrompt?: string;
   }): Promise<{
@@ -266,63 +286,199 @@ export class SettingsService {
     latencyMs: number;
     timestamp: string;
   }> {
-    const mode = params.mode || "chat";
     const prompt = params.prompt.trim();
-    const latencyMs = Math.floor(Math.random() * 120) + 180;
+    const mode = params.mode || "chat";
+    const startTime = Date.now();
 
-    if (mode === "structured") {
-      const structuredData = {
-        agent: "VYRA",
-        status: "success",
-        intent: prompt.includes("SQL") ? "database_query" : prompt.includes("Summarize") ? "text_summarization" : "general_intelligence",
-        analysis: `Generated structured response for: "${prompt}"`,
-        confidenceScore: 0.98,
-        recommendedAction: "Execute via Detqel Workforce Engine",
-        parameters: {
-          runtime: "autonomous",
-          verificationRequired: false,
-          executionPriority: "high",
-        },
-      };
+    // Resolve provider, API key, and model
+    const provider = params.providerId
+      ? await this.repository.getProviderById(params.providerId)
+      : null;
+    const keyToUse = params.apiKey?.trim() || provider?.apiKey?.trim();
+    const modelToUse = params.modelId?.trim() || provider?.models?.[0]?.id;
+    const pId = (params.providerId || provider?.id || "").toLowerCase().trim();
 
+    if (!pId || !keyToUse || !modelToUse) {
       return {
-        success: true,
-        output: JSON.stringify(structuredData, null, 2),
-        structuredOutput: structuredData,
-        tokensUsed: 142,
-        latencyMs,
+        success: false,
+        output: "Please select an AI provider, enter a valid API key, and choose a model to test real-time agent execution.",
+        tokensUsed: 0,
+        latencyMs: 0,
         timestamp: new Date().toISOString(),
       };
     }
 
-    // Chat mode response
-    let simulatedResponse = `Hello! I am VYRA. Regarding your request "${prompt}":\n\n`;
-    if (prompt.toLowerCase().includes("sql")) {
-      simulatedResponse += `\`\`\`sql
-SELECT 
-  DATE_TRUNC('week', u.created_at) AS cohort_week,
-  COUNT(DISTINCT u.id) AS total_users,
-  COUNT(DISTINCT w.id) AS active_workspaces,
-  ROUND(COUNT(DISTINCT CASE WHEN a.created_at >= u.created_at + INTERVAL '30 days' THEN u.id END)::numeric / NULLIF(COUNT(DISTINCT u.id), 0) * 100, 2) AS retention_30d_pct
-FROM users u
-LEFT JOIN user_workspaces uw ON u.id = uw.user_id
-LEFT JOIN workspaces w ON uw.workspace_id = w.id
-LEFT JOIN user_activities a ON u.id = a.user_id
-GROUP BY cohort_week
-ORDER BY cohort_week DESC;
-\`\`\`\n\nOptimized with proper index lookups and defensive null handling.`;
-    } else if (prompt.toLowerCase().includes("summarize")) {
-      simulatedResponse += `Here is the executive synthesis:\n\n1. **Core Growth Velocity**: Operational throughput increased by 28% across deployed connectors.\n2. **Identified Bottlenecks**: Inventory replenishment cycles show a 4-hour latency variance.\n3. **Recommended Action**: Automate proactive supplier webhooks using our autonomous workflow engine.`;
-    } else {
-      simulatedResponse += `I have parsed your instructions against the Business Brain guidelines. I can formulate the necessary plan, verify prerequisites, and execute the workflow with continuous observability. Let me know if you would like me to proceed.`;
-    }
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 35000);
 
-    return {
-      success: true,
-      output: simulatedResponse,
-      tokensUsed: 186,
-      latencyMs,
-      timestamp: new Date().toISOString(),
-    };
+    try {
+      let textOutput = "";
+      let tokensUsed = 0;
+
+      if (pId === "openai" || pId === "groq" || pId === "deepseek" || pId === "custom") {
+        const endpointUrl =
+          pId === "openai"
+            ? env.OPENAI_CHAT_URL
+            : pId === "groq"
+            ? env.GROQ_CHAT_URL
+            : pId === "deepseek"
+            ? env.DEEPSEEK_CHAT_URL
+            : keyToUse.startsWith("http")
+            ? `${keyToUse.replace(/\/$/, "")}/v1/chat/completions`
+            : "http://localhost:11434/v1/chat/completions";
+
+        const messages: Array<{ role: string; content: string }> = [];
+        if (params.systemPrompt?.trim()) {
+          messages.push({ role: "system", content: params.systemPrompt.trim() });
+        }
+        messages.push({
+          role: "user",
+          content:
+            mode === "structured"
+              ? `${prompt}\n\nPlease respond strictly with a valid JSON object.`
+              : prompt,
+        });
+
+        const res = await fetch(endpointUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${keyToUse}`,
+          },
+          body: JSON.stringify({
+            model: modelToUse,
+            messages,
+            ...(mode === "structured" ? { response_format: { type: "json_object" } } : {}),
+          }),
+          signal: controller.signal,
+        });
+
+        if (!res.ok) {
+          const errText = await res.text().catch(() => "");
+          throw new Error(`Provider returned HTTP ${res.status}: ${errText.slice(0, 250)}`);
+        }
+
+        const data = (await res.json()) as {
+          choices?: Array<{ message?: { content?: string } }>;
+          usage?: { total_tokens?: number };
+        };
+
+        textOutput = data.choices?.[0]?.message?.content || "";
+        tokensUsed = data.usage?.total_tokens || 0;
+      } else if (pId === "anthropic") {
+        const res = await fetch(env.ANTHROPIC_MESSAGES_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": keyToUse,
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify({
+            model: modelToUse,
+            max_tokens: 2048,
+            ...(params.systemPrompt?.trim() ? { system: params.systemPrompt.trim() } : {}),
+            messages: [
+              {
+                role: "user",
+                content:
+                  mode === "structured"
+                    ? `${prompt}\n\nPlease respond strictly with a valid JSON object.`
+                    : prompt,
+              },
+            ],
+          }),
+          signal: controller.signal,
+        });
+
+        if (!res.ok) {
+          const errText = await res.text().catch(() => "");
+          throw new Error(`Anthropic returned HTTP ${res.status}: ${errText.slice(0, 250)}`);
+        }
+
+        const data = (await res.json()) as {
+          content?: Array<{ text?: string }>;
+          usage?: { input_tokens?: number; output_tokens?: number };
+        };
+
+        textOutput = data.content?.[0]?.text || "";
+        tokensUsed = (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0);
+      } else if (pId === "google") {
+        const googleUrl = `${env.GOOGLE_GENERATE_URL}/${encodeURIComponent(modelToUse)}:generateContent?key=${encodeURIComponent(keyToUse)}`;
+        const res = await fetch(googleUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...(params.systemPrompt?.trim()
+              ? {
+                  system_instruction: {
+                    parts: [{ text: params.systemPrompt.trim() }],
+                  },
+                }
+              : {}),
+            contents: [
+              {
+                role: "user",
+                parts: [
+                  {
+                    text:
+                      mode === "structured"
+                        ? `${prompt}\n\nPlease respond strictly with a valid JSON object.`
+                        : prompt,
+                  },
+                ],
+              },
+            ],
+          }),
+          signal: controller.signal,
+        });
+
+        if (!res.ok) {
+          const errText = await res.text().catch(() => "");
+          throw new Error(`Google returned HTTP ${res.status}: ${errText.slice(0, 250)}`);
+        }
+
+        const data = (await res.json()) as {
+          candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+          usageMetadata?: { totalTokenCount?: number };
+        };
+
+        textOutput = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        tokensUsed = data.usageMetadata?.totalTokenCount || 0;
+      } else {
+        throw new Error(`Provider "${pId}" is not currently supported for real-time inference.`);
+      }
+
+      let structuredOutput: Record<string, unknown> | undefined = undefined;
+      if (mode === "structured" && textOutput) {
+        try {
+          const jsonMatch = textOutput.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+          const rawJson = jsonMatch ? jsonMatch[1] : textOutput;
+          structuredOutput = JSON.parse(rawJson);
+        } catch {
+          structuredOutput = { raw: textOutput };
+        }
+      }
+
+      const latencyMs = Date.now() - startTime;
+      return {
+        success: true,
+        output: textOutput,
+        structuredOutput,
+        tokensUsed,
+        latencyMs,
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error: any) {
+      const latencyMs = Date.now() - startTime;
+      return {
+        success: false,
+        output: `Error executing prompt: ${error?.message || "Unknown error"}`,
+        tokensUsed: 0,
+        latencyMs,
+        timestamp: new Date().toISOString(),
+      };
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 }

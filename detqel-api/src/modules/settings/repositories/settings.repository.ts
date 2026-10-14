@@ -1,4 +1,6 @@
-import type { AIProvider, NewAIProvider, VyraSettings, NewVyraSettings } from "../../../infrastructure/database/schema/settings.js";
+import type { AIProvider, NewAIProvider, VyraSettings, NewVyraSettings, AIProviderModel } from "../../../infrastructure/database/schema/settings.js";
+
+export type { AIProvider, NewAIProvider, VyraSettings, NewVyraSettings, AIProviderModel };
 
 export interface ISettingsRepository {
   listProviders(): Promise<AIProvider[]>;

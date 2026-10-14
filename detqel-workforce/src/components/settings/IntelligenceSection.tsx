@@ -13,6 +13,8 @@ interface IntelligenceSectionProps {
   onSelectModel: (modelId: string) => void;
   apiKey: string;
   onApiKeyChange: (key: string) => void;
+  onApiKeyBlur?: () => void;
+  onOpenModelSelection?: () => void;
   keyStatus?: string;
   isValidKey?: boolean;
   onTestConnection: () => Promise<void>;
@@ -29,6 +31,8 @@ export const IntelligenceSection: React.FC<IntelligenceSectionProps> = ({
   onSelectModel,
   apiKey,
   onApiKeyChange,
+  onApiKeyBlur,
+  onOpenModelSelection,
   keyStatus = "Valid key · Connected successfully",
   isValidKey = true,
   onTestConnection,
@@ -134,90 +138,9 @@ export const IntelligenceSection: React.FC<IntelligenceSectionProps> = ({
         </div>
       )}
 
-      {/* Row: Model selector (left) & API Key (right) */}
+      {/* Row: API Key (stands first / left) & Model selector (second / right) */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 pt-2 border-t border-slate-100 dark:border-[#182236]">
-        {/* Left Column: Model Dropdown */}
-        <div className="flex flex-col space-y-1.5 relative z-30">
-          <label className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-            Model
-          </label>
-
-          <div className="relative z-30">
-            <button
-              type="button"
-              disabled={isLoadingModels || !selectedProviderId || availableModels.length === 0}
-              onClick={() => {
-                if (availableModels.length > 0) {
-                  setModelDropdownOpen((prev) => !prev);
-                }
-              }}
-              className="w-full h-11 px-3.5 rounded-xl bg-slate-50 dark:bg-[#101729] border border-slate-200 dark:border-[#202c46] hover:border-[#8a2be2]/40 dark:hover:border-[#8a2be2]/60 flex items-center justify-between text-xs font-medium text-slate-900 dark:text-slate-100 transition-colors cursor-pointer select-none disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              <div className="flex items-center gap-2.5 truncate">
-                {selectedProvider && renderProviderIcon(selectedProvider.iconKey, "w-4.5 h-4.5 text-[#8a2be2] shrink-0")}
-                <span className={`truncate ${currentModel ? "font-semibold text-slate-900 dark:text-white" : "text-slate-400 dark:text-slate-500 font-normal"}`}>
-                  {isLoadingModels
-                    ? "Fetching models from provider..."
-                    : currentModel?.name || (selectedProvider ? "Select model" : "Select a provider first")}
-                </span>
-              </div>
-              {isLoadingModels ? (
-                <Loader2 className="w-4 h-4 text-[#8a2be2] animate-spin shrink-0" />
-              ) : (
-                <ChevronDown
-                  className={`w-4 h-4 text-slate-400 dark:text-slate-500 transition-transform duration-200 ${
-                    modelDropdownOpen ? "rotate-180" : ""
-                  }`}
-                />
-              )}
-            </button>
-
-            {/* Model Dropdown Menu */}
-            {modelDropdownOpen && availableModels.length > 0 && (
-              <>
-                <div
-                  className="fixed inset-0 z-40"
-                  onClick={() => setModelDropdownOpen(false)}
-                />
-                <div className="absolute top-full left-0 right-0 mt-1.5 p-1.5 rounded-2xl bg-white dark:bg-[#11182c] border border-slate-200 dark:border-[#22304c] shadow-xl z-50 animate-in fade-in slide-in-from-top-1 duration-150 max-h-56 overflow-y-auto">
-                  {availableModels.map((m) => {
-                    const isModelActive = m.id === selectedModelId;
-                    return (
-                      <button
-                        key={m.id}
-                        type="button"
-                        onClick={() => {
-                          onSelectModel(m.id);
-                          setModelDropdownOpen(false);
-                        }}
-                        className={`w-full text-left px-3 py-2 rounded-xl transition-colors cursor-pointer flex flex-col ${
-                          isModelActive
-                            ? "bg-purple-50 dark:bg-[#8a2be2]/15 text-[#8a2be2] dark:text-[#c084fc]"
-                            : "hover:bg-slate-50 dark:hover:bg-[#172238] text-slate-800 dark:text-slate-200"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold">{m.name}</span>
-                          {isModelActive && <Check className="w-3.5 h-3.5" />}
-                        </div>
-                        <span className="text-[10.5px] text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-1">
-                          {m.description}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Model Description text */}
-          <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight pt-0.5 min-h-[16px]">
-            {currentModel?.description || ""}
-          </p>
-        </div>
-
-        {/* Right Column: API Key */}
+        {/* First Field: API Key */}
         <div className="flex flex-col space-y-1.5">
           <label className="text-xs font-semibold text-slate-800 dark:text-slate-200">
             API Key
@@ -228,8 +151,9 @@ export const IntelligenceSection: React.FC<IntelligenceSectionProps> = ({
               type={showKey ? "text" : "password"}
               value={apiKey}
               onChange={(e) => onApiKeyChange(e.target.value)}
+              onBlur={() => onApiKeyBlur?.()}
               placeholder="Enter API key..."
-              className="w-full h-11 pl-3.5 pr-10 rounded-xl bg-slate-50 dark:bg-[#101729] border border-slate-200 dark:border-[#202c46] focus:border-[#8a2be2] focus:ring-1 focus:ring-[#8a2be2] text-xs font-mono text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 transition-colors outline-hidden"
+              className="w-full h-11 pl-3.5 pr-10 rounded-xl bg-slate-50 dark:bg-[#101729] border border-slate-200 dark:border-[#202c46] focus:border-[#8a2be2] focus:ring-1 focus:ring-[#8a2be2] text-xs font-mono text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 transition-colors outline-hidden cursor-text"
             />
             <button
               type="button"
@@ -269,7 +193,109 @@ export const IntelligenceSection: React.FC<IntelligenceSectionProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Second Field: Model Dropdown */}
+        <div className="flex flex-col space-y-1.5 relative z-30">
+          <label className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+            Model
+          </label>
+
+          <div className="relative z-30">
+            <button
+              type="button"
+              disabled={isLoadingModels || !selectedProviderId}
+              onFocus={() => onOpenModelSelection?.()}
+              onClick={() => {
+                onOpenModelSelection?.();
+                setModelDropdownOpen((prev) => !prev);
+              }}
+              className="w-full h-11 px-3.5 rounded-xl bg-slate-50 dark:bg-[#101729] border border-slate-200 dark:border-[#202c46] hover:border-[#8a2be2]/40 dark:hover:border-[#8a2be2]/60 flex items-center justify-between text-xs font-medium text-slate-900 dark:text-slate-100 transition-colors cursor-pointer select-none disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              <div className="flex items-center gap-2.5 truncate">
+                {selectedProvider && renderProviderIcon(selectedProvider.iconKey, "w-4.5 h-4.5 text-[#8a2be2] shrink-0")}
+                <span className={`truncate ${currentModel ? "font-semibold text-slate-900 dark:text-white" : "text-slate-400 dark:text-slate-500 font-normal"}`}>
+                  {isLoadingModels
+                    ? "Fetching models from provider..."
+                    : currentModel
+                    ? currentModel.name
+                    : !apiKey?.trim()
+                    ? "Enter API key to load models"
+                    : availableModels.length === 0
+                    ? "No models found from provider"
+                    : `Select model (${availableModels.length} available)`}
+                </span>
+              </div>
+              {isLoadingModels ? (
+                <Loader2 className="w-4 h-4 text-[#8a2be2] animate-spin shrink-0" />
+              ) : (
+                <ChevronDown
+                  className={`w-4 h-4 text-slate-400 dark:text-slate-500 transition-transform duration-200 ${
+                    modelDropdownOpen ? "rotate-180" : ""
+                  }`}
+                />
+              )}
+            </button>
+
+            {/* Model Dropdown Menu */}
+            {modelDropdownOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setModelDropdownOpen(false)}
+                />
+                <div className="absolute top-full left-0 right-0 mt-1.5 p-1.5 rounded-2xl bg-white dark:bg-[#11182c] border border-slate-200 dark:border-[#22304c] shadow-xl z-50 animate-in fade-in slide-in-from-top-1 duration-150 max-h-60 overflow-y-auto">
+                  {availableModels.length === 0 ? (
+                    <div className="px-3 py-4 text-center text-xs text-slate-400 dark:text-slate-500">
+                      {isLoadingModels
+                        ? "Fetching models from provider..."
+                        : !apiKey?.trim()
+                        ? "Enter API key to fetch available models."
+                        : "No models returned by provider."}
+                    </div>
+                  ) : (
+                    availableModels.map((m) => {
+                      const isModelActive = m.id === selectedModelId;
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => {
+                            onSelectModel(m.id);
+                            setModelDropdownOpen(false);
+                          }}
+                          className={`w-full text-left px-3 py-2 rounded-xl transition-colors cursor-pointer flex items-center justify-between ${
+                            isModelActive
+                              ? "bg-purple-50 dark:bg-[#8a2be2]/15 text-[#8a2be2] dark:text-[#c084fc] font-semibold"
+                              : "hover:bg-slate-50 dark:hover:bg-[#172238] text-slate-800 dark:text-slate-200"
+                          }`}
+                        >
+                          <div className="flex flex-col min-w-0 pr-2">
+                            <span className="text-xs font-semibold truncate">{m.name}</span>
+                            {m.id !== m.name && (
+                              <span className="text-[10px] text-slate-400 font-mono truncate">{m.id}</span>
+                            )}
+                          </div>
+                          {isModelActive && <Check className="w-3.5 h-3.5 shrink-0 text-[#8a2be2] dark:text-[#c084fc]" />}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Model Description text if present from provider */}
+          {currentModel?.description ? (
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight pt-0.5 min-h-[16px] truncate">
+              {currentModel.description}
+            </p>
+          ) : (
+            <div className="min-h-[16px]" />
+          )}
+        </div>
       </div>
     </div>
   );
 };
+

@@ -432,23 +432,18 @@ export async function apiGetProviderModels(
 ): Promise<AIProviderModel[]> {
   if (!providerId) return [];
   try {
-    const query = apiKey ? `?apiKey=${encodeURIComponent(apiKey)}` : "";
+    const query = apiKey?.trim() ? `?apiKey=${encodeURIComponent(apiKey.trim())}` : "";
     const res = await fetch(
       `${API_BASE_URL}/api/settings/providers/${encodeURIComponent(providerId)}/models${query}`
     );
     if (!res.ok) {
-      // Fallback to /api/v1/models?provider=...
-      const fallbackRes = await fetch(
-        `${API_BASE_URL}/api/v1/models?provider=${encodeURIComponent(providerId)}${apiKey ? `&apiKey=${encodeURIComponent(apiKey)}` : ""}`
-      );
-      if (fallbackRes.ok) {
-        const fallbackData = await fallbackRes.json();
-        return fallbackData.models || [];
-      }
       return [];
     }
     const data = await res.json();
-    return data.models || [];
+    if (Array.isArray(data.models)) {
+      return data.models;
+    }
+    return [];
   } catch {
     return [];
   }
@@ -542,6 +537,7 @@ export async function apiTestVyraPrompt(params: {
   prompt: string;
   providerId?: string;
   modelId?: string;
+  apiKey?: string;
   mode?: "chat" | "structured";
   systemPrompt?: string;
 }): Promise<{
@@ -559,7 +555,8 @@ export async function apiTestVyraPrompt(params: {
       body: JSON.stringify(params),
     });
     if (!res.ok) {
-      throw new Error("Failed to test prompt");
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || err.error || "Failed to test prompt");
     }
     return res.json();
   } catch (error: any) {

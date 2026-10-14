@@ -85,10 +85,10 @@ export const VyraSettingsPage: React.FC = () => {
         }
 
         // Fetch models for the saved provider if one is set
-        if (provId) {
+        if (provId && fetchedSettings.apiKey) {
           setIsLoadingModels(true);
           try {
-            const models = await apiGetProviderModels(provId, fetchedSettings.apiKey || "");
+            const models = await apiGetProviderModels(provId, fetchedSettings.apiKey);
             setAvailableModels(models);
           } finally {
             setIsLoadingModels(false);
@@ -106,6 +106,44 @@ export const VyraSettingsPage: React.FC = () => {
     loadData();
   }, [loadData]);
 
+  const lastFetchRef = React.useRef<string>("");
+
+  const fetchModels = useCallback(
+    async (providerId: string, key: string, force = false) => {
+      if (!providerId || !key.trim()) return;
+      const cacheKey = `${providerId}:${key.trim()}`;
+      if (!force && lastFetchRef.current === cacheKey && availableModels.length > 0) return;
+      lastFetchRef.current = cacheKey;
+
+      setIsLoadingModels(true);
+      try {
+        const models = await apiGetProviderModels(providerId, key.trim());
+        setAvailableModels(models);
+        if (models.length > 0 && selectedModelId && !models.some((m) => m.id === selectedModelId)) {
+          setSelectedModelId("");
+        }
+      } catch (err) {
+        console.error("Failed to load models for provider:", err);
+        setAvailableModels([]);
+      } finally {
+        setIsLoadingModels(false);
+      }
+    },
+    [availableModels.length, selectedModelId]
+  );
+
+  const handleApiKeyBlur = () => {
+    if (selectedProviderId && apiKey.trim()) {
+      fetchModels(selectedProviderId, apiKey.trim());
+    }
+  };
+
+  const handleOpenModelSelection = () => {
+    if (selectedProviderId && apiKey.trim() && availableModels.length === 0 && !isLoadingModels) {
+      fetchModels(selectedProviderId, apiKey.trim());
+    }
+  };
+
   // Fetch models dynamically from provider route when selectedProviderId changes
   const handleSelectProvider = async (providerId: string) => {
     if (providerId === selectedProviderId) return;
@@ -113,15 +151,16 @@ export const VyraSettingsPage: React.FC = () => {
     setSelectedProviderId(providerId);
     setSelectedModelId(""); // Reset model until new provider's models load
     setAvailableModels([]);
-    setIsLoadingModels(true);
+    lastFetchRef.current = "";
 
-    try {
-      const models = await apiGetProviderModels(providerId, apiKey);
-      setAvailableModels(models);
-    } catch (err) {
-      console.error("Failed to load models for selected provider:", err);
-    } finally {
-      setIsLoadingModels(false);
+    const prov = providers.find((p) => p.id === providerId);
+    const keyToUse = prov?.apiKey?.trim() ? prov.apiKey.trim() : apiKey.trim();
+    if (prov?.apiKey) {
+      setApiKey(prov.apiKey);
+    }
+
+    if (keyToUse) {
+      fetchModels(providerId, keyToUse, true);
     }
   };
 
@@ -172,16 +211,8 @@ export const VyraSettingsPage: React.FC = () => {
       });
 
       // If connection succeeded, refresh models dynamically from provider's live endpoint
-      if (res.success && selectedProviderId) {
-        setIsLoadingModels(true);
-        try {
-          const liveModels = await apiGetProviderModels(selectedProviderId, apiKey);
-          if (liveModels.length > 0) {
-            setAvailableModels(liveModels);
-          }
-        } finally {
-          setIsLoadingModels(false);
-        }
+      if (res.success && selectedProviderId && apiKey.trim()) {
+        fetchModels(selectedProviderId, apiKey.trim(), true);
       }
     } catch {
       setKeyStatus("Connection test failed");
@@ -204,6 +235,7 @@ export const VyraSettingsPage: React.FC = () => {
       prompt,
       providerId: selectedProviderId,
       modelId: selectedModelId,
+      apiKey: apiKey.trim(),
       mode,
       systemPrompt: instructions.core,
     });
@@ -286,6 +318,8 @@ export const VyraSettingsPage: React.FC = () => {
             onSelectModel={setSelectedModelId}
             apiKey={apiKey}
             onApiKeyChange={setApiKey}
+            onApiKeyBlur={handleApiKeyBlur}
+            onOpenModelSelection={handleOpenModelSelection}
             keyStatus={keyStatus}
             isValidKey={isValidKey}
             onTestConnection={handleTestConnection}

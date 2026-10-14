@@ -26,7 +26,7 @@ test("HTTP and application layers do not depend on database implementations", as
 
 test("every feature repository has an explicit implemented contract", async () => {
   const implementations = (await files(path.join(root, "modules"))).filter(file => path.basename(file).startsWith("drizzle."));
-  assert.equal(implementations.length, 11);
+  assert.equal(implementations.length, 12);
   for (const file of implementations) {
     const source = await readFile(file, "utf8");
     assert.match(source, /implements I\w+Repository/);

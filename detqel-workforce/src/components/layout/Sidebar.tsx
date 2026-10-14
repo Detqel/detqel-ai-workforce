@@ -148,7 +148,7 @@ export const Sidebar: React.FC = () => {
         >
           <Link
             href={defaultPageId}
-            className="flex items-center hover:opacity-90 transition-opacity shrink-0"
+            className="flex items-center hover:opacity-90 transition-opacity shrink-0 cursor-pointer"
           >
             <Image
               src="/images/detqel-logo-banner.png"
@@ -309,7 +309,7 @@ export const Sidebar: React.FC = () => {
                 href={item.id}
                 aria-current={isActive ? "page" : undefined}
                 aria-label={item.name}
-                className={`relative group flex items-center h-9 w-full rounded-xl transition-colors z-10 ${
+                className={`relative group flex items-center h-9 w-full rounded-xl transition-colors z-10 cursor-pointer ${
                   isActive
                     ? "text-[#8a2be2] dark:text-[#FFA500] font-bold"
                     : "text-[#8a2be2] dark:text-[#FFA500]/80 hover:text-[#7823c9] dark:hover:text-[#FFA500]"

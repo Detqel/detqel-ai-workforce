@@ -75,13 +75,14 @@ export class SettingsController {
         prompt: string;
         providerId?: string;
         modelId?: string;
+        apiKey?: string;
         mode?: "chat" | "structured";
         systemPrompt?: string;
       };
     }>,
     reply: FastifyReply
   ) {
-    const { prompt, providerId, modelId, mode, systemPrompt } = req.body;
+    const { prompt, providerId, modelId, apiKey, mode, systemPrompt } = req.body;
     if (!prompt) {
       return reply.status(400).send({ error: "prompt is required" });
     }
@@ -89,6 +90,7 @@ export class SettingsController {
       prompt,
       providerId,
       modelId,
+      apiKey,
       mode,
       systemPrompt,
     });

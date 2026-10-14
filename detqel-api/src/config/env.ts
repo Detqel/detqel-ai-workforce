@@ -11,6 +11,20 @@ export const envSchema = z.object({
     DB_POOL_MAX: z.coerce.number().int().positive().default(10),
     DB_IDLE_TIMEOUT: z.coerce.number().int().positive().default(20),
     DB_CONNECT_TIMEOUT: z.coerce.number().int().positive().default(10),
+
+    // AI Provider Model Endpoint URLs
+    OPENAI_MODELS_URL: z.string().url().default("https://api.openai.com/v1/models"),
+    GROQ_MODELS_URL: z.string().url().default("https://api.groq.com/openai/v1/models"),
+    DEEPSEEK_MODELS_URL: z.string().url().default("https://api.deepseek.com/models"),
+    ANTHROPIC_MODELS_URL: z.string().url().default("https://api.anthropic.com/v1/models"),
+    GOOGLE_MODELS_URL: z.string().url().default("https://generativelanguage.googleapis.com/v1beta/models"),
+
+    // AI Provider Chat/Execution Endpoint URLs
+    OPENAI_CHAT_URL: z.string().url().default("https://api.openai.com/v1/chat/completions"),
+    GROQ_CHAT_URL: z.string().url().default("https://api.groq.com/openai/v1/chat/completions"),
+    DEEPSEEK_CHAT_URL: z.string().url().default("https://api.deepseek.com/chat/completions"),
+    ANTHROPIC_MESSAGES_URL: z.string().url().default("https://api.anthropic.com/v1/messages"),
+    GOOGLE_GENERATE_URL: z.string().url().default("https://generativelanguage.googleapis.com/v1beta/models"),
 });
 export type Environment = z.infer<typeof envSchema>;
 export const env = envSchema.parse(process.env);

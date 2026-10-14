@@ -11,6 +11,7 @@ export function WorkspaceLink({
   href,
   onClick,
   children,
+  className = "",
   ...props
 }: WorkspaceLinkProps) {
   const { navigate } = useNavigation();
@@ -18,6 +19,7 @@ export function WorkspaceLink({
   return (
     <button
       {...props}
+      className={`text-left ${className}`}
       type="button"
       onClick={(event) => {
         onClick?.(event);

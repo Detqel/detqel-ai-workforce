@@ -252,7 +252,7 @@ export const LoginForm: React.FC = () => {
           <div className="flex flex-col items-center text-center mb-6 sm:mb-7 select-none">
             <div className="relative flex items-center justify-center mb-2.5">
               <Image
-                src="/images/detqel-forge-logo.png"
+                src="/images/detqel-forge-logo-name.png"
                 alt="DETQEL FORGE"
                 width={2172}
                 height={724}

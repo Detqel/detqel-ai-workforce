@@ -1,0 +1,9 @@
+[[permission]]
+identifier = "allow-backend-status"
+description = "Read backend startup and configuration status."
+commands.allow = ["backend_status"]
+
+[[permission]]
+identifier = "allow-api-request"
+description = "Send application API requests to the managed local backend."
+commands.allow = ["api_request"]

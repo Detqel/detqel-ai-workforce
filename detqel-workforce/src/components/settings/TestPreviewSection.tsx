@@ -1,9 +1,7 @@
 import React, { useState } from "react";
-import { User, Send, ChevronRight, Loader2, Sparkles, X, Terminal, Check } from "lucide-react";
-import type { SamplePrompt } from "@/lib/api";
+import { User, Send, Loader2, X } from "lucide-react";
 
 interface TestPreviewSectionProps {
-  samplePrompts: SamplePrompt[];
   previewMode: "chat" | "structured";
   onPreviewModeChange: (mode: "chat" | "structured") => void;
   onExecutePrompt: (prompt: string, mode: "chat" | "structured") => Promise<{
@@ -14,36 +12,11 @@ interface TestPreviewSectionProps {
   }>;
 }
 
-const DEFAULT_FALLBACK_PROMPTS: SamplePrompt[] = [
-  {
-    id: "summarize",
-    title: "Summarize a document",
-    prompt: "Summarize the latest quarterly operations review and extract top 3 friction points.",
-  },
-  {
-    id: "sql",
-    title: "Write a SQL query",
-    prompt: "Write an optimized SQL query to calculate 30-day user retention cohorts with active workspace counts.",
-  },
-  {
-    id: "analyze",
-    title: "Analyze this data",
-    prompt: "Analyze our inventory turnover velocity across retail warehouses and flag critical stockout risks.",
-  },
-  {
-    id: "pipeline",
-    title: "Create a pipeline",
-    prompt: "Create an autonomous pipeline to sync Shopify webhooks into the Business Brain knowledge base.",
-  },
-];
-
 export const TestPreviewSection: React.FC<TestPreviewSectionProps> = ({
-  samplePrompts,
   previewMode,
   onPreviewModeChange,
   onExecutePrompt,
 }) => {
-  const activePrompts = samplePrompts && samplePrompts.length > 0 ? samplePrompts : DEFAULT_FALLBACK_PROMPTS;
   const [promptInput, setPromptInput] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [testResponse, setTestResponse] = useState<{
@@ -80,10 +53,6 @@ export const TestPreviewSection: React.FC<TestPreviewSectionProps> = ({
     }
   };
 
-  const handleChipClick = (prompt: SamplePrompt) => {
-    handleSubmit(prompt.prompt || prompt.title);
-  };
-
   return (
     <div className="w-full p-5 sm:p-6 rounded-3xl bg-white/95 dark:bg-[#0c1222]/90 border border-slate-200/90 dark:border-[#1c273e] shadow-sm dark:shadow-[0_8px_30px_rgba(0,0,0,0.5)] backdrop-blur-xl transition-all duration-300 relative z-0">
       {/* Header */}
@@ -97,7 +66,7 @@ export const TestPreviewSection: React.FC<TestPreviewSectionProps> = ({
               Test &amp; Preview
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Try a sample prompt to see how VYRA responds.
+              Test a prompt to see how VYRA responds.
             </p>
           </div>
         </div>
@@ -165,21 +134,6 @@ export const TestPreviewSection: React.FC<TestPreviewSectionProps> = ({
           )}
         </button>
       </form>
-
-      {/* Sample Prompt Chips */}
-      <div className="flex flex-wrap items-center gap-2 pt-3">
-        {activePrompts.map((sample) => (
-          <button
-            key={sample.id}
-            type="button"
-            onClick={() => handleChipClick(sample)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-slate-100/70 hover:bg-purple-50 dark:bg-[#101728] dark:hover:bg-[#182136] border border-slate-200/80 dark:border-[#1e2a42] text-slate-700 dark:text-slate-300 hover:text-[#8a2be2] dark:hover:text-[#c084fc] transition-colors cursor-pointer group shadow-2xs"
-          >
-            <span>{sample.title}</span>
-            <ChevronRight className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 group-hover:text-[#8a2be2] dark:group-hover:text-[#c084fc] group-hover:translate-x-0.5 transition-transform" />
-          </button>
-        ))}
-      </div>
 
       {/* Interactive Output Preview Panel */}
       {testResponse && (

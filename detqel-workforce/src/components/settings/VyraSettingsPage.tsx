@@ -336,7 +336,6 @@ export const VyraSettingsPage: React.FC = () => {
 
           {/* 03: Test & Preview */}
           <TestPreviewSection
-            samplePrompts={vyraSettings?.samplePrompts || []}
             previewMode={previewMode}
             onPreviewModeChange={setPreviewMode}
             onExecutePrompt={handleExecutePrompt}

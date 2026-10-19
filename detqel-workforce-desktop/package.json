@@ -1,0 +1,39 @@
+{
+  "name": "detqel-workforce-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DETQEL Workforce desktop application and full-stack development workspace",
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "engines": {
+    "node": ">=24.0.0 <25",
+    "npm": ">=11"
+  },
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build -- --locked",
+    "build:debug": "tauri build --debug -- --locked",
+    "prepare:dev": "node scripts/prepare.mjs --dev",
+    "dev:frontend": "npm run dev --workspace frontend",
+    "build:app": "node scripts/prepare.mjs",
+    "build:frontend": "npm run build --workspace frontend",
+    "build:backend": "npm run build --workspace backend",
+    "icons:generate": "tauri icon src-tauri/icons/icon-transparent.png -o src-tauri/icons",
+    "check": "npm run typecheck --workspace backend && npm run typecheck --workspace frontend && cargo fmt --manifest-path src-tauri/Cargo.toml -- --check",
+    "test": "npm test --workspace backend && node --test tests/*.test.mjs",
+    "db:setup": "npm run db:setup --workspace backend",
+    "db:migrate": "npm run db:migrate --workspace backend",
+    "db:generate": "npm run db:generate --workspace backend --",
+    "db:seed": "npm run db:seed --workspace backend",
+    "db:studio": "npm run db:studio --workspace backend --",
+    "tauri": "tauri",
+    "smoke:backend": "node scripts/smoke-backend.mjs",
+    "smoke:native": "node scripts/smoke-native.mjs"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "drizzle-orm": "0.45.4"
+  }
+}

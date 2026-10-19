@@ -1,0 +1,43 @@
+{
+  "name": "@detqel/desktop-backend",
+  "version": "1.0.0",
+  "description": "Backend API and Drizzle ORM Database Handlers for DETQEL AI Workforce Platform",
+  "main": "dist/server.js",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "node scripts/clean-dist.cjs && tsc",
+    "start": "node dist/server.js",
+    "db:generate": "node --import tsx scripts/drizzle.mjs generate --config drizzle.config.ts",
+    "db:migrate": "tsx src/infrastructure/database/cli.ts migrate",
+    "db:studio": "node --import tsx scripts/drizzle.mjs studio --config drizzle.config.ts",
+    "db:seed": "tsx src/infrastructure/database/cli.ts seed",
+    "typecheck": "tsc -p tsconfig.check.json",
+    "test": "node --import tsx --test tests/architecture.test.ts tests/application.test.ts tests/logger.test.ts tests/desktop.test.ts",
+    "test:integration": "node --import tsx --test tests/integration/database.test.ts",
+    "db:init": "tsx src/infrastructure/database/cli.ts init",
+    "db:seed:demo": "tsx src/infrastructure/database/cli.ts seed-demo",
+    "db:setup": "tsx src/infrastructure/database/cli.ts setup"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.2",
+    "@fastify/sensible": "^6.0.3",
+    "@fastify/swagger": "^9.4.2",
+    "@fastify/swagger-ui": "6.1.2",
+    "dotenv": "^16.4.7",
+    "drizzle-orm": "0.45.4",
+    "fastify": "^5.2.1",
+    "pino": "^10.4.0",
+    "postgres": "^3.4.5",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.5",
+    "drizzle-kit": "0.31.11",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=20.18.0"
+  }
+}

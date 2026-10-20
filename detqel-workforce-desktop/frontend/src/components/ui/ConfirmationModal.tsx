@@ -9,6 +9,9 @@ import {
   X,
   Loader2,
 } from "lucide-react";
+import { PrimaryButton } from "./primary-button";
+import { SecondaryButton } from "./secondary-button";
+import { IconOnlyButton } from "./icon-only-button";
 
 export interface ConfirmationModalProps {
   isOpen: boolean;
@@ -113,15 +116,13 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
               {title}
             </h3>
           </div>
-          <button
-            type="button"
+          <IconOnlyButton
             onClick={onClose}
             disabled={isLoading}
-            className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+            className="p-1 rounded-lg shrink-0"
             aria-label="Close modal"
-          >
-            <X className="w-4 h-4" />
-          </button>
+            icon={<X className="w-4 h-4" />}
+          />
         </div>
 
         {/* SECTION 2: MIDDLE (Message content and optional error) */}
@@ -140,29 +141,19 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
 
         {/* SECTION 3: FOOTER (Action buttons) */}
         <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-[#0e1422] flex items-center justify-end gap-2.5 rounded-b-2xl">
-          <button
-            type="button"
+          <SecondaryButton
             onClick={onClose}
             disabled={isLoading}
-            className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#161f30] text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#1d2940] active:scale-[0.99] transition-all cursor-pointer shadow-2xs disabled:opacity-50"
-          >
-            {cancelText}
-          </button>
-          <button
-            type="button"
+            value={cancelText}
+          />
+          <PrimaryButton
             onClick={onConfirm}
             disabled={isLoading}
-            className={`px-4 py-2 rounded-xl text-xs font-semibold active:scale-[0.99] flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-60 ${getConfirmButtonClasses()}`}
-          >
-            {isLoading ? (
-              <>
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>Processing...</span>
-              </>
-            ) : (
-              <span>{confirmText}</span>
-            )}
-          </button>
+            className={getConfirmButtonClasses()}
+            value={isLoading ? "Processing..." : confirmText}
+            icon={isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : undefined}
+            iconPosition="left"
+          />
         </div>
       </div>
     </div>

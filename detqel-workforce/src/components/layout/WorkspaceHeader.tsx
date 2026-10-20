@@ -6,6 +6,7 @@ import { useWorkspace } from "@/context/WorkspaceContext";
 import { WorkspaceSummary } from "@/lib/api";
 import { EditWorkspaceModal } from "@/components/workspace/EditWorkspaceModal";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
+import { IconOnlyButton } from "@/components/ui/icon-only-button";
 
 export const WorkspaceHeader: React.FC = () => {
   const {
@@ -126,8 +127,7 @@ export const WorkspaceHeader: React.FC = () => {
                           For other workspaces, user can edit (replace tick with edit) and delete. */}
                       {!isSelected && (
                         <div className="flex items-center gap-1 shrink-0">
-                          <button
-                            type="button"
+                          <IconOnlyButton
                             title={`Edit ${ws.name}`}
                             aria-label={`Edit workspace ${ws.name}`}
                             onClick={(e) => {
@@ -135,12 +135,10 @@ export const WorkspaceHeader: React.FC = () => {
                               setEditingWorkspace(ws);
                               setWorkspaceSwitcherOpen(false);
                             }}
-                            className="w-6 h-6 rounded-md flex items-center justify-center text-slate-400 dark:text-slate-400 hover:text-[#8a2be2] dark:hover:text-[#FFA500] hover:bg-purple-100/70 dark:hover:bg-[#FFA500]/15 opacity-60 group-hover:opacity-100 transition-all cursor-pointer"
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            type="button"
+                            className="w-6 h-6 rounded-md text-slate-400 dark:text-slate-400 hover:text-[#8a2be2] dark:hover:text-[#FFA500] hover:bg-purple-100/70 dark:hover:bg-[#FFA500]/15 opacity-60 group-hover:opacity-100"
+                            icon={<Pencil className="w-3.5 h-3.5" />}
+                          />
+                          <IconOnlyButton
                             title={`Delete ${ws.name}`}
                             aria-label={`Delete workspace ${ws.name}`}
                             onClick={(e) => {
@@ -149,10 +147,9 @@ export const WorkspaceHeader: React.FC = () => {
                               setDeleteError(null);
                               setWorkspaceSwitcherOpen(false);
                             }}
-                            className="w-6 h-6 rounded-md flex items-center justify-center text-slate-400 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-100/70 dark:hover:bg-red-950/50 opacity-60 group-hover:opacity-100 transition-all cursor-pointer"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                            className="w-6 h-6 rounded-md text-slate-400 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-100/70 dark:hover:bg-red-950/50 opacity-60 group-hover:opacity-100"
+                            icon={<Trash2 className="w-3.5 h-3.5" />}
+                          />
                         </div>
                       )}
                     </div>

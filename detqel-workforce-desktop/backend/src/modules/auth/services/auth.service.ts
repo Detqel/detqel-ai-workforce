@@ -3,11 +3,12 @@ import { hashPassword, verifyPassword } from "../../../shared/security/password.
 import type { User } from "../../../shared/types/entities.js";
 import type { IUserRepository } from "../../users/repositories/user.repository.js";
 import type { IWorkspaceRepository } from "../../workspaces/repositories/workspace.repository.js";
+import type { SessionService } from "../../../shared/security/session.js";
 function profile(user: User) {
     return { id: user.id, name: user.name, email: user.email, username: user.username, avatarUrl: user.avatarUrl, status: user.status };
 }
 export class AuthService {
-    constructor(private readonly users: IUserRepository, private readonly workspaces: IWorkspaceRepository) { }
+    constructor(private readonly users: IUserRepository, private readonly workspaces: IWorkspaceRepository, private readonly sessions: SessionService) { }
     async checkUser(email?: string, username?: string) {
         if (!email && !username)
             throw new AppError(400, "Either email or username query parameter is required.");
@@ -25,7 +26,7 @@ export class AuthService {
         if (!verifyPassword(password, user.passwordHash))
             throw new AppError(401, "Invalid credentials. Password is incorrect.");
         const workspaces = await this.workspaces.listAuthWorkspaces(user.id);
-        return { user: profile(user), workspaces, hasWorkspace: workspaces.length > 0 };
+        return { user: profile(user), workspaces, hasWorkspace: workspaces.length > 0, ...this.sessions.issue(user.id) };
     }
     async register(body: {
         name: string;
@@ -40,10 +41,10 @@ export class AuthService {
             if (!verifyPassword(body.password, existing.passwordHash))
                 throw new AppError(409, byEmail ? "An account with this email address already exists. Please sign in with your password." : "This username is already taken. Please sign in or choose another username.", { isExistingUser: true });
             const workspaces = await this.workspaces.listAuthWorkspaces(existing.id);
-            return { user: profile(existing), workspaces, hasWorkspace: workspaces.length > 0, isExistingUser: true, message: "Existing account verified! Signed in to your workspace." };
+            return { user: profile(existing), workspaces, hasWorkspace: workspaces.length > 0, isExistingUser: true, message: "Existing account verified! Signed in to your workspace.", ...this.sessions.issue(existing.id) };
         }
         const user = await this.users.create({ name: body.name.trim(), email, username, passwordHash: hashPassword(body.password), status: "active" });
-        return { user: profile(user), workspaces: [], hasWorkspace: false, isExistingUser: false };
+        return { user: profile(user), workspaces: [], hasWorkspace: false, isExistingUser: false, ...this.sessions.issue(user.id) };
     }
     async me(userId?: string) {
         if (!userId)

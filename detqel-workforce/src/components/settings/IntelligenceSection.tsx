@@ -2,6 +2,8 @@ import React, { useState } from "react";
 import { Check, ChevronDown, Eye, EyeOff, CheckCircle2, Sparkles, Loader2 } from "lucide-react";
 import { renderProviderIcon } from "./ProviderIcons";
 import type { AIProvider, AIProviderModel } from "@/lib/api";
+import { SecondaryButton } from "@/components/ui/secondary-button";
+import { IconOnlyButton } from "@/components/ui/icon-only-button";
 
 interface IntelligenceSectionProps {
   providers: AIProvider[];
@@ -155,14 +157,12 @@ export const IntelligenceSection: React.FC<IntelligenceSectionProps> = ({
               placeholder="Enter API key..."
               className="w-full h-11 pl-3.5 pr-10 rounded-xl bg-slate-50 dark:bg-[#101729] border border-slate-200 dark:border-[#202c46] focus:border-[#8a2be2] focus:ring-1 focus:ring-[#8a2be2] text-xs font-mono text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 transition-colors outline-hidden cursor-text"
             />
-            <button
-              type="button"
+            <IconOnlyButton
               onClick={() => setShowKey(!showKey)}
               aria-label={showKey ? "Hide API key" : "Show API key"}
-              className="absolute right-3 p-1 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 transition-colors cursor-pointer"
-            >
-              {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            </button>
+              className="absolute right-3 p-1"
+              icon={showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            />
           </div>
 
           {/* Status badge & Test Connection button */}
@@ -182,15 +182,13 @@ export const IntelligenceSection: React.FC<IntelligenceSectionProps> = ({
               )}
             </div>
 
-            <button
-              type="button"
+            <SecondaryButton
               onClick={onTestConnection}
               disabled={isTestingConnection || !apiKey?.trim()}
-              className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#141e33] dark:hover:bg-[#1b2844] border border-slate-200 dark:border-[#22314e] text-xs font-semibold text-slate-800 dark:text-slate-200 transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs"
-            >
-              {isTestingConnection && <Loader2 className="w-3 h-3 animate-spin text-[#8a2be2]" />}
-              <span>Test Connection</span>
-            </button>
+              value="Test Connection"
+              icon={isTestingConnection ? <Loader2 className="w-3 h-3 animate-spin text-[#8a2be2]" /> : undefined}
+              iconPosition="left"
+            />
           </div>
         </div>
 

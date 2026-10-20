@@ -10,6 +10,8 @@ import { UserRepository } from "../../modules/users/repositories/drizzle.user.re
 import { WorkforceRepository } from "../../modules/workforce/repositories/drizzle.workforce.repository.js";
 import { WorkspaceRepository } from "../../modules/workspaces/repositories/drizzle.workspace.repository.js";
 import { DrizzleSettingsRepository } from "../../modules/settings/repositories/drizzle.settings.repository.js";
+import { LookupRepository } from "../../modules/lookups/repositories/drizzle.lookup.repository.js";
+import { ConnectorCatalogRepository } from "../../modules/connections/repositories/drizzle.connector-catalog.repository.js";
 import type { IUnitOfWork } from "../../shared/contracts/unit-of-work.js";
 import type { DatabaseSession } from "./connection.js";
 // All repositories use the same injected session, including transactions.
@@ -26,6 +28,8 @@ export class UnitOfWork implements IUnitOfWork {
     readonly notifications;
     readonly domains;
     readonly settings;
+    readonly lookups;
+    readonly connectorCatalog;
     constructor(private readonly database: DatabaseSession) {
         this.users = new UserRepository(database);
         this.workspaces = new WorkspaceRepository(database);
@@ -39,6 +43,8 @@ export class UnitOfWork implements IUnitOfWork {
         this.notifications = new NotificationRepository(database);
         this.domains = new DomainRepository(database);
         this.settings = new DrizzleSettingsRepository(database);
+        this.lookups = new LookupRepository(database);
+        this.connectorCatalog = new ConnectorCatalogRepository(database);
     }
     transaction<T>(operation: (repositories: IUnitOfWork) => Promise<T>): Promise<T> {
         return this.database.transaction(tx => operation(new UnitOfWork(tx)));

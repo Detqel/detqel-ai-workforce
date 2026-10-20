@@ -20,7 +20,7 @@ export class WorkforceRepository extends BaseRepository<typeof agents, Agent, Ne
             with: {
                 connections: {
                     with: {
-                        connection: true,
+                        connection: { columns: { credentialReference: false } },
                     },
                 },
                 memories: {

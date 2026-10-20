@@ -15,6 +15,7 @@ export async function desktopFetch(url: string, init: RequestInit = {}): Promise
     path: parsed.pathname + parsed.search,
     method: init.method ?? "GET",
     body: init.body === undefined ? null : String(init.body),
+    authorization: new Headers(init.headers).get("Authorization"),
   });
   return new Response(result.body || null, {
     status: result.status,

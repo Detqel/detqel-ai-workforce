@@ -2,6 +2,8 @@ import React from "react";
 import { WorkspaceLink as Link } from "@/components/navigation/WorkspaceLink";
 import { defaultPageId } from "@/lib/navigation";
 import { Activity, ArrowRight, Inbox } from "lucide-react";
+import { PrimaryButton } from "@/components/ui/primary-button";
+import { SecondaryButton } from "@/components/ui/secondary-button";
 
 export const CurrentWorkSection: React.FC = () => {
   return (
@@ -41,19 +43,13 @@ export const CurrentWorkSection: React.FC = () => {
           </p>
         </div>
         <div className="flex items-center gap-3 pt-2">
-          <button
-            type="button"
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#8a2be2] dark:bg-[#FFA500] hover:bg-[#7823c9] dark:hover:bg-[#FFA500]/90 text-white dark:text-slate-950 font-bold text-xs transition-all shadow-xs cursor-pointer"
-          >
-            <span>Start a new mission</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
-          <button
-            type="button"
-            className="px-4 py-2 rounded-xl bg-white dark:bg-[#151f32] hover:bg-slate-50 dark:hover:bg-[#1e2a40] text-slate-700 dark:text-slate-300 dark:hover:text-[#FFA500] border border-slate-200 dark:border-slate-700 text-xs font-semibold transition-colors cursor-pointer shadow-2xs"
-          >
-            Explore use cases
-          </button>
+          <PrimaryButton
+            value="Start a new mission"
+            icon={<ArrowRight className="w-3.5 h-3.5" />}
+          />
+          <SecondaryButton
+            value="Explore use cases"
+          />
         </div>
       </div>
     </div>

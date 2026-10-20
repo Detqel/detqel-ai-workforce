@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import type { DatabaseSession } from "../../../infrastructure/database/connection.js";
 import { BaseRepository } from "../../../infrastructure/database/repositories/base.repository.js";
 import { connections, type Connection, type NewConnection, } from "../../../infrastructure/database/schema/connections.js";
@@ -25,5 +25,20 @@ export class ConnectionRepository extends BaseRepository<typeof connections, Con
             .where(eq(connections.id, id))
             .returning();
         return updated || null;
+    }
+    async findInWorkspace(id: string, workspaceId: string): Promise<Connection | null> {
+        const [connection] = await this.database.select().from(connections)
+            .where(and(eq(connections.id, id), eq(connections.workspaceId, workspaceId))).limit(1);
+        return connection ?? null;
+    }
+    async updateInWorkspace(id: string, workspaceId: string, data: Partial<NewConnection>): Promise<Connection | null> {
+        const [connection] = await this.database.update(connections).set({ ...data, updatedAt: new Date() })
+            .where(and(eq(connections.id, id), eq(connections.workspaceId, workspaceId))).returning();
+        return connection ?? null;
+    }
+    async deleteInWorkspace(id: string, workspaceId: string): Promise<boolean> {
+        const deleted = await this.database.delete(connections)
+            .where(and(eq(connections.id, id), eq(connections.workspaceId, workspaceId))).returning({ id: connections.id });
+        return deleted.length > 0;
     }
 }

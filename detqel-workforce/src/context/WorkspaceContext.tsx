@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect } from "react";
+import { clearAccessToken } from "@/lib/auth-session";
 import {
   UserProfile,
   WorkspaceSummary,
@@ -170,6 +171,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   const logout = () => {
+    clearAccessToken();
     setUser(null);
     setWorkspaces([]);
     setCurrentWorkspace(null);

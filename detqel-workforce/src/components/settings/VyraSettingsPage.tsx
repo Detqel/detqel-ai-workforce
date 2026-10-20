@@ -20,6 +20,7 @@ import {
   type VyraTemplate,
 } from "@/lib/api";
 import { Check, Loader2, Save } from "lucide-react";
+import { PrimaryButton } from "@/components/ui/primary-button";
 
 export const VyraSettingsPage: React.FC = () => {
   const { currentWorkspace } = useWorkspace();
@@ -279,21 +280,22 @@ export const VyraSettingsPage: React.FC = () => {
 
         {/* Action button */}
         <div className="flex items-center gap-2 self-start sm:self-auto">
-          <button
-            type="button"
+          <PrimaryButton
             onClick={handleSaveAll}
             disabled={isSaving}
-            className="px-4 py-2 rounded-xl bg-[#8a2be2] hover:bg-[#7823c9] text-white text-xs font-bold transition-all shadow-md shadow-[#8a2be2]/30 flex items-center gap-2 cursor-pointer disabled:opacity-60 active:scale-95"
-          >
-            {isSaving ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : saveSuccess ? (
-              <Check className="w-3.5 h-3.5 stroke-[3]" />
-            ) : (
-              <Save className="w-3.5 h-3.5" />
-            )}
-            <span>{saveSuccess ? "Saved to Database" : isSaving ? "Saving..." : "Save Changes"}</span>
-          </button>
+            className="shadow-md shadow-[#8a2be2]/30 active:scale-95"
+            value={saveSuccess ? "Saved to Database" : isSaving ? "Saving..." : "Save Changes"}
+            icon={
+              isSaving ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : saveSuccess ? (
+                <Check className="w-3.5 h-3.5 stroke-[3]" />
+              ) : (
+                <Save className="w-3.5 h-3.5" />
+              )
+            }
+            iconPosition="left"
+          />
         </div>
       </div>
 

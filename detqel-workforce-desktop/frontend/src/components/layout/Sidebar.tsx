@@ -23,6 +23,7 @@ import {
   apiMarkAllNotificationsRead,
   type UserNotification,
 } from "@/lib/api";
+import { IconOnlyButton } from "@/components/ui/icon-only-button";
 
 export const Sidebar: React.FC = () => {
   const { activePageId, navigate } = useNavigation();
@@ -162,18 +163,18 @@ export const Sidebar: React.FC = () => {
         </div>
 
         {/* Toggle Button: glides smoothly with micro-animation */}
-        <button
-          type="button"
+        <IconOnlyButton
           onClick={() => setIsCollapsed(!isCollapsed)}
           aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-          className="w-9 h-9 flex items-center justify-center text-[#8a2be2] hover:text-[#7823c9] dark:text-[#FFA500] dark:hover:text-[#FFA500]/80 transition-all duration-300 cursor-pointer relative group bg-transparent border-none shadow-none shrink-0"
-        >
-          {isCollapsed ? (
-            <PanelLeftOpen className="w-5 h-5 transition-transform duration-300 group-hover:scale-110" />
-          ) : (
-            <PanelLeftClose className="w-5 h-5 transition-transform duration-300 group-hover:scale-110" />
-          )}
-        </button>
+          className="w-9 h-9 text-[#8a2be2] hover:text-[#7823c9] dark:text-[#FFA500] dark:hover:text-[#FFA500]/80 bg-transparent shrink-0"
+          icon={
+            isCollapsed ? (
+              <PanelLeftOpen className="w-5 h-5 transition-transform duration-300 group-hover:scale-110" />
+            ) : (
+              <PanelLeftClose className="w-5 h-5 transition-transform duration-300 group-hover:scale-110" />
+            )
+          }
+        />
       </div>
 
       {/* Theme Toggle: Positioned at top of sidebar below sidebar header */}

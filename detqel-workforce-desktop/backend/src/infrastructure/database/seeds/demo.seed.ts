@@ -166,7 +166,7 @@ export async function seedDemoData(database: AppDatabase) {
             workspaceId,
             name: "PostgreSQL Data Warehouse",
             provider: "Postgres",
-            connectionType: "database",
+            connectionType: "data",
             configuration: { host: "dw.internal.corp", port: 5432, database: "analytics_dw" },
             status: "connected",
             lastSyncedAt: new Date(),

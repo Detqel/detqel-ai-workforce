@@ -10,6 +10,8 @@ import type { IUserRepository } from "../../modules/users/repositories/user.repo
 import type { IWorkforceRepository } from "../../modules/workforce/repositories/workforce.repository.js";
 import type { IWorkspaceRepository } from "../../modules/workspaces/repositories/workspace.repository.js";
 import type { ISettingsRepository } from "../../modules/settings/repositories/settings.repository.js";
+import type { ILookupRepository } from "../../modules/lookups/repositories/lookup.repository.js";
+import type { IConnectorCatalogRepository } from "../../modules/connections/repositories/connector-catalog.repository.js";
 export interface IRepositorySet {
     readonly users: IUserRepository;
     readonly workspaces: IWorkspaceRepository;
@@ -23,6 +25,8 @@ export interface IRepositorySet {
     readonly notifications: INotificationRepository;
     readonly domains: IDomainRepository;
     readonly settings: ISettingsRepository;
+    readonly lookups: ILookupRepository;
+    readonly connectorCatalog: IConnectorCatalogRepository;
 }
 export interface IUnitOfWork extends IRepositorySet {
     transaction<T>(operation: (repositories: IUnitOfWork) => Promise<T>): Promise<T>;

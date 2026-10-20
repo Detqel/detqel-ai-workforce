@@ -24,6 +24,7 @@ import { userRoutes } from "./modules/users/routes/user.routes.js";
 import { agentRoutes } from "./modules/workforce/routes/agent.routes.js";
 import { workspaceRoutes } from "./modules/workspaces/routes/workspace.routes.js";
 import { settingsRoutes } from "./modules/settings/routes/settings.routes.js";
+import { lookupRoutes } from "./modules/lookups/routes/lookup.routes.js";
 import { AppError } from "./shared/errors/app-error.js";
 import { createLogStream } from "./shared/logging/logger.js";
 export interface BuildAppOptions {
@@ -45,8 +46,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
             redact: ["req.headers.authorization", "req.headers.cookie", "password", "passwordHash"],
         },
     });
-    app.decorate("services", options.services ?? createServices(new UnitOfWork(connection!.db), connection!.check));
+    app.decorate("services", options.services ?? createServices(new UnitOfWork(connection!.db), connection!.check, config));
     app.addHook("onClose", async () => {
+        await app.services.connections.close();
         await connection?.close();
         await options.close?.();
     });
@@ -89,6 +91,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
                     { name: "Business Brain", description: "Profile, Knowledge, Goals, Rules, State, and Memory" },
                     { name: "AI Workforce", description: "Agents, connections, and agent memory" },
                     { name: "Connections", description: "Data sources and external tool integrations" },
+                    { name: "Lookups", description: "Common lookup table operations" },
                     { name: "Missions & Command Center", description: "Mission lifecycles, plans, and event timelines" },
                     { name: "Approvals", description: "Human-in-the-loop governance and sign-off" },
                     { name: "Executions", description: "Action dispatching and execution status" },
@@ -146,6 +149,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
             await apiRouter.register(businessRoutes);
             await apiRouter.register(agentRoutes);
             await apiRouter.register(connectionRoutes);
+            await apiRouter.register(lookupRoutes);
             await apiRouter.register(missionRoutes);
             await apiRouter.register(approvalRoutes);
             await apiRouter.register(executionRoutes);

@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { User, Send, Loader2, X } from "lucide-react";
+import { IconOnlyButton } from "@/components/ui/icon-only-button";
 
 interface TestPreviewSectionProps {
   previewMode: "chat" | "structured";
@@ -121,18 +122,19 @@ export const TestPreviewSection: React.FC<TestPreviewSectionProps> = ({
         />
 
         {/* Send button */}
-        <button
+        <IconOnlyButton
           type="submit"
           disabled={!promptInput.trim() || isLoading}
           aria-label="Send prompt to VYRA"
-          className="w-8 h-8 rounded-full bg-[#8a2be2] hover:bg-[#7823c9] text-white flex items-center justify-center shadow-md shadow-[#8a2be2]/30 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed transition-transform active:scale-95 shrink-0"
-        >
-          {isLoading ? (
-            <Loader2 className="w-4 h-4 animate-spin text-white" />
-          ) : (
-            <Send className="w-3.5 h-3.5 -translate-x-px translate-y-px" />
-          )}
-        </button>
+          className="w-8 h-8 rounded-full bg-[#8a2be2] hover:bg-[#7823c9] text-white shadow-md shadow-[#8a2be2]/30 active:scale-95 shrink-0"
+          icon={
+            isLoading ? (
+              <Loader2 className="w-4 h-4 animate-spin text-white" />
+            ) : (
+              <Send className="w-3.5 h-3.5 -translate-x-px translate-y-px" />
+            )
+          }
+        />
       </form>
 
       {/* Interactive Output Preview Panel */}
@@ -150,13 +152,12 @@ export const TestPreviewSection: React.FC<TestPreviewSectionProps> = ({
               </span>
             </div>
 
-            <button
-              type="button"
+            <IconOnlyButton
               onClick={() => setTestResponse(null)}
-              className="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 p-1 rounded-lg hover:bg-slate-200/50 dark:hover:bg-slate-800 transition-colors"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
+              className="p-1 rounded-lg"
+              aria-label="Close response"
+              icon={<X className="w-3.5 h-3.5" />}
+            />
           </div>
 
           {/* Response body */}

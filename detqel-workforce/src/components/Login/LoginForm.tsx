@@ -25,6 +25,8 @@ import {
   UserProfile,
   WorkspaceSummary,
 } from "@/lib/api";
+import { PrimaryButton } from "@/components/ui/primary-button";
+import { IconOnlyButton } from "@/components/ui/icon-only-button";
 
 export const LoginForm: React.FC = () => {
   const { setSession } = useWorkspace();
@@ -441,20 +443,20 @@ export const LoginForm: React.FC = () => {
                       placeholder="Enter your password"
                       className="w-full bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
                     />
-                    <button
-                      type="button"
+                    <IconOnlyButton
                       onClick={() => setShowSignInPassword(!showSignInPassword)}
-                      className="text-slate-400 hover:text-slate-600 transition-colors cursor-pointer ml-1 p-0.5"
+                      className="ml-1 p-0.5"
                       aria-label={
                         showSignInPassword ? "Hide password" : "Show password"
                       }
-                    >
-                      {showSignInPassword ? (
-                        <EyeOff className="w-4 h-4" />
-                      ) : (
-                        <Eye className="w-4 h-4" />
-                      )}
-                    </button>
+                      icon={
+                        showSignInPassword ? (
+                          <EyeOff className="w-4 h-4" />
+                        ) : (
+                          <Eye className="w-4 h-4" />
+                        )
+                      }
+                    />
                   </div>
                 </div>
 
@@ -617,20 +619,20 @@ export const LoginForm: React.FC = () => {
                         placeholder="Min. 8 characters"
                         className="w-full bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
                       />
-                      <button
-                        type="button"
+                      <IconOnlyButton
                         onClick={() => setShowPassword(!showPassword)}
-                        className="text-slate-400 hover:text-slate-600 transition-colors cursor-pointer ml-1 p-0.5"
+                        className="ml-1 p-0.5"
                         aria-label={
                           showPassword ? "Hide password" : "Show password"
                         }
-                      >
-                        {showPassword ? (
-                          <EyeOff className="w-4 h-4" />
-                        ) : (
-                          <Eye className="w-4 h-4" />
-                        )}
-                      </button>
+                        icon={
+                          showPassword ? (
+                            <EyeOff className="w-4 h-4" />
+                          ) : (
+                            <Eye className="w-4 h-4" />
+                          )
+                        }
+                      />
                     </div>
                   </div>
 
@@ -652,24 +654,24 @@ export const LoginForm: React.FC = () => {
                         placeholder="Repeat password"
                         className="w-full bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
                       />
-                      <button
-                        type="button"
+                      <IconOnlyButton
                         onClick={() =>
                           setShowConfirmPassword(!showConfirmPassword)
                         }
-                        className="text-slate-400 hover:text-slate-600 transition-colors cursor-pointer ml-1 p-0.5"
+                        className="ml-1 p-0.5"
                         aria-label={
                           showConfirmPassword
                             ? "Hide password"
                             : "Show password"
                         }
-                      >
-                        {showConfirmPassword ? (
-                          <EyeOff className="w-4 h-4" />
-                        ) : (
-                          <Eye className="w-4 h-4" />
-                        )}
-                      </button>
+                        icon={
+                          showConfirmPassword ? (
+                            <EyeOff className="w-4 h-4" />
+                          ) : (
+                            <Eye className="w-4 h-4" />
+                          )
+                        }
+                      />
                     </div>
                   </div>
                 </div>
@@ -729,38 +731,30 @@ export const LoginForm: React.FC = () => {
             )}
 
             <div className="pt-2">
-              <button
+              <PrimaryButton
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full py-3.5 px-4 rounded-xl font-semibold text-sm text-white flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md hover:shadow-lg active:scale-[0.99] disabled:opacity-75 disabled:cursor-not-allowed"
-                style={{ backgroundColor: "#8a2be2" }}
-                onMouseOver={(e) =>
-                  (e.currentTarget.style.backgroundColor = "#7823c9")
+                className="w-full py-3.5 text-sm shadow-md hover:shadow-lg"
+                value={
+                  isSubmitting
+                    ? "Authenticating..."
+                    : isForgotPassword
+                    ? "Send Reset Link"
+                    : activeTab === "signin"
+                    ? "Sign In"
+                    : existingUserMatch?.exists
+                    ? "Sign In to Your Workspace"
+                    : "Create Account"
                 }
-                onMouseOut={(e) =>
-                  (e.currentTarget.style.backgroundColor = "#8a2be2")
-                }
-              >
-                {isSubmitting ? (
-                  <>
+                icon={
+                  isSubmitting ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Authenticating...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>
-                      {isForgotPassword
-                        ? "Send Reset Link"
-                        : activeTab === "signin"
-                        ? "Sign In"
-                        : existingUserMatch?.exists
-                        ? "Sign In to Your Workspace"
-                        : "Create Account"}
-                    </span>
+                  ) : (
                     <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </button>
+                  )
+                }
+                iconPosition={isSubmitting ? "left" : "right"}
+              />
             </div>
 
             {isForgotPassword && (

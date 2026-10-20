@@ -22,6 +22,8 @@ import {
 } from "@/lib/api";
 import { useNavigation } from "@/context/NavigationContext";
 import { defaultPageId } from "@/lib/navigation";
+import { PrimaryButton } from "@/components/ui/primary-button";
+import { IconOnlyButton } from "@/components/ui/icon-only-button";
 
 export const CreateWorkspaceModal: React.FC = () => {
   const { navigate } = useNavigation();
@@ -129,14 +131,12 @@ export const CreateWorkspaceModal: React.FC = () => {
       <div className="w-[96vw] max-w-5xl xl:max-w-6xl h-[88vh] max-h-[760px] min-h-[580px] bg-slate-900 border border-slate-700/60 rounded-3xl shadow-2xl overflow-hidden flex flex-col md:flex-row relative animate-in zoom-in-95 duration-300">
         {/* Dismiss Button (only visible if user already has at least one existing workspace) */}
         {canDismiss && (
-          <button
-            type="button"
+          <IconOnlyButton
             onClick={closeCreateWorkspaceModal}
-            className="absolute top-4 right-4 z-30 p-2 rounded-xl text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors cursor-pointer"
+            className="absolute top-4 right-4 z-30 p-2 text-slate-400 hover:text-slate-200 hover:bg-slate-800"
             aria-label="Close modal"
-          >
-            <X className="w-5 h-5" />
-          </button>
+            icon={<X className="w-5 h-5" />}
+          />
         )}
 
         {/* LEFT COLUMN: Modern Workspace Presentation & AI Workforce Explanation */}
@@ -320,24 +320,15 @@ export const CreateWorkspaceModal: React.FC = () => {
           </div>
 
           <div className="pt-5 mt-auto">
-            <button
+            <PrimaryButton
               type="submit"
               form="create-workspace-form"
               disabled={isSubmitting}
-              className="w-full py-3.5 px-4 rounded-xl bg-[#8a2be2] dark:bg-[#FFA500] hover:bg-[#7b24ca] dark:hover:bg-[#FFA500]/90 active:scale-[0.99] text-white dark:text-slate-950 font-bold text-xs shadow-md shadow-[#8a2be2]/25 dark:shadow-[#FFA500]/25 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-60"
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Provisioning Workspace & AI Agents...</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-4 h-4" />
-                  <span>Create Workspace & Launch Dashboard</span>
-                </>
-              )}
-            </button>
+              className="w-full py-3.5"
+              value={isSubmitting ? "Provisioning Workspace & AI Agents..." : "Create Workspace & Launch Dashboard"}
+              icon={isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+              iconPosition="left"
+            />
 
             <p className="text-[10px] text-slate-400 dark:text-slate-400 text-center mt-3 leading-normal">
               You can invite team members and configure connectors at any time from your command center settings.

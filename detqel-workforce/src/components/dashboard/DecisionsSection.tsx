@@ -2,6 +2,7 @@ import React from "react";
 import { WorkspaceLink as Link } from "@/components/navigation/WorkspaceLink";
 import { defaultPageId } from "@/lib/navigation";
 import { CheckCircle2, ArrowRight, FileText, ExternalLink } from "lucide-react";
+import { SecondaryButton } from "@/components/ui/secondary-button";
 
 export const DecisionsSection: React.FC = () => {
   return (
@@ -43,13 +44,10 @@ export const DecisionsSection: React.FC = () => {
           </p>
         </div>
         <div className="pt-2">
-          <button
-            type="button"
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white dark:bg-[#151f32] hover:bg-slate-50 dark:hover:bg-[#1e2a40] text-slate-700 dark:text-slate-300 dark:hover:text-[#FFA500] border border-slate-200 dark:border-slate-700 text-xs font-semibold transition-colors cursor-pointer shadow-2xs"
-          >
-            <span>Learn how it works</span>
-            <ExternalLink className="w-3.5 h-3.5 text-slate-400 dark:text-slate-400" />
-          </button>
+          <SecondaryButton
+            value="Learn how it works"
+            icon={<ExternalLink className="w-3.5 h-3.5 text-slate-400 dark:text-slate-400" />}
+          />
         </div>
       </div>
     </div>

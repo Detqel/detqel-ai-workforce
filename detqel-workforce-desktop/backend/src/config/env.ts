@@ -3,6 +3,12 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 if (!process.env.DETQEL_DESKTOP) dotenv.config({ path: fileURLToPath(new URL("../../.env", import.meta.url)) });
 export const envSchema = z.object({
+    AUTH_SESSION_SECRET: z.string().min(43),
+    AUTH_SESSION_TTL_SECONDS: z.coerce.number().int().positive(),
+    CONNECTOR_ENCRYPTION_KEY: z.string().min(43),
+    CONNECTOR_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive(),
+    CONNECTOR_ALLOWED_COMMANDS: z.string().transform(value => JSON.parse(value) as unknown).pipe(z.array(z.string().min(1))),
+    CONNECTOR_ALLOWED_ROOTS: z.string().transform(value => JSON.parse(value) as unknown).pipe(z.array(z.string().min(1))),
     PORT: z.coerce.number().int().min(process.env.DETQEL_DESKTOP ? 0 : 1).max(65535).default(8100),
     HOST: z.string().min(1).default("127.0.0.1"),
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),

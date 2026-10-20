@@ -12,7 +12,7 @@ export type WorkspaceOverview = Workspace & {
 };
 export type AgentWithDetails = Agent & {
     connections: (AgentConnection & {
-        connection: Connection;
+        connection: Omit<Connection, "credentialReference">;
     })[];
     memories: AgentMemory[];
 };

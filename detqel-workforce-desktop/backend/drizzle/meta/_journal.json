@@ -36,6 +36,27 @@
       "when": 1791800000000,
       "tag": "0004_settings_vyra",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792454400000,
+      "tag": "0005_connector_types",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792537200000,
+      "tag": "0006_connector_catalog",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792600000000,
+      "tag": "0007_connector_catalog_icons",
+      "breakpoints": true
     }
   ]
 }

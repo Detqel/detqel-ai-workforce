@@ -2,6 +2,8 @@ import React from "react";
 import { WorkspaceLink as Link } from "@/components/navigation/WorkspaceLink";
 import { defaultPageId, pageIds } from "@/lib/navigation";
 import { Activity, ArrowRight, Radio } from "lucide-react";
+import { useNavigation } from "@/context/NavigationContext";
+import { SecondaryButton } from "@/components/ui/secondary-button";
 
 interface BusinessSignalsSectionProps {
   signals?: Array<{
@@ -16,6 +18,7 @@ interface BusinessSignalsSectionProps {
 export const BusinessSignalsSection: React.FC<BusinessSignalsSectionProps> = ({
   signals = [],
 }) => {
+  const { navigate } = useNavigation();
   const hasSignals = signals && signals.length > 0;
 
   return (
@@ -89,13 +92,11 @@ export const BusinessSignalsSection: React.FC<BusinessSignalsSectionProps> = ({
               </p>
             </div>
             <div className="pt-2">
-              <Link
-                href={pageIds.connectors}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white dark:bg-[#151f32] hover:bg-slate-50 dark:hover:bg-[#1e2a40] text-slate-700 dark:text-slate-300 dark:hover:text-[#FFA500] border border-slate-200 dark:border-slate-700 text-xs font-semibold transition-colors cursor-pointer shadow-2xs"
-              >
-                <span>Connect</span>
-                <ArrowRight className="w-3.5 h-3.5 text-slate-400 dark:text-slate-400" />
-              </Link>
+              <SecondaryButton
+                onClick={() => navigate(pageIds.connectors)}
+                value="Connect"
+                icon={<ArrowRight className="w-3.5 h-3.5 text-slate-400 dark:text-slate-400" />}
+              />
             </div>
           </div>
         )}

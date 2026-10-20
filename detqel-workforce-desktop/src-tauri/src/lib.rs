@@ -96,6 +96,7 @@ async fn api_request(
     path: String,
     method: String,
     body: Option<String>,
+    authorization: Option<String>,
 ) -> Result<ApiResponse, String> {
     if !valid_api_path(&path) {
         return Err("Only application API paths are allowed".into());
@@ -117,6 +118,12 @@ async fn api_request(
     let mut request = client
         .request(method, format!("{address}{path}"))
         .header("x-detqel-desktop-token", token);
+    if let Some(authorization) = authorization {
+        if !authorization.starts_with("Bearer ") || authorization.len() > 4096 {
+            return Err("Invalid session authorization header".into());
+        }
+        request = request.header("Authorization", authorization);
+    }
     if let Some(body) = body {
         request = request
             .header("Content-Type", "application/json")

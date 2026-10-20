@@ -4,6 +4,8 @@ export * from "./auth.js";
 export * from "./automations.js";
 export * from "./business.js";
 export * from "./connections.js";
+export * from "./connector-types.js";
+export * from "./connector-catalog.js";
 export * from "./domains.js";
 export * from "./missions.js";
 export * from "./notifications.js";

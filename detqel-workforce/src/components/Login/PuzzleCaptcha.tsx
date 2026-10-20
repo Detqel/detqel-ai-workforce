@@ -9,6 +9,7 @@ import {
   AlertTriangle,
   Sparkles,
 } from "lucide-react";
+import { IconOnlyButton } from "@/components/ui/icon-only-button";
 
 interface PuzzleCaptchaProps {
   onVerify: (isVerified: boolean) => void;
@@ -325,22 +326,20 @@ export const PuzzleCaptcha: React.FC<PuzzleCaptchaProps> = ({
               <span>Slide the piece to complete image</span>
             </div>
             <div className="flex items-center gap-1">
-              <button
-                type="button"
+              <IconOnlyButton
                 onClick={randomizePuzzle}
                 title="Change image & reset puzzle"
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
+                aria-label="Change image and reset puzzle"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-800 hover:bg-slate-100"
+                icon={<RefreshCw className="w-3.5 h-3.5" />}
+              />
+              <IconOnlyButton
                 onClick={() => setIsOpen(false)}
                 title="Close"
-                className="text-xs text-slate-400 hover:text-slate-700 p-1.5 cursor-pointer font-bold"
-              >
-                ✕
-              </button>
+                aria-label="Close"
+                className="text-xs text-slate-400 hover:text-slate-700 p-1.5 font-bold"
+                icon={<span>✕</span>}
+              />
             </div>
           </div>
 

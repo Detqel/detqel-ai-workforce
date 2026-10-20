@@ -1,3 +1,5 @@
+import { storeAccessToken } from "./auth-session";
+
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8100";
 
@@ -23,6 +25,8 @@ export interface WorkspaceSummary {
 }
 
 export interface AuthResponse {
+  accessToken: string;
+  expiresAt: string;
   user: UserProfile;
   workspaces: WorkspaceSummary[];
   hasWorkspace: boolean;
@@ -90,6 +94,7 @@ export async function apiLogin(payload: {
     throw new Error(data.message || "Failed to authenticate with DETQEL API");
   }
 
+  storeAccessToken(data.accessToken);
   return data;
 }
 
@@ -115,6 +120,7 @@ export async function apiRegister(payload: {
     throw new Error(data.message || "Failed to create account with DETQEL API");
   }
 
+  storeAccessToken(data.accessToken);
   return data;
 }
 

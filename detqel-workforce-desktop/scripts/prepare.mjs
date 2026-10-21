@@ -84,7 +84,7 @@ npm(["ci", "--omit=dev", "--ignore-scripts", "--workspace", "backend", "--no-aud
 const resources = safeGenerated("src-tauri/resources/backend");
 await rm(resources, { force: true, recursive: true });
 await mkdir(resources, { recursive: true });
-for (const relative of ["dist", "drizzle", "package.json", ".env.example"]) {
+for (const relative of ["dist", "drizzle", "infrastructure", "package.json", ".env.example"]) {
   await cp(path.join(root, "backend", relative), path.join(resources, relative), { recursive: true });
 }
 await cp(path.join(staging, "node_modules"), path.join(resources, "node_modules"), {

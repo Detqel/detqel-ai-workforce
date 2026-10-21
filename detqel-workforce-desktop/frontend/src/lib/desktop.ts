@@ -1,9 +1,18 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
+export interface BackendStartupStep {
+  id: string;
+  label: string;
+  status: "pending" | "running" | "complete" | "error";
+  detail: string | null;
+}
+
 export interface BackendStatus {
   ready: boolean;
   error: string | null;
   configPath: string;
+  steps: BackendStartupStep[];
+  elapsedSeconds: number;
 }
 
 export const inDesktop = () => typeof window !== "undefined" && isTauri();

@@ -6,6 +6,7 @@ An independent Tauri 2 desktop workspace containing the full Next.js frontend an
 
 - Windows 10/11 x64, Microsoft Edge WebView2, Rust stable MSVC, and Visual Studio C++ desktop build tools with the Windows SDK.
 - Node.js **24 LTS** and npm 11. The build packages the installed Node executable and records its version and SHA-256; use a trusted Node distribution on build machines.
+- Current Docker Desktop with a local Linux container engine and Docker Compose v2. The desktop app starts its managed services automatically; the first launch downloads their images.
 - An accessible PostgreSQL service. PostgreSQL is an external service, not bundled or installed by the desktop application. AI-provider features and the existing Unsplash CAPTCHA images require internet access.
 
 ## First setup and development
@@ -65,7 +66,19 @@ On first launch the app creates a writable configuration file, without overwriti
 %APPDATA%\com.detqel.workforce\backend.env
 ```
 
-Edit `DATABASE_URL` there, ensure PostgreSQL is accessible and migrations are current, then restart. Environment variables take precedence over file configuration. Development uses `backend/.env` instead. Provider URLs and database pool options remain supported. The app forces its backend to loopback on an OS-assigned port, irrespective of configured `HOST`/`PORT`, and uses production mode for installed backend execution. Keep configuration files private; do not place database credentials or provider secrets in `NEXT_PUBLIC_*` variables.
+Edit `DATABASE_URL` there, ensure PostgreSQL is accessible and migrations are current, then restart. Environment variables take precedence over file configuration. Development uses `backend/.env` instead. Provider URLs and database pool options remain supported. The app binds its backend to an available `127.0.0.1` port in 50000–59999, irrespective of configured `HOST`/`PORT`, and uses production mode for installed backend execution. Keep configuration files private; do not place database credentials or provider secrets in `NEXT_PUBLIC_*` variables.
+
+## Managed LiteLLM and Milvus services
+
+Every desktop launch starts or reconciles a per-user Docker Compose project named `detqel-workforce-<runtime-directory-hash>`. The startup screen displays actual Docker, LiteLLM database, Milvus, gateway, application database, and API readiness before opening the workspace. Software updates are not part of this flow.
+
+The stack contains the latest LiteLLM image, its dedicated PostgreSQL 16 database, and Milvus with private etcd/MinIO dependencies. LiteLLM's database has no host port and shares a dedicated internal network only with LiteLLM. LiteLLM and Milvus receive available host ports in 50000–59999 with explicit `127.0.0.1` bindings; auxiliary ports are not published. These localhost endpoints require generated credentials. Localhost binding does not prevent other local programs from opening a TCP connection; authentication protects service access.
+
+Images are pulled at startup, containers use `restart: unless-stopped`, and named data volumes survive desktop exit. The existing application database remains the configured external PostgreSQL service. A failed image download or readiness check stops startup with an actionable error instead of showing a ready workspace.
+
+Generated credentials and configuration are stored under `%APPDATA%\\com.detqel.workforce\\runtime\\infrastructure` for installed Windows builds, with current-user permissions. Preserve this directory together with the Docker volumes, especially the LiteLLM salt key. Ports and keys are discovered by the startup manager and provided only to the backend through `LITELLM_BASE_URL`, `LITELLM_API_KEY`, `MILVUS_ADDRESS`, and `MILVUS_TOKEN`. Secrets are never sent to the startup UI. Configure gateway models/provider credentials in the managed LiteLLM configuration or its authenticated Admin UI; no model or embedding service is invented automatically.
+
+See [infrastructure configuration](backend/infrastructure/README.md) for images, private networking, lifecycle, and operational limitations. No Docker launches, builds, or tests were run while implementing this feature.
 
 Runtime startup verifies database migration history and performs no provisioning, migrations, or seeding. For initial provisioning or an upgrade, an operator uses this source workspace against the **same database** configured for the installed app:
 

@@ -1,0 +1,19 @@
+etcd:
+  endpoints: etcd:2379
+  auth:
+    enabled: false
+minio:
+  address: minio
+  port: 9000
+  accessKeyID: "__MINIO_ACCESS_KEY__"
+  secretAccessKey: "__MINIO_SECRET_KEY__"
+  useSSL: false
+  bucketName: detqel-vectors
+  region: us-east-1
+mq:
+  type: woodpecker
+common:
+  security:
+    authorizationEnabled: true
+    adminAuthEnabled: true
+    defaultRootPassword: "__MILVUS_ROOT_PASSWORD__"

@@ -3,6 +3,10 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 if (!process.env.DETQEL_DESKTOP) dotenv.config({ path: fileURLToPath(new URL("../../.env", import.meta.url)) });
 export const envSchema = z.object({
+    LITELLM_BASE_URL: z.string().url().optional(),
+    LITELLM_API_KEY: z.string().min(1).optional(),
+    MILVUS_ADDRESS: z.string().url().optional(),
+    MILVUS_TOKEN: z.string().min(1).optional(),
     AUTH_SESSION_SECRET: z.string().min(43),
     AUTH_SESSION_TTL_SECONDS: z.coerce.number().int().positive(),
     CONNECTOR_ENCRYPTION_KEY: z.string().min(43),

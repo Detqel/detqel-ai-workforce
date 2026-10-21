@@ -1,0 +1,159 @@
+services:
+  litellm-database:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?Generated PostgreSQL username is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Generated PostgreSQL password is required}
+      POSTGRES_DB: litellm
+    volumes:
+      - litellm-postgres:/var/lib/postgresql/data
+    networks:
+      - litellm-private
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready --username="$${POSTGRES_USER}" --dbname="$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  litellm:
+    image: docker.litellm.ai/berriai/litellm:latest
+    pull_policy: always
+    restart: unless-stopped
+    command: [--config, /app/detqel-config.yaml, --host, 0.0.0.0, --port, '4000']
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?Generated LiteLLM master key is required}
+      LITELLM_SALT_KEY: ${LITELLM_SALT_KEY:?Persisted LiteLLM encryption key is required}
+      DATABASE_URL: postgresql://${POSTGRES_USER:?Generated PostgreSQL username is required}:${POSTGRES_PASSWORD:?Generated PostgreSQL password is required}@litellm-database:5432/litellm
+      STORE_MODEL_IN_DB: 'True'
+    volumes:
+      - type: bind
+        source: ./litellm.yaml
+        target: /app/detqel-config.yaml
+        read_only: true
+    networks:
+      - litellm-private
+      - litellm-egress
+    ports:
+      - target: 4000
+        published: '50000-59999'
+        host_ip: 127.0.0.1
+        protocol: tcp
+    depends_on:
+      litellm-database:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, 'import json,urllib.request; h=json.load(urllib.request.urlopen("http://127.0.0.1:4000/health/readiness",timeout=5)); assert h.get("status")=="healthy" and h.get("db")=="connected"']
+      interval: 10s
+      timeout: 8s
+      retries: 30
+      start_period: 90s
+
+  milvus-volume-init:
+    image: milvusdb/milvus:v3.0.3
+    user: '0:0'
+    network_mode: none
+    read_only: true
+    restart: 'no'
+    entrypoint: [/bin/sh, -c]
+    command:
+      - |
+        set -eu
+        owner="$$(id -u milvus):$$(id -g milvus)"
+        marker="/var/lib/milvus/.detqel-owner-$${owner}"
+        if [ ! -e "$${marker}" ]; then
+          chown -R "$${owner}" /var/lib/milvus
+          touch "$${marker}"
+          chown "$${owner}" "$${marker}"
+        fi
+    volumes:
+      - milvus-data:/var/lib/milvus
+
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.25
+    restart: unless-stopped
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: '1000'
+      ETCD_QUOTA_BACKEND_BYTES: '4294967296'
+      ETCD_SNAPSHOT_COUNT: '50000'
+    command: [etcd, --advertise-client-urls=http://etcd:2379, --listen-client-urls=http://0.0.0.0:2379, --data-dir=/etcd]
+    volumes:
+      - milvus-etcd:/etcd
+    networks:
+      - vector-private
+    healthcheck:
+      test: [CMD, etcdctl, endpoint, health]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  minio:
+    image: milvusdb/minio:RELEASE.2024-12-18T13-15-44Z
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Generated MinIO access key is required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Generated MinIO secret key is required}
+    command: [minio, server, /minio_data, --console-address, ':9001']
+    volumes:
+      - milvus-minio:/minio_data
+    networks:
+      - vector-private
+    healthcheck:
+      test: [CMD, mc, ready, local]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  milvus:
+    image: milvusdb/milvus:v3.0.3
+    restart: unless-stopped
+    command: [milvus, run, standalone]
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      MINIO_REGION: us-east-1
+    security_opt:
+      - seccomp:unconfined
+    volumes:
+      - milvus-data:/var/lib/milvus
+      - type: bind
+        source: ./milvus.user.yaml
+        target: /milvus/configs/user.yaml
+        read_only: true
+    networks:
+      - vector-private
+      - vector-access
+    ports:
+      - target: 19530
+        published: '50000-59999'
+        host_ip: 127.0.0.1
+        protocol: tcp
+    depends_on:
+      milvus-volume-init:
+        condition: service_completed_successfully
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, curl, --fail, --silent, --max-time, '5', http://127.0.0.1:9091/healthz]
+      interval: 10s
+      timeout: 8s
+      retries: 30
+      start_period: 90s
+
+networks:
+  litellm-private:
+    internal: true
+  litellm-egress: {}
+  vector-private:
+    internal: true
+  vector-access: {}
+
+volumes:
+  litellm-postgres: {}
+  milvus-data: {}
+  milvus-etcd: {}
+  milvus-minio: {}

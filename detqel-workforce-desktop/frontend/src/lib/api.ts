@@ -1,7 +1,7 @@
+import { API_BASE_URL, API_PATHS, API_ACTIONS } from "@/constants/apiConstants";
 import { desktopFetch } from "./desktop";
 import { storeAccessToken } from "./auth-session";
-export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8100";
+export { API_BASE_URL } from "@/constants/apiConstants";
 
 export interface UserProfile {
   id: string;
@@ -63,7 +63,7 @@ export async function apiCheckUser(params: {
   }
 
   try {
-    const res = await desktopFetch(`${API_BASE_URL}/api/auth/check-user?${query.toString()}`);
+    const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.authCheckUser}?${query.toString()}`);
     if (!res.ok) {
       return { exists: false, hasWorkspace: false };
     }
@@ -81,7 +81,7 @@ export async function apiLogin(payload: {
   password: string;
   companyName?: string;
 }): Promise<AuthResponse> {
-  const res = await desktopFetch(`${API_BASE_URL}/api/auth/login`, {
+  const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.authLogin}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -107,7 +107,7 @@ export async function apiRegister(payload: {
   username?: string;
   password: string;
 }): Promise<AuthResponse> {
-  const res = await desktopFetch(`${API_BASE_URL}/api/auth/register`, {
+  const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.authRegister}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -130,7 +130,7 @@ export async function apiRegister(payload: {
 export async function apiGetUserWorkspaces(
   userId: string
 ): Promise<WorkspaceSummary[]> {
-  const res = await desktopFetch(`${API_BASE_URL}/api/workspaces/user/${userId}`);
+  const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.userWorkspaces}/${userId}`);
   if (!res.ok) {
     throw new Error("Failed to retrieve user workspaces");
   }
@@ -147,7 +147,7 @@ export async function apiCreateWorkspace(payload: {
   description?: string;
   createdBy: string;
 }): Promise<WorkspaceSummary> {
-  const res = await desktopFetch(`${API_BASE_URL}/api/workspaces`, {
+  const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.workspaces}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -167,7 +167,7 @@ export async function apiCreateWorkspace(payload: {
  * Permanently delete a workspace by ID
  */
 export async function apiDeleteWorkspace(workspaceId: string): Promise<boolean> {
-  const res = await desktopFetch(`${API_BASE_URL}/api/workspaces/${workspaceId}`, {
+  const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.workspaces}/${workspaceId}`, {
     method: "DELETE",
   });
   if (!res.ok) {
@@ -188,7 +188,7 @@ export async function apiUpdateWorkspace(
     description?: string;
   }
 ): Promise<WorkspaceSummary> {
-  const res = await desktopFetch(`${API_BASE_URL}/api/workspaces/${workspaceId}`, {
+  const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.workspaces}/${workspaceId}`, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
@@ -217,7 +217,7 @@ export interface IndustryDomainItem {
  * Fetch all industry domains dynamically from database
  */
 export async function apiGetDomains(): Promise<IndustryDomainItem[]> {
-  const res = await desktopFetch(`${API_BASE_URL}/api/domains`);
+  const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.domains}`);
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
     throw new Error(errorData.message || "Failed to retrieve industry domains");
@@ -229,7 +229,7 @@ export async function apiGetDomains(): Promise<IndustryDomainItem[]> {
  * Store a custom industry domain in the database
  */
 export async function apiCreateDomain(name: string): Promise<IndustryDomainItem> {
-  const res = await desktopFetch(`${API_BASE_URL}/api/domains`, {
+  const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.domains}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -273,7 +273,7 @@ export async function apiGetActivityHeatmap(params: {
     if (params.days) query.set("days", params.days.toString());
 
     const res = await desktopFetch(
-      `${API_BASE_URL}/api/analytics/activity-heatmap?${query.toString()}`
+      `${API_BASE_URL}${API_PATHS.activityHeatmap}?${query.toString()}`
     );
     if (!res.ok) return null;
     return res.json();
@@ -313,7 +313,7 @@ export async function apiGetUserNotifications(params: {
     if (params.workspaceId) query.set("workspaceId", params.workspaceId);
     if (params.unreadOnly) query.set("unreadOnly", "true");
 
-    const res = await desktopFetch(`${API_BASE_URL}/api/notifications?${query.toString()}`);
+    const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.notifications}?${query.toString()}`);
     if (!res.ok) {
       return { notifications: [], unreadCount: 0 };
     }
@@ -328,7 +328,7 @@ export async function apiGetUserNotifications(params: {
  */
 export async function apiMarkNotificationRead(id: string): Promise<boolean> {
   try {
-    const res = await desktopFetch(`${API_BASE_URL}/api/notifications/${id}/read`, {
+    const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.notifications}/${id}/${API_ACTIONS.notificationRead}`, {
       method: "PATCH",
     });
     return res.ok;
@@ -345,7 +345,7 @@ export async function apiMarkAllNotificationsRead(params: {
   workspaceId?: string;
 }): Promise<boolean> {
   try {
-    const res = await desktopFetch(`${API_BASE_URL}/api/notifications/mark-all-read`, {
+    const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.markNotificationsRead}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
@@ -423,7 +423,7 @@ export interface VyraSettings {
 
 export async function apiGetAIProviders(): Promise<AIProvider[]> {
   try {
-    const res = await desktopFetch(`${API_BASE_URL}/api/settings/providers`);
+    const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.aiProviders}`);
     if (!res.ok) return [];
     const data = await res.json();
     return data.providers || [];
@@ -440,7 +440,7 @@ export async function apiGetProviderModels(
   try {
     const query = apiKey?.trim() ? `?apiKey=${encodeURIComponent(apiKey.trim())}` : "";
     const res = await desktopFetch(
-      `${API_BASE_URL}/api/settings/providers/${encodeURIComponent(providerId)}/models${query}`
+      `${API_BASE_URL}${API_PATHS.aiProviders}/${encodeURIComponent(providerId)}/${API_ACTIONS.providerModels}${query}`
     );
     if (!res.ok) {
       return [];
@@ -460,7 +460,7 @@ export async function apiUpdateAIProvider(
   updates: Partial<AIProvider>
 ): Promise<AIProvider | null> {
   try {
-    const res = await desktopFetch(`${API_BASE_URL}/api/settings/providers/${id}`, {
+    const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.aiProviders}/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updates),
@@ -484,7 +484,7 @@ export async function apiTestConnection(params: {
   latencyMs: number;
 }> {
   try {
-    const res = await desktopFetch(`${API_BASE_URL}/api/settings/test-connection`, {
+    const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.testAIConnection}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
@@ -511,7 +511,7 @@ export async function apiTestConnection(params: {
 export async function apiGetVyraSettings(workspaceId?: string): Promise<VyraSettings | null> {
   try {
     const query = workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : "";
-    const res = await desktopFetch(`${API_BASE_URL}/api/settings/vyra${query}`);
+    const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.agentSettings}${query}`);
     if (!res.ok) return null;
     const data = await res.json();
     return data.settings || null;
@@ -526,7 +526,7 @@ export async function apiUpdateVyraSettings(
 ): Promise<VyraSettings | null> {
   try {
     const query = workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : "";
-    const res = await desktopFetch(`${API_BASE_URL}/api/settings/vyra${query}`, {
+    const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.agentSettings}${query}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updates),
@@ -555,7 +555,7 @@ export async function apiTestVyraPrompt(params: {
   timestamp: string;
 }> {
   try {
-    const res = await desktopFetch(`${API_BASE_URL}/api/settings/vyra/test-prompt`, {
+    const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.testAgentPrompt}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),

@@ -1,13 +1,13 @@
-const SESSION_KEY = "detqel_access_token";
+import { AUTH_STORAGE_KEYS } from "@/constants/authConstants";
 
 export function storeAccessToken(accessToken: string): void {
-  sessionStorage.setItem(SESSION_KEY, accessToken);
+  sessionStorage.setItem(AUTH_STORAGE_KEYS.accessToken, accessToken);
 }
 
 export function readAccessToken(): string | null {
-  return typeof window === "undefined" ? null : sessionStorage.getItem(SESSION_KEY);
+  return typeof window === "undefined" ? null : sessionStorage.getItem(AUTH_STORAGE_KEYS.accessToken);
 }
 
 export function clearAccessToken(): void {
-  sessionStorage.removeItem(SESSION_KEY);
+  sessionStorage.removeItem(AUTH_STORAGE_KEYS.accessToken);
 }

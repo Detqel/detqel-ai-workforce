@@ -1,5 +1,7 @@
 "use client";
 
+import { CATALOG_ALL_CATEGORIES_OPTION } from "@/constants/connectorConstants";
+
 import React, { useEffect, useMemo, useState } from "react";
 import { ArrowUpRight, Loader2, Search } from "lucide-react";
 import { ConnectionDialog, connectionErrorClass, connectionInputClass } from "./ConnectionDialog";
@@ -51,7 +53,7 @@ export function ConnectorCatalogModal({ workspaceId, type, onClose, onSelect }: 
       <div className="shrink-0 px-5 pb-3 pt-4">
         <div className="flex flex-col gap-3 sm:flex-row">
           <label className="relative min-w-0 flex-1"><span className="sr-only">Search integrations</span><Search className="pointer-events-none absolute left-3.5 top-3 h-4 w-4 text-slate-400" /><input autoFocus type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search integrations" className={`${connectionInputClass} pl-10`} /></label>
-          <div className="min-w-0 sm:w-56 sm:shrink-0"><OptionMenu label="Filter integration category" placeholder="All categories" value={category === null ? "" : category} options={[{ value: "", label: "All categories" }, ...categories.map(name => ({ value: name, label: name }))]} onSelect={value => setCategory(value === "" ? null : value)} disabled={loading || Boolean(error)} /></div>
+          <div className="min-w-0 sm:w-56 sm:shrink-0"><OptionMenu label="Filter integration category" placeholder={CATALOG_ALL_CATEGORIES_OPTION.label} value={category === null ? CATALOG_ALL_CATEGORIES_OPTION.value : category} options={[CATALOG_ALL_CATEGORIES_OPTION, ...categories.map(name => ({ value: name, label: name }))]} onSelect={value => setCategory(value === CATALOG_ALL_CATEGORIES_OPTION.value ? null : value)} disabled={loading || Boolean(error)} /></div>
         </div>
       </div>
       <div className="min-h-0 min-w-0 space-y-4 overflow-x-hidden overflow-y-auto overscroll-contain px-5 py-3 [scrollbar-gutter:stable]">

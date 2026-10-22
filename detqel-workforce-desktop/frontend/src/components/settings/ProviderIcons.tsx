@@ -1,3 +1,4 @@
+import { AI_PROVIDER_ICON_COLORS, AI_PROVIDER_ICON_KEYS } from "@/constants/settingsConstants";
 import React from "react";
 import {
   OpenaiIcon as DevOpenaiIcon,
@@ -41,7 +42,7 @@ export const AnthropicIcon: React.FC<ProviderIconProps> = ({
     <DevAnthropicIcon
       size={size}
       className={className}
-      style={{ color: "#D97757" }}
+      style={{ color: AI_PROVIDER_ICON_COLORS.anthropic }}
     />
   );
 };
@@ -61,7 +62,7 @@ export const GrokIcon: React.FC<ProviderIconProps> = ({
     <DevGrokIcon
       size={size}
       className={className}
-      style={{ color: "#F55036" }}
+      style={{ color: AI_PROVIDER_ICON_COLORS.grok }}
     />
   );
 };
@@ -106,17 +107,17 @@ export const renderProviderIcon = (
   isSelected?: boolean
 ) => {
   switch (iconKey.toLowerCase()) {
-    case "openai":
+    case AI_PROVIDER_ICON_KEYS.openai:
       return <OpenAIIcon className={className} isSelected={isSelected} />;
-    case "anthropic":
+    case AI_PROVIDER_ICON_KEYS.anthropic:
       return <AnthropicIcon className={className} isSelected={isSelected} />;
-    case "google":
+    case AI_PROVIDER_ICON_KEYS.google:
       return <GoogleIcon className={className} isSelected={isSelected} />;
-    case "groq":
+    case AI_PROVIDER_ICON_KEYS.groq:
       return <GrokIcon className={className} isSelected={isSelected} />;
-    case "deepseek":
+    case AI_PROVIDER_ICON_KEYS.deepseek:
       return <DeepSeekIcon className={className} isSelected={isSelected} />;
-    case "custom":
+    case AI_PROVIDER_ICON_KEYS.custom:
     default:
       return <CustomIcon className={className} isSelected={isSelected} />;
   }

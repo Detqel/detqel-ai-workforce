@@ -1,5 +1,6 @@
 import { Writable } from "node:stream";
 import pino, { type Logger, type LoggerOptions } from "pino";
+import { IGNORED_LOG_EXTRA_KEYS, LOG_CONTEXTS, LOG_LEVELS, LOG_TIMESTAMP_FORMAT } from "../../constants/loggingConstants.js";
 
 export interface LogPayload {
     level?: number;
@@ -21,35 +22,15 @@ export interface LogPayload {
     [key: string]: unknown;
 }
 
-const IGNORED_EXTRA_KEYS = new Set([
-    "level",
-    "time",
-    "pid",
-    "hostname",
-    "msg",
-    "context",
-    "point",
-    "service",
-    "module",
-    "err",
-    "error",
-    "v",
-    "reqId",
-    "requestId",
-    "req",
-    "res",
-    "responseTime",
-]);
-
 export function formatTimestamp(date: Date = new Date()): string {
-    const pad = (n: number, len = 2) => String(n).padStart(len, "0");
+    const pad = (n: number, len: number = LOG_TIMESTAMP_FORMAT.componentWidth) => String(n).padStart(len, LOG_TIMESTAMP_FORMAT.paddingCharacter);
     const year = date.getFullYear();
     const month = pad(date.getMonth() + 1);
     const day = pad(date.getDate());
     const hours = pad(date.getHours());
     const minutes = pad(date.getMinutes());
     const seconds = pad(date.getSeconds());
-    const millis = pad(date.getMilliseconds(), 3);
+    const millis = pad(date.getMilliseconds(), LOG_TIMESTAMP_FORMAT.millisecondWidth);
     return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}.${millis}`;
 }
 
@@ -58,12 +39,12 @@ export function formatLogLine(raw: string): string {
     try {
         log = JSON.parse(raw);
     } catch {
-        return `[${formatTimestamp()}] [Server] ${raw}`;
+        return `[${formatTimestamp()}] [${LOG_CONTEXTS.server}] ${raw}`;
     }
 
     const logDate = log.time ? new Date(log.time) : new Date();
     const timestamp = formatTimestamp(isNaN(logDate.getTime()) ? new Date() : logDate);
-    const context = log.context || log.point || log.service || log.module || (log.req || log.reqId || log.requestId ? "HTTP" : "Server");
+    const context = log.context || log.point || log.service || log.module || (log.req || log.reqId || log.requestId ? LOG_CONTEXTS.http : LOG_CONTEXTS.server);
 
     let message = log.msg || "";
     const errorObj = log.err || log.error;
@@ -76,7 +57,7 @@ export function formatLogLine(raw: string): string {
         }
     }
 
-    const extras = Object.keys(log).filter((key) => !IGNORED_EXTRA_KEYS.has(key));
+    const extras = Object.keys(log).filter((key) => !IGNORED_LOG_EXTRA_KEYS.has(key));
     if (extras.length > 0) {
         const extraStr = extras
             .map((k) => `${k}: ${typeof log[k] === "object" ? JSON.stringify(log[k]) : log[k]}`)
@@ -119,7 +100,7 @@ export function createLogStream(destination: NodeJS.WritableStream = process.env
 
 export const appLogger: Logger = pino(
     {
-        level: process.env.NODE_ENV === "development" ? "info" : "warn",
+        level: process.env.NODE_ENV === "development" ? LOG_LEVELS.development : LOG_LEVELS.production,
     },
     createLogStream()
 );

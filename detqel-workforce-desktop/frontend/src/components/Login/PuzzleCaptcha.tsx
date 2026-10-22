@@ -1,5 +1,24 @@
 "use client";
 
+import {
+  CAPTCHA_IMAGES,
+  CAPTCHA_INITIAL_TARGET,
+  CAPTCHA_INITIAL_BOARD_DIMENSIONS,
+  CAPTCHA_PIECE_SIZE,
+  CAPTCHA_MIN_TARGET_X_RATIO,
+  CAPTCHA_TARGET_HORIZONTAL_PADDING,
+  CAPTCHA_TARGET_VERTICAL_PADDING,
+  CAPTCHA_PIECE_DISTANCE_PADDING,
+  CAPTCHA_PIECE_OFFSET,
+  CAPTCHA_SLIDER_HANDLE_WIDTH,
+  CAPTCHA_VERIFICATION_TOLERANCE,
+  CAPTCHA_SUCCESS_CLOSE_DELAY_MS,
+  CAPTCHA_RETRY_DELAY_MS,
+  CAPTCHA_INITIALIZATION_DELAY_MS,
+  CAPTCHA_LEGACY_MISSING_START_TIME_SECONDS,
+  CAPTCHA_LEGACY_MISSING_VERIFY_TIME_SECONDS,
+} from "@/constants/captchaConstants";
+
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   ShieldCheck,
@@ -16,59 +35,6 @@ interface PuzzleCaptchaProps {
   isVerified: boolean;
 }
 
-const PUZZLE_IMAGES = [
-  {
-    id: 1,
-    url: "https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=700&q=80",
-    label: "Alpine Glacier Lake",
-  },
-  {
-    id: 2,
-    url: "https://images.unsplash.com/photo-1514565131-fce0801e5785?auto=format&fit=crop&w=700&q=80",
-    label: "Metropolitan Horizon",
-  },
-  {
-    id: 3,
-    url: "https://images.unsplash.com/photo-1448375240586-882707db888b?auto=format&fit=crop&w=700&q=80",
-    label: "Misty Pine Forest",
-  },
-  {
-    id: 4,
-    url: "https://images.unsplash.com/photo-1519681393784-d120267933ba?auto=format&fit=crop&w=700&q=80",
-    label: "Starlit Mountain Summit",
-  },
-  {
-    id: 5,
-    url: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=700&q=80",
-    label: "Coastal Pacific Shore",
-  },
-  {
-    id: 6,
-    url: "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=700&q=80",
-    label: "Architectural Glass Facade",
-  },
-  {
-    id: 7,
-    url: "https://images.unsplash.com/photo-1509316975850-ff9c5deb0cd9?auto=format&fit=crop&w=700&q=80",
-    label: "Golden Desert Dunes",
-  },
-  {
-    id: 8,
-    url: "https://images.unsplash.com/photo-1531366936337-7c912a4589a7?auto=format&fit=crop&w=700&q=80",
-    label: "Nordic Polar Aurora",
-  },
-  {
-    id: 9,
-    url: "https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?auto=format&fit=crop&w=700&q=80",
-    label: "Emerald Misty Valley",
-  },
-  {
-    id: 10,
-    url: "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=700&q=80",
-    label: "Cybernetic Geometric Art",
-  },
-];
-
 export const PuzzleCaptcha: React.FC<PuzzleCaptchaProps> = ({
   onVerify,
   isVerified,
@@ -77,12 +43,9 @@ export const PuzzleCaptcha: React.FC<PuzzleCaptchaProps> = ({
   const [imageIndex, setImageIndex] = useState(0);
   const [imageLoaded, setImageLoaded] = useState(false);
   const [sliderPercent, setSliderPercent] = useState(0);
-  const [targetX, setTargetX] = useState(180);
-  const [targetY, setTargetY] = useState(45);
-  const [boardDimensions, setBoardDimensions] = useState({
-    width: 320,
-    height: 160,
-  });
+  const [targetX, setTargetX] = useState(CAPTCHA_INITIAL_TARGET.x);
+  const [targetY, setTargetY] = useState(CAPTCHA_INITIAL_TARGET.y);
+  const [boardDimensions, setBoardDimensions] = useState(CAPTCHA_INITIAL_BOARD_DIMENSIONS);
   const [isDragging, setIsDragging] = useState(false);
   const [isFailed, setIsFailed] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
@@ -92,8 +55,8 @@ export const PuzzleCaptcha: React.FC<PuzzleCaptchaProps> = ({
   const boardRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
 
-  const currentImage = PUZZLE_IMAGES[imageIndex];
-  const pieceSize = 46;
+  const currentImage = CAPTCHA_IMAGES[imageIndex];
+  const pieceSize = CAPTCHA_PIECE_SIZE;
 
   const updateBoardDimensions = useCallback(() => {
     if (boardRef.current) {
@@ -107,20 +70,20 @@ export const PuzzleCaptcha: React.FC<PuzzleCaptchaProps> = ({
   const randomizePuzzle = useCallback(() => {
     setImageLoaded(false);
     setImageIndex((prevIndex) => {
-      let nextIndex = Math.floor(Math.random() * PUZZLE_IMAGES.length);
+      let nextIndex = Math.floor(Math.random() * CAPTCHA_IMAGES.length);
       if (nextIndex === prevIndex) {
-        nextIndex = (prevIndex + 1) % PUZZLE_IMAGES.length;
+        nextIndex = (prevIndex + 1) % CAPTCHA_IMAGES.length;
       }
       return nextIndex;
     });
 
-    const boardWidth = boardRef.current?.clientWidth || 320;
-    const boardHeight = boardRef.current?.clientHeight || 160;
+    const boardWidth = boardRef.current?.clientWidth || CAPTCHA_INITIAL_BOARD_DIMENSIONS.width;
+    const boardHeight = boardRef.current?.clientHeight || CAPTCHA_INITIAL_BOARD_DIMENSIONS.height;
 
-    const minX = Math.floor(boardWidth * 0.45);
-    const maxX = Math.floor(boardWidth - pieceSize - 16);
-    const minY = 20;
-    const maxY = Math.floor(boardHeight - pieceSize - 20);
+    const minX = Math.floor(boardWidth * CAPTCHA_MIN_TARGET_X_RATIO);
+    const maxX = Math.floor(boardWidth - pieceSize - CAPTCHA_TARGET_HORIZONTAL_PADDING);
+    const minY = CAPTCHA_TARGET_VERTICAL_PADDING;
+    const maxY = Math.floor(boardHeight - pieceSize - CAPTCHA_TARGET_VERTICAL_PADDING);
 
     const randomX = Math.floor(Math.random() * (maxX - minX + 1)) + minX;
     const randomY = Math.floor(Math.random() * (maxY - minY + 1)) + minY;
@@ -137,7 +100,7 @@ export const PuzzleCaptcha: React.FC<PuzzleCaptchaProps> = ({
       updateBoardDimensions();
       const timer = setTimeout(() => {
         randomizePuzzle();
-      }, 0);
+      }, CAPTCHA_INITIALIZATION_DELAY_MS);
       return () => clearTimeout(timer);
     }
   }, [isOpen, updateBoardDimensions, randomizePuzzle]);
@@ -172,15 +135,15 @@ export const PuzzleCaptcha: React.FC<PuzzleCaptchaProps> = ({
     return () => observer.disconnect();
   }, [isOpen]);
 
-  const maxPieceDistance = Math.max(1, boardDimensions.width - pieceSize - 8);
-  const currentPieceX = (sliderPercent / 100) * maxPieceDistance + 4;
+  const maxPieceDistance = Math.max(1, boardDimensions.width - pieceSize - CAPTCHA_PIECE_DISTANCE_PADDING);
+  const currentPieceX = (sliderPercent / 100) * maxPieceDistance + CAPTCHA_PIECE_OFFSET;
 
   const handleDragMove = useCallback(
     (clientX: number) => {
       if (!isDragging || isVerified || !trackRef.current) return;
       const rect = trackRef.current.getBoundingClientRect();
-      const rawX = clientX - rect.left - 26;
-      const maxTrackDistance = Math.max(1, rect.width - 52);
+      const rawX = clientX - rect.left - CAPTCHA_SLIDER_HANDLE_WIDTH / 2;
+      const maxTrackDistance = Math.max(1, rect.width - CAPTCHA_SLIDER_HANDLE_WIDTH);
       const clampedX = Math.max(0, Math.min(rawX, maxTrackDistance));
       const percentage = (clampedX / maxTrackDistance) * 100;
       setSliderPercent(percentage);
@@ -193,11 +156,11 @@ export const PuzzleCaptcha: React.FC<PuzzleCaptchaProps> = ({
     setIsDragging(false);
 
     const difference = Math.abs(currentPieceX - targetX);
-    const tolerance = 7;
+    const tolerance = CAPTCHA_VERIFICATION_TOLERANCE;
 
     if (difference <= tolerance) {
       const correctPercent =
-        ((targetX - 4) / Math.max(1, boardDimensions.width - pieceSize - 8)) *
+        ((targetX - CAPTCHA_PIECE_OFFSET) / Math.max(1, boardDimensions.width - pieceSize - CAPTCHA_PIECE_DISTANCE_PADDING)) *
         100;
       setSliderPercent(Math.max(0, Math.min(100, correctPercent)));
       setIsSuccess(true);
@@ -205,19 +168,19 @@ export const PuzzleCaptcha: React.FC<PuzzleCaptchaProps> = ({
 
       const timeTaken = startTime
         ? ((Date.now() - startTime) / 1000).toFixed(1)
-        : "1.1";
+        : CAPTCHA_LEGACY_MISSING_START_TIME_SECONDS;
       setVerifyTime(Number(timeTaken));
       onVerify(true);
 
       setTimeout(() => {
         setIsOpen(false);
-      }, 1200);
+      }, CAPTCHA_SUCCESS_CLOSE_DELAY_MS);
     } else {
       setIsFailed(true);
       setIsSuccess(false);
       setTimeout(() => {
         randomizePuzzle();
-      }, 850);
+      }, CAPTCHA_RETRY_DELAY_MS);
     }
   }, [
     isDragging,
@@ -306,7 +269,7 @@ export const PuzzleCaptcha: React.FC<PuzzleCaptchaProps> = ({
                 Verification Complete
               </span>
               <span className="text-[10px] sm:text-[11px] text-emerald-700">
-                Puzzle solved in {verifyTime || "0.9"}s • Human verified
+                Puzzle solved in {verifyTime || CAPTCHA_LEGACY_MISSING_VERIFY_TIME_SECONDS}s • Human verified
               </span>
             </div>
           </div>

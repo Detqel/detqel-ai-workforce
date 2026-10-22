@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Starting workspace</title>
+  <script>
+    if (window.__DETQEL_STARTUP_CONFIG__) {
+      try {
+        const theme = localStorage.getItem(window.__DETQEL_STARTUP_CONFIG__.themeStorageKey);
+        document.documentElement.classList.toggle('dark', theme === 'dark' || (!theme && matchMedia('(prefers-color-scheme: dark)').matches));
+      } catch (_) { /* Keep startup visible if storage is unavailable. */ }
+    }
+  </script>
+  <style>
+    :root { color-scheme:light; --bg:#f8fafc; --panel:#fff; --card:#f8fafc; --text:#0f172a; --muted:#64748b; --line:#e2e8f0; --accent:#8a2be2; --active:#faf5ff; --error:#dc2626; --success:#059669; }
+    .dark { color-scheme:dark; --bg:#0e1422; --panel:#182234; --card:#131c2d; --text:#f1f5f9; --muted:#94a3b8; --line:#334155; --accent:#ffa500; --active:#2b2930; --error:#f87171; --success:#34d399; }
+    * { box-sizing:border-box; }
+    body { margin:0; font:13px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; color:var(--text); background:var(--bg); }
+    main { min-height:100vh; padding:12px; display:flex; align-items:center; justify-content:center; }
+    .panel { width:100%; max-width:760px; max-height:calc(100vh - 24px); display:flex; flex-direction:column; overflow:hidden; border:1px solid var(--line); border-radius:18px; background:var(--panel); box-shadow:0 16px 40px #0f172a0d; }
+    header { padding:16px 16px 12px; flex:none; }
+    .brand-row,.progress-labels,.service { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+    .brand { display:flex; align-items:center; min-width:0; }
+    .brand img { display:block; width:160px; height:32px; max-width:100%; object-fit:contain; object-position:left center; }
+    .elapsed { padding:4px 8px; border:1px solid var(--line); border-radius:8px; color:var(--muted); font-size:10px; font-variant-numeric:tabular-nums; }
+    h1 { margin:14px 0 3px; font-size:18px; letter-spacing:-.035em; }
+    .subtitle { margin:0; color:var(--muted); font-size:11px; }
+    .progress-labels { margin:12px 0 6px; font-size:10px; color:var(--muted); }
+    .track { height:5px; background:var(--line); border-radius:9px; overflow:hidden; }
+    .progress { height:100%; width:0; background:var(--accent); transition:width .25s; }
+    .content { min-height:0; overflow-y:auto; overflow-x:hidden; padding:0 12px 12px; }
+    .services { padding:0; margin:0; list-style:none; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+    .service { min-width:0; min-height:46px; padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:var(--card); }
+    .service-name { min-width:0; font-size:11px; font-weight:600; }
+    .state { display:flex; align-items:center; gap:5px; font-size:9.5px; white-space:nowrap; color:var(--muted); }
+    .state::before { content:""; width:11px; height:11px; border:1.5px solid currentColor; border-radius:50%; }
+    .service[data-status="running"] { background:var(--active); border-color:var(--accent); }
+    .service[data-status="running"] .state { color:var(--accent); }
+    .service[data-status="running"] .state::before { border-right-color:transparent; animation:spin 1s linear infinite; }
+    .service[data-status="complete"] .state { color:var(--success); }
+    .service[data-status="complete"] .state::before { content:"✓"; display:grid; place-items:center; font-size:8px; font-weight:bold; }
+    .service[data-status="error"] { border-color:var(--error); }
+    .service[data-status="error"] .state { color:var(--error); }
+    .service[data-status="error"] .state::before { content:"!"; display:grid; place-items:center; font-size:8px; font-weight:bold; }
+    .error { margin-top:10px; padding:10px; border:1px solid var(--error); border-radius:10px; color:var(--error); font-size:11px; overflow-wrap:anywhere; }
+    .error p { margin:0; }
+    .error code { display:block; margin-top:6px; color:var(--muted); font-size:10px; user-select:all; }
+    footer { padding:9px 16px; border-top:1px solid var(--line); color:var(--muted); font-size:10px; flex:none; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    @media(max-width:590px) { main { padding:10px; } .panel { max-height:calc(100vh - 20px); } header { padding:14px 14px 12px; } .services { grid-template-columns:1fr; } footer { padding:9px 14px; } }
+    @media(prefers-reduced-motion:reduce) { *,*::before { animation:none!important; transition:none!important; } }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="panel" aria-labelledby="title">
+      <header>
+        <div class="brand-row"><div class="brand"><img id="logo" alt=""></div><span id="elapsed" class="elapsed">0:00</span></div>
+        <h1 id="title">Starting your workspace</h1><p class="subtitle">Preparing application services.</p>
+        <div class="progress-labels"><span id="active" role="status" aria-live="polite">Starting desktop</span><span id="count"></span></div>
+        <div class="track" role="progressbar" aria-label="Startup progress" aria-valuemin="0" aria-valuemax="100" id="track"><div id="progress" class="progress"></div></div>
+      </header>
+      <div class="content"><ol id="services" class="services" aria-label="Workspace startup"></ol><div id="error" class="error" role="alert" hidden><p id="message"></p><code id="configuration"></code><code id="logs"></code></div></div>
+      <footer>Your workspace opens when all services are ready.</footer>
+    </section>
+  </main>
+  <script>
+    (() => {
+      const config = window.__DETQEL_STARTUP_CONFIG__;
+      const elements = Object.fromEntries(['logo','elapsed','title','active','count','track','progress','services','error','message','configuration','logs'].map(id => [id, document.getElementById(id)]));
+      const labels = { pending:'Waiting', running:'In progress', complete:'Ready', error:'Failed' };
+      let stopped = false;
+      let painted = false;
+      let launchRequested = false;
+      requestAnimationFrame(() => requestAnimationFrame(() => { painted = true; }));
+      function showError(message, path) {
+        elements.title.textContent = 'Startup needs your attention';
+        elements.active.textContent = 'Startup interrupted';
+        elements.error.hidden = false;
+        elements.message.textContent = message;
+        elements.configuration.textContent = path || '';
+      }
+      if (!config || typeof config.applicationName !== 'string' || typeof config.themeStorageKey !== 'string'
+          || typeof config.logoLight !== 'string' || typeof config.logoDark !== 'string' || typeof config.statusCommand !== 'string' || typeof config.readyCommand !== 'string'
+          || !Number.isFinite(config.pollIntervalMs) || config.pollIntervalMs <= 0) {
+        showError('The desktop loader configuration is unavailable. Reinstall the application.');
+        return;
+      }
+      document.title = config.applicationName;
+      elements.logo.alt = config.applicationName;
+      elements.logo.src = document.documentElement.classList.contains('dark') ? config.logoDark : config.logoLight;
+      window.addEventListener('pagehide', () => { stopped = true; });
+      async function poll() {
+        try {
+          const status = await window.__TAURI__.core.invoke(config.statusCommand);
+          if (stopped) return;
+          if (painted && !launchRequested) {
+            await window.__TAURI__.core.invoke(config.readyCommand);
+            launchRequested = true;
+          }
+          elements.logs.textContent = status.logsDirectory ? `Logs: ${status.logsDirectory}` : '';
+          const seconds = status.elapsedSeconds;
+          elements.elapsed.textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2,'0')}`;
+          const complete = status.steps.filter(step => step.status === 'complete').length;
+          const progress = status.steps.length ? Math.round(complete / status.steps.length * 100) : 0;
+          elements.progress.style.width = `${progress}%`;
+          elements.track.setAttribute('aria-valuenow', String(progress));
+          elements.count.textContent = `${complete} / ${status.steps.length} ready`;
+          elements.services.replaceChildren(...status.steps.map(step => {
+            const item = document.createElement('li');
+            item.className = 'service';
+            item.dataset.status = step.status;
+            const name = document.createElement('span');
+            name.className = 'service-name';
+            name.textContent = step.label;
+            const state = document.createElement('span');
+            state.className = 'state';
+            state.textContent = labels[step.status];
+            item.append(name, state);
+            return item;
+          }));
+          if (status.error) showError(status.error, status.configPath);
+          else {
+            elements.title.textContent = 'Starting your workspace';
+            elements.error.hidden = true;
+            elements.active.textContent = status.steps.find(step => step.status === 'running')?.label || (status.ready ? 'Opening workspace' : 'Preparing desktop');
+          }
+        } catch (_) {
+          if (!stopped) showError('Unable to read desktop startup progress. Restart the application.');
+        } finally {
+          if (!stopped) setTimeout(poll, config.pollIntervalMs);
+        }
+      }
+      void poll();
+    })();
+  </script>
+</body>
+</html>

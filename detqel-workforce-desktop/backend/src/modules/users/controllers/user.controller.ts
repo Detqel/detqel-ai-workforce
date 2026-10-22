@@ -1,3 +1,4 @@
+import { PAGINATION_LIMITS } from "../../../constants/httpConstants.js";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { idParamsSchema } from "../../../shared/validation/http.schemas.js";
 import type { UserService } from "../services/user.service.js";
@@ -5,7 +6,7 @@ import { createUserSchema } from "../validation/user.schemas.js";
 export class UserController {
     constructor(private readonly service: UserService) { }
     async list(request: FastifyRequest, reply: FastifyReply) {
-        const list = await this.service.findMany({ limit: 100 });
+        const list = await this.service.findMany({ limit: PAGINATION_LIMITS.maximum });
         return reply.send(list);
     }
     async create(request: FastifyRequest, reply: FastifyReply) {

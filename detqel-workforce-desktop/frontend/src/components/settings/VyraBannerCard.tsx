@@ -1,6 +1,12 @@
+import {
+  AGENT_BANNER_TRAITS,
+  AGENT_BANNER_QUOTE,
+  AGENT_TRAIT_ICON_COMPONENTS,
+  AGENT_TRAIT_DEFAULT_ICON,
+} from "@/constants/settingsConstants";
+import { ASSET_PATHS } from "@/constants/commonConstants";
 import React from "react";
 import Image from "next/image";
-import { Zap, ShieldCheck, Target } from "lucide-react";
 import type { AgentTrait } from "@/lib/api";
 
 interface VyraBannerCardProps {
@@ -8,35 +14,19 @@ interface VyraBannerCardProps {
   traits?: AgentTrait[];
 }
 
-const DEFAULT_FALLBACK_TRAITS: AgentTrait[] = [
-  { title: "Adaptable", description: "Across tasks and domains", icon: "zap" },
-  { title: "Reliable", description: "Follows your guidelines", icon: "shield-check" },
-  { title: "Goal-Oriented", description: "Built to get things done", icon: "target" },
-];
-
 export const VyraBannerCard: React.FC<VyraBannerCardProps> = ({
   quote,
   traits,
 }) => {
-  const activeTraits = traits && traits.length > 0 ? traits : DEFAULT_FALLBACK_TRAITS;
+  const activeTraits = traits && traits.length > 0 ? traits : AGENT_BANNER_TRAITS;
   const activeQuote =
     quote && quote.trim().length > 0
       ? quote
-      : "Your intelligent AI agent for deeper insights, smarter decisions, and seamless execution.";
+      : AGENT_BANNER_QUOTE;
 
   const renderTraitIcon = (iconName: string) => {
-    switch (iconName.toLowerCase()) {
-      case "zap":
-      case "lightning":
-        return <Zap className="w-4.5 h-4.5 text-[#8a2be2] dark:text-[#c084fc]" />;
-      case "shield-check":
-      case "shield":
-        return <ShieldCheck className="w-4.5 h-4.5 text-[#8a2be2] dark:text-[#c084fc]" />;
-      case "target":
-      case "goal":
-      default:
-        return <Target className="w-4.5 h-4.5 text-[#8a2be2] dark:text-[#c084fc]" />;
-    }
+    const Icon = AGENT_TRAIT_ICON_COMPONENTS.get(iconName.toLowerCase()) ?? AGENT_TRAIT_DEFAULT_ICON;
+    return <Icon className="w-4.5 h-4.5 text-[#8a2be2] dark:text-[#c084fc]" />;
   };
 
   return (
@@ -52,7 +42,7 @@ export const VyraBannerCard: React.FC<VyraBannerCardProps> = ({
           <div className="absolute inset-4 rounded-full bg-gradient-to-tr from-[#8a2be2]/25 via-indigo-500/15 to-transparent blur-xl pointer-events-none animate-pulse duration-1000" />
           
           <Image
-            src="/images/detqel-vyra-settings-banner-left.png"
+            src={ASSET_PATHS.agentSettingsBanner}
             alt="VYRA Agent"
             width={350}
             height={350}

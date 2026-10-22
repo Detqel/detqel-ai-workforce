@@ -1,10 +1,13 @@
+import {
+  INSTRUCTION_TABS,
+  INSTRUCTION_CHARACTER_LIMIT,
+  INSTRUCTION_ENHANCE_DELAY_MS,
+  INSTRUCTION_ENHANCEMENT_TEXT,
+  INSTRUCTION_ENHANCEMENT_SUFFIX,
+  type InstructionTabKey,
+} from "@/constants/settingsConstants";
 import React, { useState } from "react";
 import {
-  FileText,
-  UserCheck,
-  Box,
-  ShieldAlert,
-  Sliders,
   ChevronDown,
   Sparkles,
   LayoutTemplate,
@@ -21,22 +24,6 @@ interface PersonalityInstructionsSectionProps {
   onEditWithAi?: (tab: keyof VyraInstructions, currentText: string) => void;
 }
 
-type TabKey = "core" | "behaviour" | "knowledge" | "boundaries" | "responseStyle";
-
-interface TabItem {
-  key: TabKey;
-  label: string;
-  icon: React.FC<{ className?: string }>;
-}
-
-const TABS: TabItem[] = [
-  { key: "core", label: "Core Instructions", icon: FileText },
-  { key: "behaviour", label: "Behaviour", icon: UserCheck },
-  { key: "knowledge", label: "Knowledge", icon: Box },
-  { key: "boundaries", label: "Boundaries", icon: ShieldAlert },
-  { key: "responseStyle", label: "Response Style", icon: Sliders },
-];
-
 export const PersonalityInstructionsSection: React.FC<PersonalityInstructionsSectionProps> = ({
   instructions,
   onInstructionsChange,
@@ -44,12 +31,12 @@ export const PersonalityInstructionsSection: React.FC<PersonalityInstructionsSec
   onApplyTemplate,
   onEditWithAi,
 }) => {
-  const [activeTab, setActiveTab] = useState<TabKey>("core");
+  const [activeTab, setActiveTab] = useState<InstructionTabKey>(INSTRUCTION_TABS[0].key);
   const [templateDropdownOpen, setTemplateDropdownOpen] = useState<boolean>(false);
   const [isAiEnhancing, setIsAiEnhancing] = useState<boolean>(false);
 
   const activeContent = instructions[activeTab] || "";
-  const charLimit = 4000;
+  const charLimit = INSTRUCTION_CHARACTER_LIMIT;
   const currentChars = activeContent.length;
 
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -68,11 +55,11 @@ export const PersonalityInstructionsSection: React.FC<PersonalityInstructionsSec
     setTimeout(() => {
       let polished = activeContent;
       if (activeTab === "core") {
-        polished = `You are VYRA, an autonomous AI agent engineered for enterprise workflows.\nUnderstand user intent with high contextual awareness, proactively clarify ambiguities,\nand leverage connected tools to deliver structured, deterministic, and verifiable outcomes.`;
+        polished = INSTRUCTION_ENHANCEMENT_TEXT.core;
       } else if (activeTab === "behaviour") {
-        polished = `Maintain an executive, authoritative yet supportive tone.\nValidate system state before dispatching operations, provide concise diffs, and ensure zero unhandled edge cases.`;
+        polished = INSTRUCTION_ENHANCEMENT_TEXT.behaviour;
       } else {
-        polished = `${activeContent.trim()}\n\n[Optimized by VYRA AI: Enhanced for low-latency reasoning and strict boundary safety.]`;
+        polished = `${activeContent.trim()}\n\n${INSTRUCTION_ENHANCEMENT_SUFFIX}`;
       }
       onInstructionsChange({
         ...instructions,
@@ -80,7 +67,7 @@ export const PersonalityInstructionsSection: React.FC<PersonalityInstructionsSec
       });
       setIsAiEnhancing(false);
       onEditWithAi?.(activeTab, polished);
-    }, 600);
+    }, INSTRUCTION_ENHANCE_DELAY_MS);
   };
 
   return (
@@ -163,7 +150,7 @@ export const PersonalityInstructionsSection: React.FC<PersonalityInstructionsSec
       <div className="grid grid-cols-1 md:grid-cols-12 gap-3 sm:gap-4 pt-1">
         {/* Left Column: Vertical Tab List (4 cols) */}
         <div className="md:col-span-4 lg:col-span-3.5 flex flex-col space-y-1">
-          {TABS.map((tab) => {
+          {INSTRUCTION_TABS.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.key;
 

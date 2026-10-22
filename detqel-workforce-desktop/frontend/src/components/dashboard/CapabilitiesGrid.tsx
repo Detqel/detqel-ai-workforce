@@ -1,3 +1,4 @@
+import { PAGE_FRAGMENTS } from "@/constants/navigationConstants";
 import React from "react";
 import { WorkspaceLink as Link } from "@/components/navigation/WorkspaceLink";
 import { defaultPageId } from "@/lib/navigation";
@@ -33,7 +34,7 @@ export const CapabilitiesGrid: React.FC = () => {
       </Link>
 
       <Link
-        href={`${defaultPageId}#predict`}
+        href={`${defaultPageId}#${PAGE_FRAGMENTS.predict}`}
         className="bg-white dark:bg-[#182234] border border-slate-200 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-600/50 rounded-2xl p-4.5 transition-all shadow-xs hover:shadow-md cursor-pointer group flex items-start justify-between text-left"
       >
         <div className="flex items-start gap-3.5 text-left">
@@ -53,7 +54,7 @@ export const CapabilitiesGrid: React.FC = () => {
       </Link>
 
       <Link
-        href={`${defaultPageId}#simulate`}
+        href={`${defaultPageId}#${PAGE_FRAGMENTS.simulate}`}
         className="bg-white dark:bg-[#182234] border border-slate-200 dark:border-slate-800 hover:border-blue-300 dark:hover:border-blue-600/50 rounded-2xl p-4.5 transition-all shadow-xs hover:shadow-md cursor-pointer group flex items-start justify-between text-left"
       >
         <div className="flex items-start gap-3.5 text-left">
@@ -73,7 +74,7 @@ export const CapabilitiesGrid: React.FC = () => {
       </Link>
 
       <Link
-        href={`${defaultPageId}#automate`}
+        href={`${defaultPageId}#${PAGE_FRAGMENTS.automate}`}
         className="bg-white dark:bg-[#182234] border border-slate-200 dark:border-slate-800 hover:border-amber-300 dark:hover:border-amber-600/50 rounded-2xl p-4.5 transition-all shadow-xs hover:shadow-md cursor-pointer group flex items-start justify-between text-left"
       >
         <div className="flex items-start gap-3.5 text-left">

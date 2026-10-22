@@ -1,3 +1,4 @@
+import { PAGINATION_LIMITS } from "../../../constants/httpConstants.js";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { idParamsSchema } from "../../../shared/validation/http.schemas.js";
@@ -11,7 +12,7 @@ export class WorkforceController {
             const agents = await this.service.listAgentsForWorkspace(workspaceId);
             return reply.send(agents);
         }
-        const all = await this.service.findMany({ limit: 100 });
+        const all = await this.service.findMany({ limit: PAGINATION_LIMITS.maximum });
         return reply.send(all);
     }
     async create(request: FastifyRequest, reply: FastifyReply) {

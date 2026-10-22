@@ -1,3 +1,4 @@
+import { LOOKUP_RESOURCES } from "../../../constants/lookupConstants.js";
 import { asc } from "drizzle-orm";
 import type { PgColumn, PgTable } from "drizzle-orm/pg-core";
 import type { DatabaseSession } from "../../../infrastructure/database/connection.js";
@@ -21,7 +22,7 @@ export class LookupRepository implements ILookupRepository {
     constructor(database: DatabaseSession) {
         // Register lookup tables here; all use the same validated CRUD routes.
         this.resources = {
-            "connector-types": new LookupTableRepository(connectorTypes, database),
+            [LOOKUP_RESOURCES.connectorTypes]: new LookupTableRepository(connectorTypes, database),
         };
     }
 

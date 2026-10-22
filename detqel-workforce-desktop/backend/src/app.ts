@@ -6,6 +6,18 @@ import fastify, { FastifyInstance, LogController } from "fastify";
 import { ZodError } from "zod";
 import { createServices, type ApplicationServices } from "./bootstrap/services.js";
 import { env, type Environment } from "./config/env.js";
+import {
+    API_DOCS_PREFIX,
+    API_PREFIX,
+    CORS_METHODS,
+    LOG_REDACTION_PATHS,
+    OPENAPI_INFO,
+    OPENAPI_SERVER_DESCRIPTION,
+    OPENAPI_TAGS,
+} from "./constants/apiConstants.js";
+import { DATABASE_ERROR_CODES } from "./constants/databaseConstants.js";
+import { LOCALHOST_HOST } from "./constants/networkConstants.js";
+import { LOG_LEVELS } from "./constants/loggingConstants.js";
 import { createDatabase } from "./infrastructure/database/connection.js";
 import { UnitOfWork } from "./infrastructure/database/unit-of-work.js";
 import { verifyMigrationState } from "./infrastructure/database/migrations/verify.js";
@@ -43,9 +55,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         // UI refreshes make several API calls; keep routine request logs quiet.
         logController: new LogController({ disableRequestLogging: true }),
         logger: options.logger === false ? false : {
-            level: config.NODE_ENV === "development" ? "info" : "warn",
+            level: config.NODE_ENV === "development" ? LOG_LEVELS.development : LOG_LEVELS.production,
             stream: createLogStream(),
-            redact: ["req.headers.authorization", "req.headers.cookie", 'req.headers["x-detqel-desktop-token"]', "password", "passwordHash"],
+            redact: LOG_REDACTION_PATHS,
         },
     });
     if (options.desktopToken) registerDesktopTransport(app, options.desktopToken);
@@ -69,42 +81,25 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
                 }
                 return cb(null, false);
             },
-            methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+            methods: CORS_METHODS,
             credentials: true,
         });
         await app.register(sensible);
         // OpenAPI Swagger Documentation
         await app.register(swagger, {
             openapi: {
-                info: {
-                    title: "DETQEL AI Workforce API",
-                    description: "Enterprise Backend & Drizzle ORM Handler Layer for Autonomous AI Workforce Orchestration",
-                    version: "1.0.0",
-                },
+                info: OPENAPI_INFO,
                 servers: [
                     {
-                        url: `http://localhost:${config.PORT}`,
-                        description: "Local Development Server",
+                        url: `http://${LOCALHOST_HOST}:${config.PORT}`,
+                        description: OPENAPI_SERVER_DESCRIPTION,
                     },
                 ],
-                tags: [
-                    { name: "System", description: "Health check and telemetry" },
-                    { name: "Workspaces", description: "Multi-tenant workspace operations" },
-                    { name: "Users", description: "User accounts and permissions" },
-                    { name: "Business Brain", description: "Profile, Knowledge, Goals, Rules, State, and Memory" },
-                    { name: "AI Workforce", description: "Agents, connections, and agent memory" },
-                    { name: "Connections", description: "Data sources and external tool integrations" },
-                    { name: "Lookups", description: "Common lookup table operations" },
-                    { name: "Missions & Command Center", description: "Mission lifecycles, plans, and event timelines" },
-                    { name: "Approvals", description: "Human-in-the-loop governance and sign-off" },
-                    { name: "Executions", description: "Action dispatching and execution status" },
-                    { name: "Analytics & Intelligence", description: "Predictions and simulations" },
-                    { name: "Automations", description: "Autonomous workflows and scheduled tasks" },
-                ],
+                tags: OPENAPI_TAGS,
             },
         });
         await app.register(swaggerUi, {
-            routePrefix: "/docs",
+            routePrefix: API_DOCS_PREFIX,
             uiConfig: {
                 docExpansion: "list",
                 deepLinking: true,
@@ -134,12 +129,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
                     code?: string;
                 };
             }).cause?.code;
-            const statusCode = databaseCode === "23505" ? 409 : databaseCode === "23503" ? 400 : err.statusCode || 500;
+            const statusCode = databaseCode === DATABASE_ERROR_CODES.uniqueViolation ? 409 : databaseCode === DATABASE_ERROR_CODES.foreignKeyViolation ? 400 : err.statusCode || 500;
             request.log.error({ err: error, requestId: request.id }, "Request failed");
             return reply.status(statusCode).send({
                 statusCode,
                 error: statusCode >= 500 ? "Internal Server Error" : err.name || "Request Error",
-                message: statusCode >= 500 ? "An unexpected error occurred" : databaseCode === "23505" ? "A record with these values already exists" : databaseCode === "23503" ? "A referenced record does not exist" : err.message,
+                message: statusCode >= 500 ? "An unexpected error occurred" : databaseCode === DATABASE_ERROR_CODES.uniqueViolation ? "A record with these values already exists" : databaseCode === DATABASE_ERROR_CODES.foreignKeyViolation ? "A referenced record does not exist" : err.message,
                 ...(error instanceof AppError ? error.details : {}),
             });
         });
@@ -161,7 +156,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
             await apiRouter.register(notificationRoutes);
             await apiRouter.register(domainRoutes);
             await apiRouter.register(settingsRoutes);
-        }, { prefix: "/api" });
+        }, { prefix: API_PREFIX });
         return app;
     }
     catch (error) {

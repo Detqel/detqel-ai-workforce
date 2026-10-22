@@ -1,3 +1,5 @@
+import { AUTHORIZATION_HEADER, BASIC_AUTHORIZATION_PREFIX, BEARER_AUTHORIZATION_PREFIX } from "../../../constants/authConstants.js";
+import { CONNECTOR_AUTHENTICATION, CONNECTOR_TCP_PORT_RANGE, RESERVED_AUTHENTICATION_HEADERS } from "../../../constants/connectionConstants.js";
 import { constants } from "node:fs";
 import { access, realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, sep } from "node:path";
@@ -19,7 +21,7 @@ export function requiredBoolean(configuration: Record<string, unknown>, key: str
 
 export function requiredPort(configuration: Record<string, unknown>): number {
     const port = configuration.port;
-    if (typeof port !== "number" || !Number.isInteger(port) || port < 1 || port > 65535) {
+    if (typeof port !== "number" || !Number.isInteger(port) || port < CONNECTOR_TCP_PORT_RANGE.minimum || port > CONNECTOR_TCP_PORT_RANGE.maximum) {
         throw new AppError(400, "Configuration field 'port' must be a valid port number.");
     }
     return port;
@@ -44,18 +46,17 @@ export function authenticationHeaders(configuration: Record<string, unknown>): H
     const headers = new Headers();
     const authentication = requiredString(configuration, "authentication");
     switch (authentication) {
-        case "none": break;
-        case "bearer": headers.set("Authorization", `Bearer ${requiredString(configuration, "token")}`); break;
-        case "basic": {
+        case CONNECTOR_AUTHENTICATION.none: break;
+        case CONNECTOR_AUTHENTICATION.bearer: headers.set(AUTHORIZATION_HEADER, `${BEARER_AUTHORIZATION_PREFIX}${requiredString(configuration, "token")}`); break;
+        case CONNECTOR_AUTHENTICATION.basic: {
             const username = requiredString(configuration, "username");
             if (username.includes(":")) throw new AppError(400, "Basic authentication usernames cannot contain colons.");
-            headers.set("Authorization", `Basic ${Buffer.from(`${username}:${requiredString(configuration, "password")}`).toString("base64")}`);
+            headers.set(AUTHORIZATION_HEADER, `${BASIC_AUTHORIZATION_PREFIX}${Buffer.from(`${username}:${requiredString(configuration, "password")}`).toString("base64")}`);
             break;
         }
-        case "header": {
+        case CONNECTOR_AUTHENTICATION.header: {
             const name = requiredString(configuration, "headerName");
-            const reserved = ["host", "content-length", "connection", "transfer-encoding", "cookie", "set-cookie", "proxy-authorization"];
-            if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name) || reserved.includes(name.toLowerCase())) {
+            if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name) || RESERVED_AUTHENTICATION_HEADERS.includes(name.toLowerCase())) {
                 throw new AppError(400, "The authentication header name is not permitted.");
             }
             headers.set(name, requiredString(configuration, "headerValue"));

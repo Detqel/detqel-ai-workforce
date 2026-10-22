@@ -1,5 +1,7 @@
 "use client";
 
+import { CUSTOM_WORKSPACE_DOMAIN_VALUE } from "@/constants/workspaceConstants";
+
 import React, { useState } from "react";
 import {
   Building2,
@@ -84,7 +86,7 @@ export const CreateWorkspaceModal: React.FC = () => {
     }
 
     let finalIndustry = industry;
-    if (industry === "ADD_DOMAIN_CUSTOM") {
+    if (industry === CUSTOM_WORKSPACE_DOMAIN_VALUE) {
       if (!customDomain.trim()) {
         setError("Please enter your domain name.");
         return;
@@ -282,12 +284,12 @@ export const CreateWorkspaceModal: React.FC = () => {
                         {dom.name}
                       </option>
                     ))}
-                    <option value="ADD_DOMAIN_CUSTOM" className="dark:bg-[#182234]">Add Domain +</option>
+                    <option value={CUSTOM_WORKSPACE_DOMAIN_VALUE} className="dark:bg-[#182234]">Add Domain +</option>
                   </select>
                 </div>
 
                 {/* Free-form text input popped up when Add Domain + is selected */}
-                {industry === "ADD_DOMAIN_CUSTOM" && (
+                {industry === CUSTOM_WORKSPACE_DOMAIN_VALUE && (
                   <div className="mt-2.5 animate-in fade-in slide-in-from-top-1 duration-200">
                     <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
                       Custom Domain Name <span className="text-red-500">*</span>

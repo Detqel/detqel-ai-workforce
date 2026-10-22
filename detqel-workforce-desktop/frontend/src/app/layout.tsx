@@ -1,3 +1,4 @@
+import { APPLICATION_METADATA, THEME_BOOTSTRAP_SCRIPT } from "@/constants/commonConstants";
 import { DesktopGate } from "@/components/DesktopGate";
 import type { Metadata } from "next";
 import { Poppins, Rammetto_One } from "next/font/google";
@@ -17,14 +18,7 @@ const rammettoOne = Rammetto_One({
   display: "swap",
 });
 
-export const metadata: Metadata = {
-  title: "DETQEL - AI Operating System for Businesses",
-  description:
-    "Turn your business into an intelligent, adaptive and high-performing business. Create your business workspace, deploy AI agents, analyze, predict, simulate and automate — with full control.",
-  icons: {
-    icon: "/favicon.ico",
-  },
-};
+export const metadata: Metadata = APPLICATION_METADATA;
 
 import { WorkspaceProvider } from "@/context/WorkspaceContext";
 import { ThemeProvider } from "@/context/ThemeContext";
@@ -43,16 +37,7 @@ export default function RootLayout({
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `
-              try {
-                const t = localStorage.getItem('detqel_theme');
-                if (t === 'dark' || (!t && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-                  document.documentElement.classList.add('dark');
-                } else {
-                  document.documentElement.classList.remove('dark');
-                }
-              } catch (_) {}
-            `,
+            __html: THEME_BOOTSTRAP_SCRIPT,
           }}
         />
       </head>

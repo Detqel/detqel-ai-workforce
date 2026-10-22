@@ -1,3 +1,4 @@
+import { MCP_CLIENT_IDENTITY } from "../../../constants/connectionConstants.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -56,7 +57,7 @@ export class McpConnectorAdapter implements ConnectorAdapter {
     async connect(configuration: Record<string, unknown>, context: ConnectorContext): Promise<ConnectorHandle> {
         requiredString(configuration, "serverName");
         const transport = await this.factory(configuration, this.options);
-        const client = new Client({ name: "detqel-connector", version: "1.0.0" }, { capabilities: {} });
+        const client = new Client(MCP_CLIENT_IDENTITY, { capabilities: {} });
         let connected = false;
         let closing = false;
         let disconnected = false;

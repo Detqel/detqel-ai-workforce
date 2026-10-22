@@ -1,3 +1,4 @@
+import { LEGACY_PROVIDER_KEY_STATUS } from "@/constants/settingsConstants";
 import React, { useState } from "react";
 import { Check, ChevronDown, Eye, EyeOff, CheckCircle2, Sparkles, Loader2 } from "lucide-react";
 import { renderProviderIcon } from "./ProviderIcons";
@@ -35,7 +36,7 @@ export const IntelligenceSection: React.FC<IntelligenceSectionProps> = ({
   onApiKeyChange,
   onApiKeyBlur,
   onOpenModelSelection,
-  keyStatus = "Valid key · Connected successfully",
+  keyStatus = LEGACY_PROVIDER_KEY_STATUS,
   isValidKey = true,
   onTestConnection,
   isTestingConnection = false,

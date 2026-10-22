@@ -1,3 +1,4 @@
+import { API_PATHS } from "@/constants/apiConstants";
 import { desktopFetch } from "@/lib/desktop";
 import { API_BASE_URL } from "@/lib/api";
 import { readAccessToken } from "@/lib/auth-session";
@@ -7,7 +8,7 @@ export async function apiRequest<TResult>(url: string, init?: RequestInit): Prom
   const token = readAccessToken();
   if (token !== null) headers.set("Authorization", `Bearer ${token}`);
   if (init?.body !== undefined) headers.set("Content-Type", "application/json");
-  const response = await desktopFetch(url.startsWith("/api/") ? `${API_BASE_URL}${url}` : url, { ...init, headers });
+  const response = await desktopFetch(url.startsWith(API_PATHS.prefix) ? `${API_BASE_URL}${url}` : url, { ...init, headers });
   const data = await response.json();
   if (!response.ok) {
     const message = typeof data.message === "string" ? data.message : `Request failed (${response.status})`;
@@ -17,7 +18,7 @@ export async function apiRequest<TResult>(url: string, init?: RequestInit): Prom
 }
 
 export function createResourceClient<TItem, TCreate, TUpdate = Partial<TCreate>>(resource: string) {
-  const baseUrl = `${API_BASE_URL}/api/${resource}`;
+  const baseUrl = `${API_BASE_URL}${API_PATHS.prefix}${resource}`;
 
   return {
     list: (params?: Record<string, string>, signal?: AbortSignal) =>

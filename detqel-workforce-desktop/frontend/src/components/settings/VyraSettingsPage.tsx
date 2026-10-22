@@ -1,5 +1,7 @@
 "use client";
 
+import { PREVIEW_MODES, SETTINGS_SAVE_SUCCESS_DURATION_MS } from "@/constants/settingsConstants";
+
 import React, { useEffect, useState, useCallback } from "react";
 import { VyraBannerCard } from "./VyraBannerCard";
 import { IntelligenceSection } from "./IntelligenceSection";
@@ -45,7 +47,7 @@ export const VyraSettingsPage: React.FC = () => {
     boundaries: "",
     responseStyle: "",
   });
-  const [previewMode, setPreviewMode] = useState<"chat" | "structured">("chat");
+  const [previewMode, setPreviewMode] = useState<"chat" | "structured">(PREVIEW_MODES.chat);
 
   // Save state
   const [isSaving, setIsSaving] = useState<boolean>(false);
@@ -181,7 +183,7 @@ export const VyraSettingsPage: React.FC = () => {
       if (updated) {
         setVyraSettings(updated);
         setSaveSuccess(true);
-        setTimeout(() => setSaveSuccess(false), 2500);
+        setTimeout(() => setSaveSuccess(false), SETTINGS_SAVE_SUCCESS_DURATION_MS);
       }
     } catch (err) {
       console.error("Failed to save settings:", err);

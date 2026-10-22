@@ -1,3 +1,4 @@
+import { PREVIEW_MODES } from "@/constants/settingsConstants";
 import React, { useState } from "react";
 import { User, Send, Loader2, X } from "lucide-react";
 import { IconOnlyButton } from "@/components/ui/icon-only-button";
@@ -76,9 +77,9 @@ export const TestPreviewSection: React.FC<TestPreviewSectionProps> = ({
         <div className="flex items-center p-0.5 rounded-xl bg-slate-100 dark:bg-[#111728] border border-slate-200/80 dark:border-[#1d273f]">
           <button
             type="button"
-            onClick={() => onPreviewModeChange("chat")}
+            onClick={() => onPreviewModeChange(PREVIEW_MODES.chat)}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-              previewMode === "chat"
+              previewMode === PREVIEW_MODES.chat
                 ? "bg-purple-100 dark:bg-[#201538] text-[#8a2be2] dark:text-[#c084fc] shadow-2xs font-bold"
                 : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
             }`}
@@ -87,9 +88,9 @@ export const TestPreviewSection: React.FC<TestPreviewSectionProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => onPreviewModeChange("structured")}
+            onClick={() => onPreviewModeChange(PREVIEW_MODES.structured)}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-              previewMode === "structured"
+              previewMode === PREVIEW_MODES.structured
                 ? "bg-purple-100 dark:bg-[#201538] text-[#8a2be2] dark:text-[#c084fc] shadow-2xs font-bold"
                 : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
             }`}
@@ -161,7 +162,7 @@ export const TestPreviewSection: React.FC<TestPreviewSectionProps> = ({
           </div>
 
           {/* Response body */}
-          {previewMode === "structured" ? (
+          {previewMode === PREVIEW_MODES.structured ? (
             <pre className="text-xs font-mono text-emerald-600 dark:text-emerald-400 bg-white/70 dark:bg-[#070b14] p-3 rounded-xl overflow-x-auto border border-slate-200/70 dark:border-[#162238] max-h-60">
               {testResponse.output}
             </pre>

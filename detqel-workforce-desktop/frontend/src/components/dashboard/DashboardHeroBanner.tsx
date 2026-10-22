@@ -1,5 +1,7 @@
 "use client";
 
+import { ASSET_PATHS } from "@/constants/commonConstants";
+
 import React from "react";
 import Image from "next/image";
 
@@ -56,7 +58,7 @@ export const DashboardHeroBanner: React.FC<DashboardHeroBannerProps> = ({
         <div className="flex items-center gap-3.5 sm:gap-4 p-3 sm:p-3.5 rounded-2xl bg-white dark:bg-[#111827] border border-slate-200/90 dark:border-slate-800/80 hover:border-purple-300 dark:hover:border-[#FFA500]/60 shadow-xs hover:shadow-md transition-all cursor-pointer w-full sm:w-[400px] md:w-[420px]">
           <div className="relative w-24 h-24 sm:w-28 sm:h-28 flex-shrink-0 flex items-center justify-center">
             <Image
-              src="/images/detqel-workforce-agent-logo.png"
+              src={ASSET_PATHS.workforceAgent}
               alt="VYRA AI Assistant"
               width={220}
               height={220}

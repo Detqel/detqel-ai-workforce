@@ -1,3 +1,4 @@
+import { API_TAG_NAMES } from "../../../constants/apiConstants.js";
 import { FastifyPluginAsync } from "fastify";
 const healthResponse = {
     type: "object",
@@ -10,7 +11,7 @@ export const healthRoutes: FastifyPluginAsync = async (app) => {
     app.get("/health", {
         schema: {
             description: "Service and database health check",
-            tags: ["System"],
+            tags: [API_TAG_NAMES.system],
             response: {
                 200: healthResponse,
                 503: healthResponse,
@@ -24,5 +25,5 @@ export const healthRoutes: FastifyPluginAsync = async (app) => {
             timestamp: new Date().toISOString(),
         });
     });
-    app.get("/health/live", { schema: { tags: ["System"], summary: "Process liveness" } }, async () => ({ status: "ok" }));
+    app.get("/health/live", { schema: { tags: [API_TAG_NAMES.system], summary: "Process liveness" } }, async () => ({ status: "ok" }));
 };

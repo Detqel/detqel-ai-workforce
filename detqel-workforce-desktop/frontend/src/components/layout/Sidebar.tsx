@@ -1,5 +1,9 @@
 "use client";
 
+import { LEGACY_DEMO_ACCOUNT } from "@/constants/authConstants";
+
+import { ASSET_PATHS, APPLICATION_NAME_UPPERCASE } from "@/constants/commonConstants";
+
 import React from "react";
 import { WorkspaceLink as Link } from "@/components/navigation/WorkspaceLink";
 import Image from "next/image";
@@ -126,7 +130,7 @@ export const Sidebar: React.FC = () => {
     };
   }, []);
 
-  const displayName = isMounted && user?.name ? user.name : "DETQEL Admin";
+  const displayName = isMounted && user?.name ? user.name : LEGACY_DEMO_ACCOUNT.name;
   const avatarLetter = (displayName[0] || "A").toUpperCase();
 
   const activeItemIndex = sidebarPages.findIndex((page) => page.id === activePageId);
@@ -152,12 +156,20 @@ export const Sidebar: React.FC = () => {
             className="flex items-center hover:opacity-90 transition-opacity shrink-0 cursor-pointer"
           >
             <Image
-              src="/images/detqel-logo-banner.png"
-              alt="DETQEL"
-              width={140}
-              height={40}
+              src={ASSET_PATHS.nameLogoLight}
+              alt={APPLICATION_NAME_UPPERCASE}
+              width={1983}
+              height={793}
               priority
-              className="h-9 w-auto object-contain select-none transition-all drop-shadow-xs"
+              className="h-9 w-auto object-contain select-none transition-all drop-shadow-xs dark:hidden block"
+            />
+            <Image
+              src={ASSET_PATHS.nameLogoDark}
+              alt={APPLICATION_NAME_UPPERCASE}
+              width={1983}
+              height={793}
+              priority
+              className="h-9 w-auto object-contain select-none transition-all drop-shadow-xs hidden dark:block"
             />
           </Link>
         </div>

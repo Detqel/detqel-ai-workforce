@@ -1,18 +1,21 @@
 etcd:
-  endpoints: etcd:2379
+  endpoints: 127.0.0.1:2379
+  use:
+    embed: true
+  data:
+    dir: /var/lib/milvus/etcd
   auth:
     enabled: false
-minio:
-  address: minio
-  port: 9000
-  accessKeyID: "__MINIO_ACCESS_KEY__"
-  secretAccessKey: "__MINIO_SECRET_KEY__"
-  useSSL: false
-  bucketName: detqel-vectors
-  region: us-east-1
+localStorage:
+  path: /var/lib/milvus/data
 mq:
   type: woodpecker
+woodpecker:
+  storage:
+    type: local
+    rootPath: /var/lib/milvus/woodpecker
 common:
+  storageType: local
   security:
     authorizationEnabled: true
     adminAuthEnabled: true

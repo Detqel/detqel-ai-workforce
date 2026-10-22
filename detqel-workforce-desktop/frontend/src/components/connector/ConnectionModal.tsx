@@ -1,4 +1,6 @@
-﻿"use client";
+"use client";
+
+import { CONNECTION_FIELD_MAX_LENGTH } from "@/constants/connectorConstants";
 
 import React, { useEffect, useRef, useState } from "react";
 import { CheckCircle2, Loader2, ShieldCheck } from "lucide-react";
@@ -96,8 +98,8 @@ export function ConnectionModal({ workspaceId, catalogId: selectedCatalogId, con
       <form ref={formRef} onSubmit={handleSubmit} className="flex min-h-0 min-w-0 flex-col">
         <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
         <fieldset disabled={busy} className="min-w-0 space-y-4 px-5 py-4">
-          <label className="block space-y-1.5"><span className="text-xs font-semibold">Connection name <span className="text-red-500">*</span></span><input autoFocus required maxLength={255} value={name} onChange={event => { setName(event.target.value); setVerified(false); }} className={connectionInputClass} /></label>
-          <label className="block space-y-1.5"><span className="text-xs font-semibold">Data stream</span><input maxLength={255} value={dataStream} onChange={event => setDataStream(event.target.value)} className={connectionInputClass} /></label>
+          <label className="block space-y-1.5"><span className="text-xs font-semibold">Connection name <span className="text-red-500">*</span></span><input autoFocus required maxLength={CONNECTION_FIELD_MAX_LENGTH} value={name} onChange={event => { setName(event.target.value); setVerified(false); }} className={connectionInputClass} /></label>
+          <label className="block space-y-1.5"><span className="text-xs font-semibold">Data stream</span><input maxLength={CONNECTION_FIELD_MAX_LENGTH} value={dataStream} onChange={event => setDataStream(event.target.value)} className={connectionInputClass} /></label>
           {loading ? <p role="status" className="flex items-center gap-2 py-6 text-xs text-slate-500 dark:text-slate-400"><Loader2 className="h-4 w-4 animate-spin" />Loading provider configuration…</p> : loadError ? <div role="alert" className={`${connectionErrorClass} flex items-center justify-between gap-3`}><span>{loadError}</span><SecondaryButton value="Try again" onClick={() => setVersion(value => value + 1)} /></div> : catalog && <div className="space-y-4 border-t border-slate-100 pt-4 dark:border-slate-700/60"><h3 className="text-xs font-semibold">Provider configuration</h3><ConfigurationSchemaForm schema={catalog.configSchema} values={configuration} configuredSecretFields={configuredSecrets} onChange={values => { setConfiguration(values); setVerified(false); }} /><p className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400"><ShieldCheck className="h-3.5 w-3.5 shrink-0" />Credentials are encrypted.</p></div>}
           {!catalogId && connector && <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">This existing connection has no catalog configuration. Its name and data stream can be updated here.</p>}
           {verified && <p role="status" className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-400"><CheckCircle2 className="h-4 w-4 shrink-0" />Connection verified. Save to add it to this workspace.</p>}

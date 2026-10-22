@@ -1,3 +1,4 @@
+import { PAGINATION_LIMITS } from "../../../constants/httpConstants.js";
 import { z } from "zod";
 export const getNotificationsQuerySchema = z.object({
     userId: z.string().uuid(),
@@ -6,7 +7,7 @@ export const getNotificationsQuerySchema = z.object({
         .enum(["true", "false"])
         .optional()
         .transform((val) => val === "true"),
-    limit: z.coerce.number().min(1).max(100).optional(),
+    limit: z.coerce.number().min(1).max(PAGINATION_LIMITS.maximum).optional(),
 });
 export const createNotificationSchema = z.object({
     userId: z.string().uuid(),

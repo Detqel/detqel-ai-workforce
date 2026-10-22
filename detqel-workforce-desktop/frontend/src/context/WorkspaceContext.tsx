@@ -1,5 +1,7 @@
 "use client";
 
+import { AUTH_STORAGE_KEYS } from "@/constants/authConstants";
+
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { clearAccessToken } from "@/lib/auth-session";
 import {
@@ -43,17 +45,17 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
 
   useEffect(() => {
     try {
-      const storedUser = localStorage.getItem("detqel_user");
+      const storedUser = localStorage.getItem(AUTH_STORAGE_KEYS.user);
       const parsedUser: UserProfile | null = storedUser ? JSON.parse(storedUser) : null;
       if (parsedUser) {
         setUser(parsedUser);
       }
 
-      const storedWorkspaces = localStorage.getItem("detqel_workspaces");
+      const storedWorkspaces = localStorage.getItem(AUTH_STORAGE_KEYS.workspaces);
       const parsedWorkspaces: WorkspaceSummary[] = storedWorkspaces ? JSON.parse(storedWorkspaces) : [];
       setWorkspaces(parsedWorkspaces);
 
-      const storedCurrent = localStorage.getItem("detqel_current_workspace");
+      const storedCurrent = localStorage.getItem(AUTH_STORAGE_KEYS.currentWorkspace);
       if (storedCurrent) {
         setCurrentWorkspace(JSON.parse(storedCurrent));
       } else if (parsedWorkspaces.length > 0) {
@@ -76,19 +78,19 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
   ) => {
     setUser(newUser);
     setWorkspaces(newWorkspaces);
-    localStorage.setItem("detqel_user", JSON.stringify(newUser));
-    localStorage.setItem("detqel_workspaces", JSON.stringify(newWorkspaces));
+    localStorage.setItem(AUTH_STORAGE_KEYS.user, JSON.stringify(newUser));
+    localStorage.setItem(AUTH_STORAGE_KEYS.workspaces, JSON.stringify(newWorkspaces));
 
     if (newWorkspaces.length > 0) {
       setCurrentWorkspace(newWorkspaces[0]);
       localStorage.setItem(
-        "detqel_current_workspace",
+        AUTH_STORAGE_KEYS.currentWorkspace,
         JSON.stringify(newWorkspaces[0])
       );
       setIsCreateWorkspaceModalOpen(false);
     } else {
       setCurrentWorkspace(null);
-      localStorage.removeItem("detqel_current_workspace");
+      localStorage.removeItem(AUTH_STORAGE_KEYS.currentWorkspace);
       setIsCreateWorkspaceModalOpen(true);
     }
   };
@@ -98,7 +100,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
     if (target) {
       setCurrentWorkspace(target);
       localStorage.setItem(
-        "detqel_current_workspace",
+        AUTH_STORAGE_KEYS.currentWorkspace,
         JSON.stringify(target)
       );
     }
@@ -108,9 +110,9 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
     const updated = [...workspaces.filter((w) => w.id !== workspace.id), workspace];
     setWorkspaces(updated);
     setCurrentWorkspace(workspace);
-    localStorage.setItem("detqel_workspaces", JSON.stringify(updated));
+    localStorage.setItem(AUTH_STORAGE_KEYS.workspaces, JSON.stringify(updated));
     localStorage.setItem(
-      "detqel_current_workspace",
+      AUTH_STORAGE_KEYS.currentWorkspace,
       JSON.stringify(workspace)
     );
     setIsCreateWorkspaceModalOpen(false);
@@ -121,18 +123,18 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       await apiDeleteWorkspace(workspaceId);
       const updated = workspaces.filter((w) => w.id !== workspaceId);
       setWorkspaces(updated);
-      localStorage.setItem("detqel_workspaces", JSON.stringify(updated));
+      localStorage.setItem(AUTH_STORAGE_KEYS.workspaces, JSON.stringify(updated));
 
       if (currentWorkspace?.id === workspaceId) {
         if (updated.length > 0) {
           setCurrentWorkspace(updated[0]);
           localStorage.setItem(
-            "detqel_current_workspace",
+            AUTH_STORAGE_KEYS.currentWorkspace,
             JSON.stringify(updated[0])
           );
         } else {
           setCurrentWorkspace(null);
-          localStorage.removeItem("detqel_current_workspace");
+          localStorage.removeItem(AUTH_STORAGE_KEYS.currentWorkspace);
           setIsCreateWorkspaceModalOpen(true);
         }
       }
@@ -153,13 +155,13 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
         w.id === workspaceId ? { ...w, ...updated } : w
       );
       setWorkspaces(updatedList);
-      localStorage.setItem("detqel_workspaces", JSON.stringify(updatedList));
+      localStorage.setItem(AUTH_STORAGE_KEYS.workspaces, JSON.stringify(updatedList));
 
       if (currentWorkspace?.id === workspaceId) {
         const newCurrent = { ...currentWorkspace, ...updated };
         setCurrentWorkspace(newCurrent);
         localStorage.setItem(
-          "detqel_current_workspace",
+          AUTH_STORAGE_KEYS.currentWorkspace,
           JSON.stringify(newCurrent)
         );
       }
@@ -175,9 +177,9 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
     setUser(null);
     setWorkspaces([]);
     setCurrentWorkspace(null);
-    localStorage.removeItem("detqel_user");
-    localStorage.removeItem("detqel_workspaces");
-    localStorage.removeItem("detqel_current_workspace");
+    localStorage.removeItem(AUTH_STORAGE_KEYS.user);
+    localStorage.removeItem(AUTH_STORAGE_KEYS.workspaces);
+    localStorage.removeItem(AUTH_STORAGE_KEYS.currentWorkspace);
     setIsCreateWorkspaceModalOpen(false);
   };
 

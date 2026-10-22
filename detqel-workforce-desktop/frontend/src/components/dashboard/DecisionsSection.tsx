@@ -1,3 +1,4 @@
+import { PAGE_FRAGMENTS } from "@/constants/navigationConstants";
 import React from "react";
 import { WorkspaceLink as Link } from "@/components/navigation/WorkspaceLink";
 import { defaultPageId } from "@/lib/navigation";
@@ -22,7 +23,7 @@ export const DecisionsSection: React.FC = () => {
           </div>
         </div>
         <Link
-          href={`${defaultPageId}#decisions`}
+          href={`${defaultPageId}#${PAGE_FRAGMENTS.decisions}`}
           className="text-xs font-semibold text-slate-500 dark:text-[#FFA500] hover:text-slate-900 dark:hover:text-[#FFA500] flex items-center gap-1 transition-colors"
         >
           <span>View all</span>

@@ -1,5 +1,6 @@
 import { buildApp } from "./app.js";
 import { env } from "./config/env.js";
+import { LOG_CONTEXTS } from "./constants/loggingConstants.js";
 async function main() {
     const app = await buildApp({ verifyDatabase: true });
     try {
@@ -19,9 +20,9 @@ async function main() {
             if (stopping)
                 return;
             stopping = true;
-            app.log.info({ context: "Server", signal }, "Shutting down");
+            app.log.info({ context: LOG_CONTEXTS.server, signal }, "Shutting down");
             app.close().catch(error => {
-                app.log.error({ context: "Server", err: error });
+                app.log.error({ context: LOG_CONTEXTS.server, err: error });
                 process.exitCode = 1;
             });
         });

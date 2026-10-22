@@ -1,5 +1,7 @@
 "use client";
 
+import { CUSTOM_WORKSPACE_DOMAIN_VALUE } from "@/constants/workspaceConstants";
+
 import React, { useState, useEffect } from "react";
 import {
   Building2,
@@ -62,7 +64,7 @@ export const EditWorkspaceModal: React.FC<EditWorkspaceModalProps> = ({
             setIndustry(match.name);
             setCustomDomain("");
           } else if (wsIndustry) {
-            setIndustry("ADD_DOMAIN_CUSTOM");
+            setIndustry(CUSTOM_WORKSPACE_DOMAIN_VALUE);
             setCustomDomain(wsIndustry);
           } else if (fetchedDomains.length > 0) {
             setIndustry(fetchedDomains[0].name);
@@ -95,7 +97,7 @@ export const EditWorkspaceModal: React.FC<EditWorkspaceModalProps> = ({
     }
 
     let finalIndustry = industry;
-    if (industry === "ADD_DOMAIN_CUSTOM") {
+    if (industry === CUSTOM_WORKSPACE_DOMAIN_VALUE) {
       if (!customDomain.trim()) {
         setError("Please enter your domain name.");
         return;
@@ -225,11 +227,11 @@ export const EditWorkspaceModal: React.FC<EditWorkspaceModalProps> = ({
                     {dom.name}
                   </option>
                 ))}
-                <option value="ADD_DOMAIN_CUSTOM" className="dark:bg-[#182234]">Add Domain +</option>
+                <option value={CUSTOM_WORKSPACE_DOMAIN_VALUE} className="dark:bg-[#182234]">Add Domain +</option>
               </select>
             </div>
 
-            {industry === "ADD_DOMAIN_CUSTOM" && (
+            {industry === CUSTOM_WORKSPACE_DOMAIN_VALUE && (
               <div className="mt-2.5 animate-in fade-in slide-in-from-top-1 duration-200">
                 <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
                   Custom Domain Name <span className="text-red-500">*</span>

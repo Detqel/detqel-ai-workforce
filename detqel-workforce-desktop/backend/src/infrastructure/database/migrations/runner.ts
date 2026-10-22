@@ -5,16 +5,17 @@ import { access } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import postgres from "postgres";
-export const defaultMigrationsFolder = fileURLToPath(new URL("../../../../drizzle/", import.meta.url));
+import { DATABASE_ADMIN_OPTIONS, DATABASE_MIGRATIONS } from "../../../constants/databaseConstants.js";
+export const defaultMigrationsFolder = fileURLToPath(new URL(DATABASE_MIGRATIONS.relativeDirectory, import.meta.url));
 export async function runMigrations(databaseUrl: string, migrationsFolder = defaultMigrationsFolder): Promise<void> {
     // Missing migration artifacts must fail deployment, never silently skip schema changes.
-    await access(path.join(migrationsFolder, "meta", "_journal.json"));
+    await access(path.join(migrationsFolder, DATABASE_MIGRATIONS.metadataDirectory, DATABASE_MIGRATIONS.journalFile));
     const files = readMigrationFiles({ migrationsFolder });
-    const client = postgres(databaseUrl, { max: 1, connect_timeout: 10, onnotice: () => { } });
+    const client = postgres(databaseUrl, { max: DATABASE_ADMIN_OPTIONS.maximumConnections, connect_timeout: DATABASE_ADMIN_OPTIONS.connectTimeoutSeconds, onnotice: () => { } });
     let locked = false;
     try {
-        await client `SET lock_timeout = '30s'`;
-        await client `SELECT pg_advisory_lock(1732401, 1)`;
+        await client `SELECT set_config('lock_timeout', ${DATABASE_MIGRATIONS.lockTimeout}, false)`;
+        await client `SELECT pg_advisory_lock(${DATABASE_MIGRATIONS.lockNamespace}, ${DATABASE_MIGRATIONS.lockId})`;
         locked = true;
         const [table] = await client `SELECT to_regclass('drizzle.__drizzle_migrations') AS name`;
         if (table?.name) {
@@ -34,10 +35,10 @@ export async function runMigrations(databaseUrl: string, migrationsFolder = defa
     finally {
         try {
             if (locked)
-                await client `SELECT pg_advisory_unlock(1732401, 1)`;
+                await client `SELECT pg_advisory_unlock(${DATABASE_MIGRATIONS.lockNamespace}, ${DATABASE_MIGRATIONS.lockId})`;
         }
         finally {
-            await client.end({ timeout: 5 });
+            await client.end({ timeout: DATABASE_ADMIN_OPTIONS.closeTimeoutSeconds });
         }
     }
 }

@@ -1,5 +1,9 @@
 "use client";
 
+import { LEGACY_DEMO_ACCOUNT, MIN_USERNAME_LENGTH, MIN_PASSWORD_LENGTH } from "@/constants/authConstants";
+
+import { ASSET_PATHS, APPLICATION_NAME_UPPERCASE } from "@/constants/commonConstants";
+
 import React, { useState } from "react";
 import Image from "next/image";
 import {
@@ -58,7 +62,7 @@ export const LoginForm: React.FC = () => {
   const [existingUserMatch, setExistingUserMatch] = useState<CheckUserResponse | null>(null);
 
   const checkExistingAccount = async (emailVal: string, usernameVal: string) => {
-    if (!emailVal.includes("@") && (!usernameVal || usernameVal.length < 3)) {
+    if (!emailVal.includes("@") && (!usernameVal || usernameVal.length < MIN_USERNAME_LENGTH)) {
       setExistingUserMatch(null);
       return;
     }
@@ -151,28 +155,28 @@ export const LoginForm: React.FC = () => {
       } catch (err: unknown) {
         // Fallback demo credentials if API backend is not reached
         const isDefaultAdmin =
-          (signInIdentifier.trim().toLowerCase() === "admin" ||
-            signInIdentifier.trim().toLowerCase() === "admin@detqel.ai") &&
-          signInPassword === "admin";
+          (signInIdentifier.trim().toLowerCase() === LEGACY_DEMO_ACCOUNT.username ||
+            signInIdentifier.trim().toLowerCase() === LEGACY_DEMO_ACCOUNT.email) &&
+          signInPassword === LEGACY_DEMO_ACCOUNT.password;
 
         if (isDefaultAdmin) {
           const fallbackUser: UserProfile = {
-            id: "user-admin-default",
-            name: "DETQEL Admin",
-            email: "admin@detqel.ai",
-            username: "admin",
-            status: "active",
+            id: LEGACY_DEMO_ACCOUNT.userId,
+            name: LEGACY_DEMO_ACCOUNT.name,
+            email: LEGACY_DEMO_ACCOUNT.email,
+            username: LEGACY_DEMO_ACCOUNT.username,
+            status: LEGACY_DEMO_ACCOUNT.status,
           };
           const fallbackWorkspace: WorkspaceSummary = {
-            id: "ws-acme-default",
-            name: companyName.trim() || "ACME Retail",
-            slug: "acme-retail",
-            industry: "Retail & E-Commerce",
-            role: "owner",
-            status: "active",
+            id: LEGACY_DEMO_ACCOUNT.workspaceId,
+            name: companyName.trim() || LEGACY_DEMO_ACCOUNT.workspaceName,
+            slug: LEGACY_DEMO_ACCOUNT.workspaceSlug,
+            industry: LEGACY_DEMO_ACCOUNT.workspaceIndustry,
+            role: LEGACY_DEMO_ACCOUNT.role,
+            status: LEGACY_DEMO_ACCOUNT.status,
           };
           setSession(fallbackUser, [fallbackWorkspace]);
-          setAuthSuccess("Welcome back, DETQEL Admin!");
+          setAuthSuccess(`Welcome back, ${LEGACY_DEMO_ACCOUNT.name}!`);
           setIsSubmitting(false);
           return;
         }
@@ -193,16 +197,16 @@ export const LoginForm: React.FC = () => {
         setAuthError("Please enter a valid company email address.");
         return;
       }
-      if (!username.trim() || username.length < 3) {
-        setAuthError("Username must be at least 3 characters.");
+      if (!username.trim() || username.length < MIN_USERNAME_LENGTH) {
+        setAuthError(`Username must be at least ${MIN_USERNAME_LENGTH} characters.`);
         return;
       }
       if (!password) {
         setAuthError("Please enter a password.");
         return;
       }
-      if (password.length < 6) {
-        setAuthError("Password must be at least 6 characters long.");
+      if (password.length < MIN_PASSWORD_LENGTH) {
+        setAuthError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters long.`);
         return;
       }
       if (password !== confirmPassword) {
@@ -254,12 +258,20 @@ export const LoginForm: React.FC = () => {
           <div className="flex flex-col items-center text-center mb-6 sm:mb-7 select-none">
             <div className="relative flex items-center justify-center mb-2.5">
               <Image
-                src="/images/detqel-forge-logo-name.png"
-                alt="DETQEL FORGE"
-                width={2172}
-                height={724}
+                src={ASSET_PATHS.nameLogoLight}
+                alt={APPLICATION_NAME_UPPERCASE}
+                width={1983}
+                height={793}
                 priority
-                className="h-14 sm:h-16 w-auto object-contain hover:scale-[1.01] transition-transform"
+                className="h-14 sm:h-16 w-auto object-contain hover:scale-[1.01] transition-transform dark:hidden block"
+              />
+              <Image
+                src={ASSET_PATHS.nameLogoDark}
+                alt={APPLICATION_NAME_UPPERCASE}
+                width={1983}
+                height={793}
+                priority
+                className="h-14 sm:h-16 w-auto object-contain hover:scale-[1.01] transition-transform hidden dark:block"
               />
             </div>
             <p className="font-body text-xs sm:text-sm text-slate-500 max-w-md mx-auto leading-relaxed">
@@ -780,7 +792,7 @@ export const LoginForm: React.FC = () => {
 
       <div className="lg:col-span-5 relative hidden lg:block overflow-hidden border-l border-slate-200/60 bg-[#04050a]">
         <Image
-          src="/images/login-right-banner.png"
+          src={ASSET_PATHS.loginBanner}
           alt="DETQEL AI Neural Core Interface"
           fill
           priority

@@ -1,3 +1,5 @@
+import { AUTHORIZATION_HEADER, BEARER_AUTHORIZATION_PREFIX } from "../../../constants/authConstants.js";
+import { AI_PROVIDER_IDS, ANTHROPIC_API_VERSION, ANTHROPIC_HEADERS, ANTHROPIC_MAX_OUTPUT_TOKENS, LOCAL_OLLAMA_CHAT_URL, MODEL_DISCOVERY_TIMEOUT_MS, PROMPT_EXECUTION_TIMEOUT_MS, PROVIDER_ERROR_PREVIEW_LENGTH } from "../../../constants/settingsConstants.js";
 import type {
   ISettingsRepository,
   AIProvider,
@@ -49,12 +51,12 @@ export class SettingsService {
   ): Promise<AIProviderModel[] | null> {
     const pId = providerId.toLowerCase().trim();
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const timeoutId = setTimeout(() => controller.abort(), MODEL_DISCOVERY_TIMEOUT_MS);
 
     try {
-      if (pId === "openai") {
+      if (pId === AI_PROVIDER_IDS.openai) {
         const res = await fetch(env.OPENAI_MODELS_URL, {
-          headers: { Authorization: `Bearer ${apiKey}` },
+          headers: { [AUTHORIZATION_HEADER]: `${BEARER_AUTHORIZATION_PREFIX}${apiKey}` },
           signal: controller.signal,
         });
         if (!res.ok) return null;
@@ -70,9 +72,9 @@ export class SettingsService {
           .sort((a, b) => a.name.localeCompare(b.name));
       }
 
-      if (pId === "groq") {
+      if (pId === AI_PROVIDER_IDS.groq) {
         const res = await fetch(env.GROQ_MODELS_URL, {
-          headers: { Authorization: `Bearer ${apiKey}` },
+          headers: { [AUTHORIZATION_HEADER]: `${BEARER_AUTHORIZATION_PREFIX}${apiKey}` },
           signal: controller.signal,
         });
         if (!res.ok) return null;
@@ -88,9 +90,9 @@ export class SettingsService {
           .sort((a, b) => a.name.localeCompare(b.name));
       }
 
-      if (pId === "deepseek") {
+      if (pId === AI_PROVIDER_IDS.deepseek) {
         const res = await fetch(env.DEEPSEEK_MODELS_URL, {
-          headers: { Authorization: `Bearer ${apiKey}` },
+          headers: { [AUTHORIZATION_HEADER]: `${BEARER_AUTHORIZATION_PREFIX}${apiKey}` },
           signal: controller.signal,
         });
         if (!res.ok) return null;
@@ -106,11 +108,11 @@ export class SettingsService {
           .sort((a, b) => a.name.localeCompare(b.name));
       }
 
-      if (pId === "anthropic") {
+      if (pId === AI_PROVIDER_IDS.anthropic) {
         const res = await fetch(env.ANTHROPIC_MODELS_URL, {
           headers: {
-            "x-api-key": apiKey,
-            "anthropic-version": "2023-06-01",
+            [ANTHROPIC_HEADERS.apiKey]: apiKey,
+            [ANTHROPIC_HEADERS.version]: ANTHROPIC_API_VERSION,
           },
           signal: controller.signal,
         });
@@ -127,7 +129,7 @@ export class SettingsService {
           .sort((a, b) => a.name.localeCompare(b.name));
       }
 
-      if (pId === "google") {
+      if (pId === AI_PROVIDER_IDS.google) {
         const googleUrl = env.GOOGLE_MODELS_URL.includes("?")
           ? `${env.GOOGLE_MODELS_URL}&key=${encodeURIComponent(apiKey)}`
           : `${env.GOOGLE_MODELS_URL}?key=${encodeURIComponent(apiKey)}`;
@@ -155,7 +157,7 @@ export class SettingsService {
         : `https://api.${pId}.com/v1/models`;
 
       const genericRes = await fetch(genericUrl, {
-        headers: { Authorization: `Bearer ${apiKey}` },
+        headers: { [AUTHORIZATION_HEADER]: `${BEARER_AUTHORIZATION_PREFIX}${apiKey}` },
         signal: controller.signal,
       }).catch(() => null);
 
@@ -309,23 +311,23 @@ export class SettingsService {
     }
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 35000);
+    const timeoutId = setTimeout(() => controller.abort(), PROMPT_EXECUTION_TIMEOUT_MS);
 
     try {
       let textOutput = "";
       let tokensUsed = 0;
 
-      if (pId === "openai" || pId === "groq" || pId === "deepseek" || pId === "custom") {
+      if (pId === AI_PROVIDER_IDS.openai || pId === AI_PROVIDER_IDS.groq || pId === AI_PROVIDER_IDS.deepseek || pId === AI_PROVIDER_IDS.custom) {
         const endpointUrl =
-          pId === "openai"
+          pId === AI_PROVIDER_IDS.openai
             ? env.OPENAI_CHAT_URL
-            : pId === "groq"
+            : pId === AI_PROVIDER_IDS.groq
             ? env.GROQ_CHAT_URL
-            : pId === "deepseek"
+            : pId === AI_PROVIDER_IDS.deepseek
             ? env.DEEPSEEK_CHAT_URL
             : keyToUse.startsWith("http")
             ? `${keyToUse.replace(/\/$/, "")}/v1/chat/completions`
-            : "http://localhost:11434/v1/chat/completions";
+            : LOCAL_OLLAMA_CHAT_URL;
 
         const messages: Array<{ role: string; content: string }> = [];
         if (params.systemPrompt?.trim()) {
@@ -343,7 +345,7 @@ export class SettingsService {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${keyToUse}`,
+            [AUTHORIZATION_HEADER]: `${BEARER_AUTHORIZATION_PREFIX}${keyToUse}`,
           },
           body: JSON.stringify({
             model: modelToUse,
@@ -355,7 +357,7 @@ export class SettingsService {
 
         if (!res.ok) {
           const errText = await res.text().catch(() => "");
-          throw new Error(`Provider returned HTTP ${res.status}: ${errText.slice(0, 250)}`);
+          throw new Error(`Provider returned HTTP ${res.status}: ${errText.slice(0, PROVIDER_ERROR_PREVIEW_LENGTH)}`);
         }
 
         const data = (await res.json()) as {
@@ -365,17 +367,17 @@ export class SettingsService {
 
         textOutput = data.choices?.[0]?.message?.content || "";
         tokensUsed = data.usage?.total_tokens || 0;
-      } else if (pId === "anthropic") {
+      } else if (pId === AI_PROVIDER_IDS.anthropic) {
         const res = await fetch(env.ANTHROPIC_MESSAGES_URL, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "x-api-key": keyToUse,
-            "anthropic-version": "2023-06-01",
+            [ANTHROPIC_HEADERS.apiKey]: keyToUse,
+            [ANTHROPIC_HEADERS.version]: ANTHROPIC_API_VERSION,
           },
           body: JSON.stringify({
             model: modelToUse,
-            max_tokens: 2048,
+            max_tokens: ANTHROPIC_MAX_OUTPUT_TOKENS,
             ...(params.systemPrompt?.trim() ? { system: params.systemPrompt.trim() } : {}),
             messages: [
               {
@@ -392,7 +394,7 @@ export class SettingsService {
 
         if (!res.ok) {
           const errText = await res.text().catch(() => "");
-          throw new Error(`Anthropic returned HTTP ${res.status}: ${errText.slice(0, 250)}`);
+          throw new Error(`Anthropic returned HTTP ${res.status}: ${errText.slice(0, PROVIDER_ERROR_PREVIEW_LENGTH)}`);
         }
 
         const data = (await res.json()) as {
@@ -402,7 +404,7 @@ export class SettingsService {
 
         textOutput = data.content?.[0]?.text || "";
         tokensUsed = (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0);
-      } else if (pId === "google") {
+      } else if (pId === AI_PROVIDER_IDS.google) {
         const googleUrl = `${env.GOOGLE_GENERATE_URL}/${encodeURIComponent(modelToUse)}:generateContent?key=${encodeURIComponent(keyToUse)}`;
         const res = await fetch(googleUrl, {
           method: "POST",
@@ -434,7 +436,7 @@ export class SettingsService {
 
         if (!res.ok) {
           const errText = await res.text().catch(() => "");
-          throw new Error(`Google returned HTTP ${res.status}: ${errText.slice(0, 250)}`);
+          throw new Error(`Google returned HTTP ${res.status}: ${errText.slice(0, PROVIDER_ERROR_PREVIEW_LENGTH)}`);
         }
 
         const data = (await res.json()) as {

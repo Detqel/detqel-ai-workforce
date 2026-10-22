@@ -1,6 +1,7 @@
+import { PASSWORD_HASH_ALGORITHM } from "../../constants/authConstants.js";
 import crypto from "node:crypto";
 export function hashPassword(password: string): string {
-    return crypto.createHash("sha256").update(password).digest("hex");
+    return crypto.createHash(PASSWORD_HASH_ALGORITHM).update(password).digest("hex");
 }
 export function verifyPassword(password: string, hash: string | null | undefined): boolean {
     if (!hash)

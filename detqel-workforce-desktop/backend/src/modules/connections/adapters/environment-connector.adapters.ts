@@ -1,3 +1,4 @@
+import { CONNECTOR_ADAPTER_KEYS } from "../../../constants/connectionConstants.js";
 import { AppError } from "../../../shared/errors/app-error.js";
 import type { ConnectorAdapter, ConnectorContext, ConnectorHandle, ConnectorRuntimeOptions } from "../../../shared/types/connector-catalog.js";
 import { allowedExecutable, allowedFilesystemPath, authenticationHeaders, httpEndpoint, requiredString } from "./adapter-configuration.js";
@@ -5,7 +6,7 @@ import { HttpConnectorAdapter } from "./data-connector.adapters.js";
 import { verifiedHttpResponse } from "./http-verification.js";
 
 export class LocalEnvironmentConnectorAdapter implements ConnectorAdapter {
-    readonly key = "environment.local";
+    readonly key = CONNECTOR_ADAPTER_KEYS.environmentLocal;
     constructor(private readonly options: ConnectorRuntimeOptions) {}
 
     async connect(configuration: Record<string, unknown>, _context: ConnectorContext): Promise<ConnectorHandle> {
@@ -16,7 +17,7 @@ export class LocalEnvironmentConnectorAdapter implements ConnectorAdapter {
 }
 
 export class HttpEnvironmentConnectorAdapter implements ConnectorAdapter {
-    readonly key = "environment.http";
+    readonly key = CONNECTOR_ADAPTER_KEYS.environmentHttp;
     private readonly adapter: HttpConnectorAdapter;
     constructor(options: ConnectorRuntimeOptions) { this.adapter = new HttpConnectorAdapter(options); }
 
@@ -26,7 +27,7 @@ export class HttpEnvironmentConnectorAdapter implements ConnectorAdapter {
 }
 
 export class DockerEnvironmentConnectorAdapter implements ConnectorAdapter {
-    readonly key = "environment.docker";
+    readonly key = CONNECTOR_ADAPTER_KEYS.environmentDocker;
     constructor(private readonly options: ConnectorRuntimeOptions) {}
 
     async connect(configuration: Record<string, unknown>, _context: ConnectorContext): Promise<ConnectorHandle> {

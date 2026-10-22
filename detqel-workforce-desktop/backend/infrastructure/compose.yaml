@@ -1,15 +1,20 @@
+name: detqel-kin-stack
+
 services:
-  litellm-database:
-    image: postgres:16
+  detqel-kin-litellm-db:
+    container_name: detqel-kin-litellm-db
+    labels:
+      com.detqel.desktop.runtime: '${DETQEL_RUNTIME_ID:?Private desktop runtime identity is required}'
+    image: ${POSTGRESQL_IMAGE:?Managed PostgreSQL image is required}
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:?Generated PostgreSQL username is required}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Generated PostgreSQL password is required}
+      POSTGRES_USER: ${POSTGRES_USER:?Generated LiteLLM PostgreSQL username is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Generated LiteLLM PostgreSQL password is required}
       POSTGRES_DB: litellm
     volumes:
-      - litellm-postgres:/var/lib/postgresql/data
+      - detqel-kin-litellm-db-data:/var/lib/postgresql/data
     networks:
-      - litellm-private
+      - detqel-kin-litellm-private
     healthcheck:
       test: [CMD-SHELL, 'pg_isready --username="$${POSTGRES_USER}" --dbname="$${POSTGRES_DB}"']
       interval: 5s
@@ -17,15 +22,18 @@ services:
       retries: 30
       start_period: 20s
 
-  litellm:
-    image: docker.litellm.ai/berriai/litellm:latest
+  detqel-kin-litellm:
+    container_name: detqel-kin-litellm
+    labels:
+      com.detqel.desktop.runtime: '${DETQEL_RUNTIME_ID:?Private desktop runtime identity is required}'
+    image: ${LITELLM_IMAGE:?Managed LiteLLM image is required}
     pull_policy: always
     restart: unless-stopped
     command: [--config, /app/detqel-config.yaml, --host, 0.0.0.0, --port, '4000']
     environment:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?Generated LiteLLM master key is required}
       LITELLM_SALT_KEY: ${LITELLM_SALT_KEY:?Persisted LiteLLM encryption key is required}
-      DATABASE_URL: postgresql://${POSTGRES_USER:?Generated PostgreSQL username is required}:${POSTGRES_PASSWORD:?Generated PostgreSQL password is required}@litellm-database:5432/litellm
+      DATABASE_URL: postgresql://${POSTGRES_USER:?Generated LiteLLM PostgreSQL username is required}:${POSTGRES_PASSWORD:?Generated LiteLLM PostgreSQL password is required}@detqel-kin-litellm-db:5432/litellm
       STORE_MODEL_IN_DB: 'True'
     volumes:
       - type: bind
@@ -33,15 +41,15 @@ services:
         target: /app/detqel-config.yaml
         read_only: true
     networks:
-      - litellm-private
-      - litellm-egress
+      - detqel-kin-litellm-private
+      - detqel-kin-gateway
     ports:
       - target: 4000
-        published: '50000-59999'
+        published: '${LITELLM_PORT:?Allocated LiteLLM host port is required}'
         host_ip: 127.0.0.1
         protocol: tcp
     depends_on:
-      litellm-database:
+      detqel-kin-litellm-db:
         condition: service_healthy
     healthcheck:
       test: [CMD, python, -c, 'import json,urllib.request; h=json.load(urllib.request.urlopen("http://127.0.0.1:4000/health/readiness",timeout=5)); assert h.get("status")=="healthy" and h.get("db")=="connected"']
@@ -50,93 +58,42 @@ services:
       retries: 30
       start_period: 90s
 
-  milvus-volume-init:
-    image: milvusdb/milvus:v3.0.3
-    user: '0:0'
-    network_mode: none
-    read_only: true
-    restart: 'no'
-    entrypoint: [/bin/sh, -c]
-    command:
-      - |
-        set -eu
-        owner="$$(id -u milvus):$$(id -g milvus)"
-        marker="/var/lib/milvus/.detqel-owner-$${owner}"
-        if [ ! -e "$${marker}" ]; then
-          chown -R "$${owner}" /var/lib/milvus
-          touch "$${marker}"
-          chown "$${owner}" "$${marker}"
-        fi
-    volumes:
-      - milvus-data:/var/lib/milvus
-
-  etcd:
-    image: quay.io/coreos/etcd:v3.5.25
-    restart: unless-stopped
-    environment:
-      ETCD_AUTO_COMPACTION_MODE: revision
-      ETCD_AUTO_COMPACTION_RETENTION: '1000'
-      ETCD_QUOTA_BACKEND_BYTES: '4294967296'
-      ETCD_SNAPSHOT_COUNT: '50000'
-    command: [etcd, --advertise-client-urls=http://etcd:2379, --listen-client-urls=http://0.0.0.0:2379, --data-dir=/etcd]
-    volumes:
-      - milvus-etcd:/etcd
-    networks:
-      - vector-private
-    healthcheck:
-      test: [CMD, etcdctl, endpoint, health]
-      interval: 10s
-      timeout: 5s
-      retries: 30
-
-  minio:
-    image: milvusdb/minio:RELEASE.2024-12-18T13-15-44Z
-    restart: unless-stopped
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Generated MinIO access key is required}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Generated MinIO secret key is required}
-    command: [minio, server, /minio_data, --console-address, ':9001']
-    volumes:
-      - milvus-minio:/minio_data
-    networks:
-      - vector-private
-    healthcheck:
-      test: [CMD, mc, ready, local]
-      interval: 10s
-      timeout: 5s
-      retries: 30
-
-  milvus:
-    image: milvusdb/milvus:v3.0.3
+  detqel-kin-milvus:
+    container_name: detqel-kin-milvus
+    labels:
+      com.detqel.desktop.runtime: '${DETQEL_RUNTIME_ID:?Private desktop runtime identity is required}'
+    image: ${MILVUS_IMAGE:?Managed Milvus image is required}
     restart: unless-stopped
     command: [milvus, run, standalone]
     environment:
-      ETCD_ENDPOINTS: etcd:2379
-      MINIO_ADDRESS: minio:9000
-      MINIO_REGION: us-east-1
+      ETCD_USE_EMBED: 'true'
+      ETCD_DATA_DIR: /var/lib/milvus/etcd
+      ETCD_CONFIG_PATH: /milvus/configs/embedEtcd.yaml
+      COMMON_STORAGETYPE: local
+      DEPLOY_MODE: STANDALONE
     security_opt:
       - seccomp:unconfined
     volumes:
-      - milvus-data:/var/lib/milvus
+      - type: volume
+        source: detqel-kin-milvus-embedded-data
+        target: /var/lib/milvus
+        volume:
+          nocopy: false
       - type: bind
         source: ./milvus.user.yaml
         target: /milvus/configs/user.yaml
         read_only: true
+      - type: bind
+        source: ./milvus.embed-etcd.yaml
+        target: /milvus/configs/embedEtcd.yaml
+        read_only: true
     networks:
-      - vector-private
-      - vector-access
+      - detqel-kin-vector
     ports:
       - target: 19530
-        published: '50000-59999'
+        published: '${MILVUS_PORT:?Allocated Milvus host port is required}'
         host_ip: 127.0.0.1
         protocol: tcp
-    depends_on:
-      milvus-volume-init:
-        condition: service_completed_successfully
-      etcd:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
     healthcheck:
       test: [CMD, curl, --fail, --silent, --max-time, '5', http://127.0.0.1:9091/healthz]
       interval: 10s
@@ -144,16 +101,53 @@ services:
       retries: 30
       start_period: 90s
 
+  detqel-kin-app-db:
+    container_name: detqel-kin-app-db
+    labels:
+      com.detqel.desktop.runtime: '${DETQEL_RUNTIME_ID:?Private desktop runtime identity is required}'
+    image: ${POSTGRESQL_IMAGE:?Managed PostgreSQL image is required}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${APP_POSTGRES_USER:?Generated application PostgreSQL username is required}
+      POSTGRES_PASSWORD: ${APP_POSTGRES_PASSWORD:?Generated application PostgreSQL password is required}
+      POSTGRES_DB: ${APP_POSTGRES_DB:?Application database name is required}
+    volumes:
+      - detqel-kin-app-db-data:/var/lib/postgresql/data
+    networks:
+      - detqel-kin-application
+    ports:
+      - target: 5432
+        published: '${APP_DATABASE_PORT:?Allocated application database host port is required}'
+        host_ip: 127.0.0.1
+        protocol: tcp
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready --username="$${POSTGRES_USER}" --dbname="$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
 networks:
-  litellm-private:
-    internal: true
-  litellm-egress: {}
-  vector-private:
-    internal: true
-  vector-access: {}
+  detqel-kin-litellm-private:
+    name: detqel-kin-litellm-private
+    external: true
+  detqel-kin-gateway:
+    name: detqel-kin-gateway
+    external: true
+  detqel-kin-vector:
+    name: detqel-kin-vector
+    external: true
+  detqel-kin-application:
+    name: detqel-kin-application
+    external: true
 
 volumes:
-  litellm-postgres: {}
-  milvus-data: {}
-  milvus-etcd: {}
-  milvus-minio: {}
+  detqel-kin-litellm-db-data:
+    name: '${LITELLM_DATABASE_VOLUME:?Persisted LiteLLM database volume is required}'
+    external: true
+  detqel-kin-milvus-embedded-data:
+    name: detqel-kin-milvus-embedded-data
+    external: true
+  detqel-kin-app-db-data:
+    name: detqel-kin-app-db-data
+    external: true

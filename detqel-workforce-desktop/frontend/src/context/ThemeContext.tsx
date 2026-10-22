@@ -1,5 +1,7 @@
 "use client";
 
+import { DARK_THEME_MEDIA_QUERY, THEME_STORAGE_KEY } from "@/constants/commonConstants";
+
 import React, { createContext, useContext, useEffect, useState } from "react";
 
 export type Theme = "light" | "dark";
@@ -19,13 +21,13 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({
 
   useEffect(() => {
     try {
-      const storedTheme = localStorage.getItem("detqel_theme") as Theme | null;
+      const storedTheme = localStorage.getItem(THEME_STORAGE_KEY) as Theme | null;
       if (storedTheme === "dark" || storedTheme === "light") {
         setThemeState(storedTheme);
         applyTheme(storedTheme);
       } else {
         const prefersDark = window.matchMedia(
-          "(prefers-color-scheme: dark)"
+          DARK_THEME_MEDIA_QUERY
         ).matches;
         const initial: Theme = prefersDark ? "dark" : "light";
         setThemeState(initial);
@@ -48,7 +50,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({
   const setTheme = (newTheme: Theme) => {
     setThemeState(newTheme);
     try {
-      localStorage.setItem("detqel_theme", newTheme);
+      localStorage.setItem(THEME_STORAGE_KEY, newTheme);
     } catch {
       // Ignore storage errors
     }

@@ -1,8 +1,8 @@
+import { FORBIDDEN_RESPONSE_PROPERTY_NAMES, MAX_VERIFICATION_RESPONSE_BYTES } from "../../../constants/connectionConstants.js";
 import type { FetchLike } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { AppError } from "../../../shared/errors/app-error.js";
 import { bounded } from "./adapter-configuration.js";
 
-const MAX_VERIFICATION_RESPONSE_BYTES = 1024 * 1024;
 
 /** Restrict authenticated requests, including server-supplied MCP SSE endpoints, to one origin. */
 export function originRestrictedFetch(endpoint: URL, headers: Headers, timeoutMs: number): FetchLike {
@@ -63,7 +63,7 @@ export function responseHasProperty(response: unknown, property: string): boolea
     const parts = property.split(".");
     let current = response;
     for (const part of parts) {
-        if (!part || ["__proto__", "prototype", "constructor"].includes(part) || current === null || typeof current !== "object" || !Object.hasOwn(current, part)) return false;
+        if (!part || FORBIDDEN_RESPONSE_PROPERTY_NAMES.includes(part) || current === null || typeof current !== "object" || !Object.hasOwn(current, part)) return false;
         current = (current as Record<string, unknown>)[part];
     }
     return current !== undefined && current !== null;

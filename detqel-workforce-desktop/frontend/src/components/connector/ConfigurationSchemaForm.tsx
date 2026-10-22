@@ -1,5 +1,7 @@
 "use client";
 
+import { BOOLEAN_CONFIGURATION_OPTIONS } from "@/constants/connectorConstants";
+
 import React, { useId, useState } from "react";
 import { OptionMenu } from "@/components/ui/option-menu";
 import type { ConfigurationSchema } from "@/lib/api/connector-catalog";
@@ -92,7 +94,7 @@ function ConfigurationField({ id, name, schema, value, required, hasStoredSecret
   if (schema.enum) {
     control = <OptionMenu label={title} placeholder={`Select ${title}`} value={value === undefined ? undefined : JSON.stringify(value)} options={schema.enum.map((option, index) => ({ value: JSON.stringify(option), label: schema.enumNames?.[index] ?? String(option) }))} onSelect={selected => onChange(JSON.parse(selected))} />;
   } else if (type === "boolean") {
-    control = <OptionMenu label={title} placeholder={`Select ${title}`} value={value === undefined ? undefined : JSON.stringify(value)} options={[{ value: "true", label: "Yes" }, { value: "false", label: "No" }]} onSelect={selected => onChange(selected === "true")} />;
+    control = <OptionMenu label={title} placeholder={`Select ${title}`} value={value === undefined ? undefined : JSON.stringify(value)} options={BOOLEAN_CONFIGURATION_OPTIONS} onSelect={selected => onChange(selected === "true")} />;
   } else if (type === "array" || type === "object") {
     control = <JsonConfigurationInput id={id} schema={schema} value={value} required={required} onChange={onChange} />;
   } else if (type === "string" || type === "number" || type === "integer") {

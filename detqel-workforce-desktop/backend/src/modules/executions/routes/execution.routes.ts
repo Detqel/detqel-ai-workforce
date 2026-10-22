@@ -1,11 +1,12 @@
+import { API_TAG_NAMES } from "../../../constants/apiConstants.js";
 import type { FastifyPluginAsync } from "fastify";
 import { ExecutionController } from "../controllers/execution.controller.js";
 export const executionRoutes: FastifyPluginAsync = async (app) => {
     const controller = new ExecutionController(app.services.executions);
     app.post("/executions", {
-        schema: { tags: ["Executions"], summary: "Enqueue agent execution action" },
+        schema: { tags: [API_TAG_NAMES.executions], summary: "Enqueue agent execution action" },
     }, controller.create.bind(controller));
     app.patch("/executions/:id", {
-        schema: { tags: ["Executions"], summary: "Update execution result or status" },
+        schema: { tags: [API_TAG_NAMES.executions], summary: "Update execution result or status" },
     }, controller.updateStatus.bind(controller));
 };

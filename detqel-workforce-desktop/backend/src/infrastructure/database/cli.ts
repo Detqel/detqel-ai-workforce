@@ -1,4 +1,5 @@
 import { env } from "../../config/env.js";
+import { DATABASE_COMMANDS } from "../../constants/databaseConstants.js";
 import { createDatabase } from "./connection.js";
 import { runMigrations } from "./migrations/runner.js";
 import { initializeDatabase } from "./provision.js";
@@ -6,19 +7,19 @@ import { seedDemoData } from "./seeds/demo.seed.js";
 import { seedReferenceData } from "./seeds/reference.seed.js";
 async function main() {
     const command = process.argv[2];
-    if (!["init", "migrate", "seed", "seed-demo", "setup"].includes(command))
+    if (!(Object.values(DATABASE_COMMANDS) as readonly string[]).includes(command))
         throw new Error("Use init, migrate, seed, seed-demo, or setup");
-    if (command === "seed-demo" && env.NODE_ENV === "production")
+    if (command === DATABASE_COMMANDS.seedDemo && env.NODE_ENV === "production")
         throw new Error("Demo seeding is disabled in production");
-    if (command === "init" || command === "setup")
+    if (command === DATABASE_COMMANDS.initialize || command === DATABASE_COMMANDS.setup)
         await initializeDatabase(env.DATABASE_URL, process.env.DATABASE_ADMIN_URL);
-    if (command === "migrate" || command === "setup")
+    if (command === DATABASE_COMMANDS.migrate || command === DATABASE_COMMANDS.setup)
         await runMigrations(env.DATABASE_URL);
-    if (["seed", "seed-demo", "setup"].includes(command)) {
+    if (([DATABASE_COMMANDS.seed, DATABASE_COMMANDS.seedDemo, DATABASE_COMMANDS.setup] as readonly string[]).includes(command)) {
         const connection = createDatabase(env);
         try {
             await seedReferenceData(connection.db);
-            if (command === "seed-demo")
+            if (command === DATABASE_COMMANDS.seedDemo)
                 await seedDemoData(connection.db);
         }
         finally {

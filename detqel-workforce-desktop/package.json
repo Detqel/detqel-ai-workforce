@@ -2,7 +2,7 @@
   "name": "detqel-workforce-desktop",
   "version": "0.1.0",
   "private": true,
-  "description": "DETQEL Workforce desktop application and full-stack development workspace",
+  "description": "DETQEL Kin desktop application and full-stack development workspace",
   "workspaces": [
     "frontend",
     "backend"
@@ -12,7 +12,7 @@
     "npm": ">=11"
   },
   "scripts": {
-    "dev": "tauri dev",
+    "dev": "tauri dev --no-dev-server-wait",
     "build": "tauri build -- --locked",
     "build:debug": "tauri build --debug -- --locked",
     "prepare:dev": "node scripts/prepare.mjs --dev",

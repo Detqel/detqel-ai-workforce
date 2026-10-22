@@ -1,3 +1,4 @@
+import { PAGE_FRAGMENTS } from "@/constants/navigationConstants";
 import React from "react";
 import { WorkspaceLink as Link } from "@/components/navigation/WorkspaceLink";
 import { defaultPageId } from "@/lib/navigation";
@@ -33,7 +34,7 @@ export const QuickStartSection: React.FC = () => {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Link
-          href={`${defaultPageId}#analyze`}
+          href={`${defaultPageId}#${PAGE_FRAGMENTS.analyze}`}
           className="p-3.5 rounded-xl bg-slate-50/80 dark:bg-[#151f32] border border-slate-200/90 dark:border-slate-800 hover:border-purple-300 dark:hover:border-[#FFA500]/50 hover:bg-white dark:hover:bg-[#1e2a40] transition-all cursor-pointer group flex items-center justify-between shadow-2xs"
         >
           <div className="flex items-center gap-3">
@@ -48,7 +49,7 @@ export const QuickStartSection: React.FC = () => {
         </Link>
 
         <Link
-          href={`${defaultPageId}#predict`}
+          href={`${defaultPageId}#${PAGE_FRAGMENTS.predict}`}
           className="p-3.5 rounded-xl bg-slate-50/80 dark:bg-[#151f32] border border-slate-200/90 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-600/50 hover:bg-white dark:hover:bg-[#1e2a40] transition-all cursor-pointer group flex items-center justify-between shadow-2xs"
         >
           <div className="flex items-center gap-3">
@@ -63,7 +64,7 @@ export const QuickStartSection: React.FC = () => {
         </Link>
 
         <Link
-          href={`${defaultPageId}#simulate`}
+          href={`${defaultPageId}#${PAGE_FRAGMENTS.simulate}`}
           className="p-3.5 rounded-xl bg-slate-50/80 dark:bg-[#151f32] border border-slate-200/90 dark:border-slate-800 hover:border-blue-300 dark:hover:border-blue-600/50 hover:bg-white dark:hover:bg-[#1e2a40] transition-all cursor-pointer group flex items-center justify-between shadow-2xs"
         >
           <div className="flex items-center gap-3">
@@ -78,7 +79,7 @@ export const QuickStartSection: React.FC = () => {
         </Link>
 
         <Link
-          href={`${defaultPageId}#automate`}
+          href={`${defaultPageId}#${PAGE_FRAGMENTS.automate}`}
           className="p-3.5 rounded-xl bg-slate-50/80 dark:bg-[#151f32] border border-slate-200/90 dark:border-slate-800 hover:border-amber-300 dark:hover:border-amber-600/50 hover:bg-white dark:hover:bg-[#1e2a40] transition-all cursor-pointer group flex items-center justify-between shadow-2xs"
         >
           <div className="flex items-center gap-3">

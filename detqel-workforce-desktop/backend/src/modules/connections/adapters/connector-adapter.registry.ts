@@ -1,3 +1,4 @@
+import { CONNECTOR_ADAPTER_KEYS } from "../../../constants/connectionConstants.js";
 import { AppError } from "../../../shared/errors/app-error.js";
 import type { ConnectorAdapter, ConnectorContext, ConnectorHandle, ConnectorRuntimeOptions } from "../../../shared/types/connector-catalog.js";
 import { FilesystemConnectorAdapter, GithubConnectorAdapter, HttpConnectorAdapter, PostgresConnectorAdapter } from "./data-connector.adapters.js";
@@ -17,9 +18,9 @@ export class ConnectorAdapterRegistry {
             new FilesystemConnectorAdapter("file", options),
             new FilesystemConnectorAdapter("directory", options),
             new GithubConnectorAdapter(options),
-            new McpConnectorAdapter("mcp.stdio", createStdioTransport, options),
-            new McpConnectorAdapter("mcp.streamable-http", createStreamableHttpTransport, options),
-            new McpConnectorAdapter("mcp.sse", createSseTransport, options),
+            new McpConnectorAdapter(CONNECTOR_ADAPTER_KEYS.mcpStdio, createStdioTransport, options),
+            new McpConnectorAdapter(CONNECTOR_ADAPTER_KEYS.mcpStreamableHttp, createStreamableHttpTransport, options),
+            new McpConnectorAdapter(CONNECTOR_ADAPTER_KEYS.mcpSse, createSseTransport, options),
             new LocalEnvironmentConnectorAdapter(options),
             new HttpEnvironmentConnectorAdapter(options),
             new DockerEnvironmentConnectorAdapter(options),

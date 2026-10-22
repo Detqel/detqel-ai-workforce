@@ -6,6 +6,7 @@ node_modules/
 out/
 dist/
 .local/
+logs/
 *.tsbuildinfo
 src-tauri/target/
 src-tauri/resources/

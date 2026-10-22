@@ -1,9 +1,10 @@
+import { API_TAG_NAMES } from "../../../constants/apiConstants.js";
 ﻿import type { FastifyPluginAsync } from "fastify";
 import { ConnectionController } from "../controllers/connection.controller.js";
 
 export const connectionRoutes: FastifyPluginAsync = async (app) => {
     const controller = new ConnectionController(app.services.connections, app.services.connectionAccess);
-    const schema = (summary: string) => ({ schema: { tags: ["Connections"], summary } });
+    const schema = (summary: string) => ({ schema: { tags: [API_TAG_NAMES.connections], summary } });
 
     app.get("/connector-catalog", schema("List enabled connector integrations"), controller.catalog.bind(controller));
     app.get("/connector-catalog/:id", schema("Get connector configuration schema"), controller.catalogById.bind(controller));

@@ -1,10 +1,11 @@
+import { PAGINATION_LIMITS } from "../../../constants/httpConstants.js";
 import { and, desc, eq } from "drizzle-orm";
 import { type DatabaseSession } from "../../../infrastructure/database/connection.js";
 import { approvals, executions, missionAgents, missionEvents, missions, missionSources, type Approval, type Execution, type Mission, type MissionEvent, type MissionSource, type NewApproval, type NewExecution, type NewMission, type NewMissionEvent, type NewMissionSource } from "../../../infrastructure/database/schema/missions.js";
 import type { IMissionRepository } from "./mission.repository.js";
 export class MissionRepository implements IMissionRepository {
     constructor(private readonly database: DatabaseSession) { }
-    async listByWorkspace(workspaceId: string, status?: string, limit: number = 50): Promise<Mission[]> {
+    async listByWorkspace(workspaceId: string, status?: string, limit: number = PAGINATION_LIMITS.standard): Promise<Mission[]> {
         const conditions = [eq(missions.workspaceId, workspaceId)];
         if (status)
             conditions.push(eq(missions.status, status));

@@ -1,3 +1,4 @@
+import { API_PATHS } from "@/constants/apiConstants";
 import { apiRequest } from "./resource-client";
 
 export interface ConfigurationSchema {
@@ -43,7 +44,7 @@ export interface ConnectorCatalogDetail extends ConnectorCatalogEntry {
 
 export const connectorCatalogApi = {
   list: (params: { workspaceId: string; connectorType: string; category?: string }, signal?: AbortSignal) =>
-    apiRequest<ConnectorCatalogEntry[]>(`/api/connector-catalog?${new URLSearchParams({ workspaceId: params.workspaceId, connectorType: params.connectorType, ...(params.category ? { category: params.category } : {}) })}`, { signal, cache: "no-store" }),
+    apiRequest<ConnectorCatalogEntry[]>(`${API_PATHS.connectorCatalog}?${new URLSearchParams({ workspaceId: params.workspaceId, connectorType: params.connectorType, ...(params.category ? { category: params.category } : {}) })}`, { signal, cache: "no-store" }),
   get: (id: string, workspaceId: string, signal?: AbortSignal) =>
-    apiRequest<ConnectorCatalogDetail>(`/api/connector-catalog/${encodeURIComponent(id)}?${new URLSearchParams({ workspaceId })}`, { signal, cache: "no-store" }),
+    apiRequest<ConnectorCatalogDetail>(`${API_PATHS.connectorCatalog}/${encodeURIComponent(id)}?${new URLSearchParams({ workspaceId })}`, { signal, cache: "no-store" }),
 };

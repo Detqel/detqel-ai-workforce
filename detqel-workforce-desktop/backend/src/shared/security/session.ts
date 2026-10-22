@@ -1,3 +1,4 @@
+import { BEARER_AUTHORIZATION_PREFIX, MAX_AUTHORIZATION_HEADER_LENGTH, SESSION_CRYPTO } from "../../constants/authConstants.js";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { AppError } from "../errors/app-error.js";
@@ -9,27 +10,27 @@ export class SessionService {
 
     constructor(secret: string, private readonly lifetimeSeconds: number) {
         this.key = Buffer.from(secret, "base64");
-        if (this.key.length !== 32) throw new Error("AUTH_SESSION_SECRET must contain 32 base64-encoded bytes");
+        if (this.key.length !== SESSION_CRYPTO.keyBytes) throw new Error("AUTH_SESSION_SECRET must contain 32 base64-encoded bytes");
     }
 
     issue(userId: string): { accessToken: string; expiresAt: string } {
-        const expires = Math.floor(Date.now() / 1000) + this.lifetimeSeconds;
-        const payload = Buffer.from(JSON.stringify({ sub: userId, exp: expires, nonce: randomBytes(16).toString("base64url") })).toString("base64url");
-        const signature = createHmac("sha256", this.key).update(payload).digest("base64url");
-        return { accessToken: `${payload}.${signature}`, expiresAt: new Date(expires * 1000).toISOString() };
+        const expires = Math.floor(Date.now() / SESSION_CRYPTO.millisecondsPerSecond) + this.lifetimeSeconds;
+        const payload = Buffer.from(JSON.stringify({ sub: userId, exp: expires, nonce: randomBytes(SESSION_CRYPTO.nonceBytes).toString(SESSION_CRYPTO.encoding) })).toString(SESSION_CRYPTO.encoding);
+        const signature = createHmac(SESSION_CRYPTO.algorithm, this.key).update(payload).digest(SESSION_CRYPTO.encoding);
+        return { accessToken: `${payload}.${signature}`, expiresAt: new Date(expires * SESSION_CRYPTO.millisecondsPerSecond).toISOString() };
     }
 
     verify(authorization: string | undefined): string {
-        if (!authorization?.startsWith("Bearer ") || authorization.length > 4096) throw new AppError(401, "Sign in to manage connections");
-        const parts = authorization.slice(7).split(".");
+        if (!authorization?.startsWith(BEARER_AUTHORIZATION_PREFIX) || authorization.length > MAX_AUTHORIZATION_HEADER_LENGTH) throw new AppError(401, "Sign in to manage connections");
+        const parts = authorization.slice(BEARER_AUTHORIZATION_PREFIX.length).split(".");
         if (parts.length !== 2) throw new AppError(401, "Invalid session");
         const [payload, signature] = parts;
-        const actual = Buffer.from(signature, "base64url");
-        const expected = createHmac("sha256", this.key).update(payload).digest();
+        const actual = Buffer.from(signature, SESSION_CRYPTO.encoding);
+        const expected = createHmac(SESSION_CRYPTO.algorithm, this.key).update(payload).digest();
         if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) throw new AppError(401, "Invalid session");
         try {
-            const claims = claimsSchema.parse(JSON.parse(Buffer.from(payload, "base64url").toString("utf8")));
-            if (claims.exp <= Math.floor(Date.now() / 1000)) throw new Error("expired");
+            const claims = claimsSchema.parse(JSON.parse(Buffer.from(payload, SESSION_CRYPTO.encoding).toString("utf8")));
+            if (claims.exp <= Math.floor(Date.now() / SESSION_CRYPTO.millisecondsPerSecond)) throw new Error("expired");
             return claims.sub;
         } catch {
             throw new AppError(401, "Your session expired. Sign in again to manage connections");

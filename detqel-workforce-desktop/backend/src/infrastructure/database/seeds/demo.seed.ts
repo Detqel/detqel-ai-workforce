@@ -1,3 +1,6 @@
+import { CONNECTOR_TYPES } from "../../../constants/connectionConstants.js";
+import { DEMO_ACTIVITY_DAY_MS } from "../../../constants/databaseSeedConstants.js";
+import { SERVICE_PORTS } from "../../../constants/networkConstants.js";
 import { eq, sql } from "drizzle-orm";
 import { hashPassword } from "../../../shared/security/password.js";
 import type { AppDatabase } from "../connection.js";
@@ -166,8 +169,8 @@ export async function seedDemoData(database: AppDatabase) {
             workspaceId,
             name: "PostgreSQL Data Warehouse",
             provider: "Postgres",
-            connectionType: "data",
-            configuration: { host: "dw.internal.corp", port: 5432, database: "analytics_dw" },
+            connectionType: CONNECTOR_TYPES.data,
+            configuration: { host: "dw.internal.corp", port: SERVICE_PORTS.postgresql, database: "analytics_dw" },
             status: "connected",
             lastSyncedAt: new Date(),
         })
@@ -329,7 +332,7 @@ export async function seedDemoData(database: AppDatabase) {
                 const targetUserId = ws.createdBy || userId;
                 const now = new Date();
                 for (const item of activitySamples) {
-                    const activityTime = new Date(now.getTime() - item.daysAgo * 86400000);
+                    const activityTime = new Date(now.getTime() - item.daysAgo * DEMO_ACTIVITY_DAY_MS);
                     await db.insert(userActivities).values({
                         workspaceId: ws.id,
                         userId: targetUserId,

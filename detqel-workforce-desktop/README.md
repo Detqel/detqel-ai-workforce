@@ -78,9 +78,11 @@ Images are pulled before existing containers are replaced. Compose creates missi
 
 Generated credentials and configuration are stored under `%APPDATA%\\com.detqel.workforce\\runtime\\infrastructure` for installed Windows builds, with current-user permissions. Preserve this directory together with the Docker volumes, especially the LiteLLM salt key. Ports and keys are discovered by the startup manager and provided only to the backend through `LITELLM_BASE_URL`, `LITELLM_API_KEY`, `MILVUS_ADDRESS`, and `MILVUS_TOKEN`. Secrets are never sent to the startup UI. Configure gateway models/provider credentials in the managed LiteLLM configuration or its authenticated Admin UI; no model or embedding service is invented automatically.
 
-See [infrastructure configuration](backend/infrastructure/README.md) for images, private networking, lifecycle, and operational limitations. No Docker launches, builds, or tests were run while implementing this feature.
+See [infrastructure configuration](backend/infrastructure/README.md) for images, private networking, lifecycle, and operational limitations.
 
-Desktop startup provisions and migrates its managed application database and seeds reference data. For a separately operated external database, the maintenance commands below remain available:
+Every desktop launch waits for the managed application PostgreSQL container, applies all pending committed migrations, seeds missing reference records, and verifies migration history before opening the workspace. This includes the OpenAI, Anthropic, Google, Groq, DeepSeek, and Custom provider catalog as well as connector and industry catalogs. Existing provider keys, connection status, discovered models, agent settings, and user data are preserved. Provider cards appear before a key is entered; models are discovered after connecting a provider. Updated installers bundle the current backend and migration directory so the next launch applies their database updates automatically.
+
+For a separately operated external database, the maintenance commands below remain available:
 
 ```powershell
 $env:DATABASE_URL = 'postgres://USER:PASSWORD@HOST:5432/DATABASE'

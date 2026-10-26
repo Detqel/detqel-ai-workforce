@@ -20,7 +20,7 @@
     "build:app": "node scripts/prepare.mjs",
     "build:frontend": "npm run build --workspace frontend",
     "build:backend": "npm run build --workspace backend",
-    "icons:generate": "tauri icon src-tauri/icons/icon-transparent.png -o src-tauri/icons",
+    "icons:generate": "tauri icon frontend/public/images/detqel-kin-logo.png --fit contain -o src-tauri/icons",
     "check": "npm run typecheck --workspace backend && npm run typecheck --workspace frontend && cargo fmt --manifest-path src-tauri/Cargo.toml -- --check",
     "test": "npm test --workspace backend && node --test tests/*.test.mjs",
     "db:setup": "npm run db:setup --workspace backend",

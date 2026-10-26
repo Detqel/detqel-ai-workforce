@@ -1,3 +1,5 @@
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import {
     DESKTOP_INFRASTRUCTURE_LABELS,
@@ -70,6 +72,42 @@ export interface DesktopInfrastructure {
     applicationDatabaseUrl: string;
 }
 
+function launchDockerDesktopWindows(): void {
+    if (process.platform !== "win32") return;
+    const candidates = [
+        "C:\\Program Files\\Docker\\Docker\\Docker Desktop.exe",
+        process.env.ProgramFiles ? join(process.env.ProgramFiles, "Docker", "Docker", "Docker Desktop.exe") : null,
+        process.env["ProgramFiles(x86)"] ? join(process.env["ProgramFiles(x86)"], "Docker", "Docker", "Docker Desktop.exe") : null,
+    ].filter(Boolean) as string[];
+
+    for (const exe of candidates) {
+        if (existsSync(exe)) {
+            try {
+                const child = spawn(exe, [], { detached: true, stdio: "ignore" });
+                child.unref();
+                return;
+            } catch {}
+        }
+    }
+}
+
+export async function stopDesktopInfrastructure(options?: { signal?: AbortSignal }): Promise<void> {
+    try {
+        const signal = options?.signal ?? new AbortController().signal;
+        const runningIds = (await runInfrastructureProcess(DOCKER_EXECUTABLE, [
+            "ps", "-q", "--filter", "name=detqel-kin", "--filter", "name=workforce"
+        ], { signal, timeoutMs: 10_000, failureMessage: "Unable to query running Docker containers." })).split(/\r?\n/).filter(Boolean);
+
+        if (runningIds.length > 0) {
+            await runInfrastructureProcess(DOCKER_EXECUTABLE, [
+                "stop", "--time", "5", ...runningIds
+            ], { signal, timeoutMs: 25_000, failureMessage: "Unable to stop running Docker containers." });
+        }
+    } catch {
+        // Safe shutdown fallback
+    }
+}
+
 async function ensureLocalDocker(signal: AbortSignal, report: (detail: string) => void): Promise<void> {
     const docker = (args: string[], failureMessage: string, timeoutMs: number = DOCKER_TIMEOUTS_MS.cli) => runInfrastructureProcess(DOCKER_EXECUTABLE, args, { signal, timeoutMs, failureMessage });
     const version = await docker(["compose", "version", "--short"], "Docker Compose is unavailable. Install the current Docker Desktop release and enable Linux containers.");
@@ -92,7 +130,12 @@ async function ensureLocalDocker(signal: AbortSignal, report: (detail: string) =
     catch {
         if (signal.aborted) throw new DesktopInfrastructureError("Desktop infrastructure startup was cancelled.");
         report("Starting Docker Desktop and waiting for its Linux container engine...");
-        await docker(["desktop", "start", "--detach"], "Docker Desktop could not be started automatically. Open Docker Desktop, wait for its engine, and retry.", DOCKER_TIMEOUTS_MS.desktopStart);
+        launchDockerDesktopWindows();
+        try {
+            await docker(["desktop", "start", "--detach"], "Docker Desktop could not be started automatically. Open Docker Desktop, wait for its engine, and retry.", DOCKER_TIMEOUTS_MS.desktopStart);
+        } catch {
+            // Native launch was triggered; continue waiting for engine
+        }
         const deadline = Date.now() + DOCKER_TIMEOUTS_MS.desktopStart;
         for (;;) {
             try { operatingSystem = await engine(); break; }

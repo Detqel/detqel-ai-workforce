@@ -6,15 +6,17 @@ mod startup_assets;
 use constants::desktop_constants::{
     APPLICATION_NAME, BACKEND_API_STEP, BACKEND_RUNTIME_STEP, BACKEND_STATUS_COMMAND,
     CREATE_NO_WINDOW, DESKTOP_LOG_DIRECTORY_ENV, DEVELOPMENT_BINARY_DIRECTORY,
-    DEVELOPMENT_LOG_DIRECTORY, FRONTEND_STEP, NODE_BINARY_NAME,
-    FRONTEND_TIMEOUT_SECONDS, LOGO_DARK, LOGO_LIGHT, MAIN_WINDOW, STARTUP_PAGE,
-    STARTUP_ASSET_HOST, STARTUP_ASSET_SCHEME, STARTUP_READY_COMMAND, STARTUP_READY_TIMEOUT_SECONDS,
-    STARTUP_POLL_INTERVAL_MS, STARTUP_STEPS, STARTUP_WINDOW, STARTUP_WINDOW_HEIGHT,
+    DEVELOPMENT_LOG_DIRECTORY, FRONTEND_STEP, FRONTEND_TIMEOUT_SECONDS, LOGO_DARK, LOGO_LIGHT,
+    MAIN_WINDOW, NAME_LOGO_DARK, NAME_LOGO_LIGHT, NODE_BINARY_NAME, STARTUP_ASSET_HOST,
+    STARTUP_ASSET_SCHEME, STARTUP_PAGE, STARTUP_POLL_INTERVAL_MS, STARTUP_READY_COMMAND,
+    STARTUP_READY_TIMEOUT_SECONDS, STARTUP_STEPS, STARTUP_WINDOW, STARTUP_WINDOW_HEIGHT,
     STARTUP_WINDOW_MINIMUM_HEIGHT, STARTUP_WINDOW_MINIMUM_WIDTH, STARTUP_WINDOW_WIDTH,
     THEME_STORAGE_KEY,
 };
 use constants::frontend_constants::{FRONTEND_DIAGNOSTICS_SCRIPT, FRONTEND_RUNTIME_FAILURE};
-use constants::network_constants::{LOCAL_HTTP_SCHEME, LOOPBACK_HOST, PRIVATE_PORT_MAXIMUM, PRIVATE_PORT_MINIMUM};
+use constants::network_constants::{
+    LOCAL_HTTP_SCHEME, LOOPBACK_HOST, PRIVATE_PORT_MAXIMUM, PRIVATE_PORT_MINIMUM,
+};
 use desktop_logs::{read_diagnostic_lines, DesktopLogs};
 use frontend_runtime::FrontendRuntime;
 use serde::{Deserialize, Serialize};
@@ -55,8 +57,10 @@ impl Backend {
         }
         self.finished_at = Some(Instant::now());
         for step in &mut self.steps {
-            if step.id != FRONTEND_STEP && (matches!(step.status, StartupStepStatus::Running)
-                || (api_was_ready && step.id == BACKEND_API_STEP)) {
+            if step.id != FRONTEND_STEP
+                && (matches!(step.status, StartupStepStatus::Running)
+                    || (api_was_ready && step.id == BACKEND_API_STEP))
+            {
                 step.status = StartupStepStatus::Error;
                 if step.detail.is_none() {
                     step.detail = self.error.clone();
@@ -137,15 +141,23 @@ fn reveal_workspace(app: &tauri::AppHandle, shared: &SharedBackend) -> Result<()
             || backend.error.is_some()
             || backend.address.is_none()
             || !backend.frontend_ready
-            || !backend.steps.iter().all(|step| matches!(step.status, StartupStepStatus::Complete))
+            || !backend
+                .steps
+                .iter()
+                .all(|step| matches!(step.status, StartupStepStatus::Complete))
         {
             return Ok(());
         }
         backend.opened = true;
     }
-    let result = app.get_webview_window(MAIN_WINDOW)
+    let result = app
+        .get_webview_window(MAIN_WINDOW)
         .ok_or("The main application window is unavailable")
-        .and_then(|window| window.show().map_err(|_| "The application window could not be shown"));
+        .and_then(|window| {
+            window
+                .show()
+                .map_err(|_| "The application window could not be shown")
+        });
     if let Err(message) = result {
         if let Ok(mut backend) = shared.lock() {
             backend.opened = false;
@@ -160,7 +172,7 @@ fn reveal_workspace(app: &tauri::AppHandle, shared: &SharedBackend) -> Result<()
         let _ = window.set_focus();
     }
     if let Some(window) = app.get_webview_window(STARTUP_WINDOW) {
-        let _ = window.close();
+        let _ = window.hide();
     }
     Ok(())
 }
@@ -177,11 +189,16 @@ async fn startup_ready(
     let shared = state.inner().clone();
     {
         let mut backend = shared.lock().map_err(|_| "Backend state unavailable")?;
-        if backend.launch_started || backend.stopping { return Ok(()); }
+        if backend.launch_started || backend.stopping {
+            return Ok(());
+        }
         backend.launch_started = true;
     }
     let logs = app.state::<Arc<DesktopLogs>>().inner().clone();
-    logs.frontend("info", "The embedded startup loader is visible. Starting application services.");
+    logs.frontend(
+        "info",
+        "The embedded startup loader is visible. Starting application services.",
+    );
     update_startup_step(&shared, FRONTEND_STEP, StartupStepStatus::Running);
     let frontend_app = app.clone();
     let frontend_state = shared.clone();
@@ -189,7 +206,9 @@ async fn startup_ready(
         let result = async {
             frontend_runtime::start(&frontend_app, logs.clone()).await?;
             {
-                let backend = frontend_state.lock().map_err(|_| "Backend state unavailable")?;
+                let backend = frontend_state
+                    .lock()
+                    .map_err(|_| "Backend state unavailable")?;
                 if backend.stopping && backend.error.is_none() {
                     return Ok::<(), String>(());
                 }
@@ -198,17 +217,24 @@ async fn startup_ready(
             let monitor_state = frontend_state.clone();
             std::thread::spawn(move || monitor_frontend_startup(monitor_state));
             Ok(())
-        }.await;
+        }
+        .await;
         if let Err(error) = result {
             logs.frontend("error", &error);
             update_startup_step(&frontend_state, FRONTEND_STEP, StartupStepStatus::Error);
-            fail_startup(&frontend_state, format!("{FRONTEND_RUNTIME_FAILURE} {error}"));
+            fail_startup(
+                &frontend_state,
+                format!("{FRONTEND_RUNTIME_FAILURE} {error}"),
+            );
             frontend_app.state::<FrontendRuntime>().stop();
         }
     });
     std::thread::spawn(move || {
         if let Err(error) = start_backend(&app, shared.clone()) {
-            fail_startup(&shared, format!("Unable to start the packaged backend: {error}"));
+            fail_startup(
+                &shared,
+                format!("Unable to start the packaged backend: {error}"),
+            );
         }
     });
     Ok(())
@@ -228,7 +254,10 @@ async fn frontend_ready(
         let mut backend = shared.lock().map_err(|_| "Backend state unavailable")?;
         backend.frontend_ready = true;
         if let Some(logs) = &backend.logs {
-            logs.frontend("info", "Main frontend mounted and native IPC readiness confirmed.");
+            logs.frontend(
+                "info",
+                "Main frontend mounted and native IPC readiness confirmed.",
+            );
         }
     }
     update_startup_step(&shared, FRONTEND_STEP, StartupStepStatus::Complete);
@@ -243,7 +272,8 @@ async fn frontend_log(
     message: String,
 ) -> Result<(), String> {
     if ![MAIN_WINDOW, STARTUP_WINDOW].contains(&window.label())
-        || !matches!(level.as_str(), "info" | "warn" | "error") {
+        || !matches!(level.as_str(), "info" | "warn" | "error")
+    {
         return Err("Invalid frontend diagnostic event".into());
     }
     state.frontend(&level, &format!("[{}] {message}", window.label()));
@@ -251,19 +281,30 @@ async fn frontend_log(
 }
 
 #[tauri::command]
-fn backend_status(app: tauri::AppHandle, state: tauri::State<'_, SharedBackend>) -> Result<BackendStatus, String> {
+fn backend_status(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, SharedBackend>,
+) -> Result<BackendStatus, String> {
     let mut backend = state.lock().map_err(|_| "Backend state unavailable")?;
     if tauri::is_dev() && backend.launch_started && !backend.stopping {
         let frontend_error = match app.state::<FrontendRuntime>().exit_status() {
-            Ok(Some(status)) => Some(format!("The frontend process stopped ({status}). See the frontend logs.")),
+            Ok(Some(status)) => Some(format!(
+                "The frontend process stopped ({status}). See the frontend logs."
+            )),
             Err(error) => Some(format!("Unable to monitor the frontend process: {error}")),
             Ok(None) => None,
         };
         if let Some(error) = frontend_error {
-            if let Some(step) = backend.steps.iter_mut().find(|step| step.id == FRONTEND_STEP) {
+            if let Some(step) = backend
+                .steps
+                .iter_mut()
+                .find(|step| step.id == FRONTEND_STEP)
+            {
                 step.status = StartupStepStatus::Error;
             }
-            if let Some(logs) = &backend.logs { logs.frontend("error", &error); }
+            if let Some(logs) = &backend.logs {
+                logs.frontend("error", &error);
+            }
             backend.fail(error);
             backend.stop();
         }
@@ -271,11 +312,16 @@ fn backend_status(app: tauri::AppHandle, state: tauri::State<'_, SharedBackend>)
     // During initialization the stdout supervisor owns errors so a queued, specific
     // service failure is never replaced by a process-exit message from polling.
     let process_error = if backend.address.is_some() && backend.error.is_none() {
-        backend.child.as_mut().and_then(|child| match child.try_wait() {
-            Ok(Some(status)) => Some(format!("The desktop backend stopped ({status}). Restart the application to reconnect.")),
-            Err(error) => Some(format!("Unable to monitor the desktop backend: {error}")),
-            Ok(None) => None,
-        })
+        backend
+            .child
+            .as_mut()
+            .and_then(|child| match child.try_wait() {
+                Ok(Some(status)) => Some(format!(
+                    "The desktop backend stopped ({status}). Restart the application to reconnect."
+                )),
+                Err(error) => Some(format!("Unable to monitor the desktop backend: {error}")),
+                Ok(None) => None,
+            })
     } else {
         None
     };
@@ -287,15 +333,24 @@ fn backend_status(app: tauri::AppHandle, state: tauri::State<'_, SharedBackend>)
         error: backend.error.clone(),
         config_path: backend.config_path.display().to_string(),
         steps: backend.steps.clone(),
-        logs_directory: backend.logs.as_ref().map(|logs| logs.directory().display().to_string()),
-        elapsed_seconds: backend.finished_at.unwrap_or_else(Instant::now)
-            .saturating_duration_since(backend.started_at).as_secs(),
+        logs_directory: backend
+            .logs
+            .as_ref()
+            .map(|logs| logs.directory().display().to_string()),
+        elapsed_seconds: backend
+            .finished_at
+            .unwrap_or_else(Instant::now)
+            .saturating_duration_since(backend.started_at)
+            .as_secs(),
     })
 }
 
 fn sanitize_startup_text(value: &str, limit: usize) -> String {
-    value.chars().filter(|character| !character.is_control() || matches!(*character, '\n' | '\t'))
-        .take(limit).collect()
+    value
+        .chars()
+        .filter(|character| !character.is_control() || matches!(*character, '\n' | '\t'))
+        .take(limit)
+        .collect()
 }
 
 fn valid_backend_address(address: &str) -> bool {
@@ -304,7 +359,9 @@ fn valid_backend_address(address: &str) -> bool {
     };
     url.scheme() == LOCAL_HTTP_SCHEME
         && url.host_str() == Some(LOOPBACK_HOST)
-        && url.port().is_some_and(|port| (PRIVATE_PORT_MINIMUM..=PRIVATE_PORT_MAXIMUM).contains(&port))
+        && url
+            .port()
+            .is_some_and(|port| (PRIVATE_PORT_MINIMUM..=PRIVATE_PORT_MAXIMUM).contains(&port))
         && url.username().is_empty()
         && url.password().is_none()
         && url.path() == "/"
@@ -327,31 +384,50 @@ fn supervise_startup(
     let logs = app.state::<Arc<DesktopLogs>>().inner().clone();
     let deadline = Instant::now() + Duration::from_secs(60 * 60);
     loop {
-        let value = match receiver.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+        let value = match receiver.recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        {
             Ok(value) => value,
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 fail_startup(&shared, "Application startup exceeded 60 minutes. Review Docker and service availability, then restart the application.".into());
                 return;
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
-                fail_startup(&shared, "The startup manager stopped before the application API became ready.".into());
+                fail_startup(
+                    &shared,
+                    "The startup manager stopped before the application API became ready.".into(),
+                );
                 return;
             }
         };
         if value.get("type").and_then(|value| value.as_str()) == Some("startup") {
-            let step = value.get("step").cloned()
+            let step = value
+                .get("step")
+                .cloned()
                 .and_then(|step| serde_json::from_value::<StartupStep>(step).ok());
             let Some(mut step) = step else {
-                fail_startup(&shared, "The startup manager reported an invalid progress event.".into());
+                fail_startup(
+                    &shared,
+                    "The startup manager reported an invalid progress event.".into(),
+                );
                 return;
             };
-            if step.id.is_empty() || step.id.len() > 100 || step.label.trim().is_empty()
-                || !step.id.chars().all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')) {
-                fail_startup(&shared, "The startup manager reported an invalid progress identifier or label.".into());
+            if step.id.is_empty()
+                || step.id.len() > 100
+                || step.label.trim().is_empty()
+                || !step.id.chars().all(|character| {
+                    character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+                })
+            {
+                fail_startup(
+                    &shared,
+                    "The startup manager reported an invalid progress identifier or label.".into(),
+                );
                 return;
             }
             step.label = sanitize_startup_text(&step.label, 200);
-            step.detail = step.detail.map(|detail| sanitize_startup_text(&detail, 2048));
+            step.detail = step
+                .detail
+                .map(|detail| sanitize_startup_text(&detail, 2048));
             if step.id == FRONTEND_STEP {
                 continue;
             }
@@ -359,7 +435,11 @@ fn supervise_startup(
                 logs.backend("info", &event);
             }
             if let Ok(mut backend) = shared.lock() {
-                if let Some(existing) = backend.steps.iter_mut().find(|existing| existing.id == step.id) {
+                if let Some(existing) = backend
+                    .steps
+                    .iter_mut()
+                    .find(|existing| existing.id == step.id)
+                {
                     *existing = step;
                 } else {
                     backend.steps.push(step);
@@ -370,7 +450,10 @@ fn supervise_startup(
             if ready.as_bool() == Some(true) {
                 let address = value.get("address").and_then(|address| address.as_str());
                 let Some(address) = address.filter(|address| valid_backend_address(address)) else {
-                    fail_startup(&shared, "The backend reported an invalid local API address.".into());
+                    fail_startup(
+                        &shared,
+                        "The backend reported an invalid local API address.".into(),
+                    );
                     return;
                 };
                 if let Ok(mut backend) = shared.lock() {
@@ -381,14 +464,22 @@ fn supervise_startup(
                 let _ = reveal_workspace(&app, &shared);
                 logs.backend("info", "Backend API readiness confirmed.");
             } else if ready.as_bool() == Some(false) {
-                let message = value.get("error").and_then(|error| error.as_str())
+                let message = value
+                    .get("error")
+                    .and_then(|error| error.as_str())
                     .filter(|error| !error.trim().is_empty());
                 match message {
                     Some(message) => fail_startup(&shared, message.to_owned()),
-                    None => fail_startup(&shared, "The startup manager reported failure without an error message.".into()),
+                    None => fail_startup(
+                        &shared,
+                        "The startup manager reported failure without an error message.".into(),
+                    ),
                 }
             } else {
-                fail_startup(&shared, "The startup manager reported an invalid readiness event.".into());
+                fail_startup(
+                    &shared,
+                    "The startup manager reported an invalid readiness event.".into(),
+                );
             }
             return;
         }
@@ -525,8 +616,10 @@ fn start_backend(
             Err(error) => return Err(error.into()),
         }
         (
-            std::env::current_exe()?
-                .with_file_name(format!("{NODE_BINARY_NAME}{}", std::env::consts::EXE_SUFFIX)),
+            std::env::current_exe()?.with_file_name(format!(
+                "{NODE_BINARY_NAME}{}",
+                std::env::consts::EXE_SUFFIX
+            )),
             resources.join("backend/dist/desktop-entry.js"),
             resources.join("backend"),
             config,
@@ -562,7 +655,10 @@ fn start_backend(
     }
     let mut child = command.spawn()?;
     let stdout = child.stdout.take().ok_or("Backend output unavailable")?;
-    let stderr = child.stderr.take().ok_or("Backend diagnostics unavailable")?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or("Backend diagnostics unavailable")?;
     let initialization = format!("{}\n", serde_json::json!({ "token": token }));
     if let Err(error) = child
         .stdin
@@ -588,7 +684,9 @@ fn start_backend(
         let result = read_diagnostic_lines(BufReader::new(stdout), |line| {
             if let Ok(value) = serde_json::from_str::<serde_json::Value>(line) {
                 // Keep draining stdout after readiness so later process output cannot block it.
-                if value.get("type").and_then(|kind| kind.as_str()) == Some("startup") || value.get("ready").is_some() {
+                if value.get("type").and_then(|kind| kind.as_str()) == Some("startup")
+                    || value.get("ready").is_some()
+                {
                     let _ = sender.send(value);
                 } else {
                     output_logs.backend("info", line);
@@ -602,13 +700,116 @@ fn start_backend(
         }
     });
     std::thread::spawn(move || {
-        if let Err(error) = read_diagnostic_lines(BufReader::new(stderr), |line| logs.backend("error", line)) {
-            logs.backend("error", &format!("Unable to read backend diagnostics: {error}"));
+        if let Err(error) =
+            read_diagnostic_lines(BufReader::new(stderr), |line| logs.backend("error", line))
+        {
+            logs.backend(
+                "error",
+                &format!("Unable to read backend diagnostics: {error}"),
+            );
         }
     });
     let handle = app.clone();
     std::thread::spawn(move || supervise_startup(handle, shared, receiver));
     Ok(())
+}
+
+fn stop_all_docker_containers(logs: Option<&Arc<DesktopLogs>>) {
+    let mut ps_cmd = Command::new("docker");
+    ps_cmd.args([
+        "ps",
+        "-q",
+        "--filter",
+        "name=detqel-kin",
+        "--filter",
+        "name=workforce",
+    ]);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        ps_cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    if let Ok(output) = ps_cmd.output() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let ids: Vec<&str> = stdout
+            .split_whitespace()
+            .filter(|id| !id.is_empty())
+            .collect();
+        if !ids.is_empty() {
+            if let Some(logs) = logs {
+                logs.backend(
+                    "info",
+                    &format!("Stopping {} running Docker containers...", ids.len()),
+                );
+            }
+            let mut stop_cmd = Command::new("docker");
+            stop_cmd.arg("stop").arg("--time").arg("5");
+            stop_cmd.args(&ids);
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                stop_cmd.creation_flags(CREATE_NO_WINDOW);
+            }
+            let _ = stop_cmd.output();
+        }
+    }
+}
+
+fn perform_graceful_shutdown(app: &tauri::AppHandle, shared: &SharedBackend) {
+    {
+        let mut backend = match shared.lock() {
+            Ok(b) => b,
+            Err(_) => {
+                app.exit(0);
+                return;
+            }
+        };
+        if backend.stopping {
+            return;
+        }
+        backend.stopping = true;
+    }
+
+    if let Some(main_win) = app.get_webview_window(MAIN_WINDOW) {
+        let _ = main_win.hide();
+    }
+
+    if let Some(startup_win) = app.get_webview_window(STARTUP_WINDOW) {
+        let _ = startup_win.show();
+        let _ = startup_win.set_focus();
+        let _ = startup_win
+            .eval("window.__DETQEL_STARTUP_SHUTDOWN__ && window.__DETQEL_STARTUP_SHUTDOWN__();");
+    }
+
+    let app_handle = app.clone();
+    let shared_state = shared.clone();
+
+    std::thread::spawn(move || {
+        let logs = shared_state.lock().ok().and_then(|b| b.logs.clone());
+
+        if let Some(startup_win) = app_handle.get_webview_window(STARTUP_WINDOW) {
+            let _ = startup_win.eval("window.__DETQEL_UPDATE_SHUTDOWN__ && window.__DETQEL_UPDATE_SHUTDOWN__('Stopping Docker containers...', 35);");
+        }
+
+        stop_all_docker_containers(logs.as_ref());
+
+        if let Some(startup_win) = app_handle.get_webview_window(STARTUP_WINDOW) {
+            let _ = startup_win.eval("window.__DETQEL_UPDATE_SHUTDOWN__ && window.__DETQEL_UPDATE_SHUTDOWN__('Stopping platform backend & services...', 75);");
+        }
+
+        if let Ok(mut backend) = shared_state.lock() {
+            backend.stop();
+        }
+
+        app_handle.state::<FrontendRuntime>().stop();
+
+        if let Some(startup_win) = app_handle.get_webview_window(STARTUP_WINDOW) {
+            let _ = startup_win.eval("window.__DETQEL_UPDATE_SHUTDOWN__ && window.__DETQEL_UPDATE_SHUTDOWN__('All services stopped.', 100);");
+        }
+
+        std::thread::sleep(Duration::from_millis(450));
+        app_handle.exit(0);
+    });
 }
 
 fn create_startup_loader(app: &tauri::App) -> tauri::Result<()> {
@@ -620,12 +821,17 @@ fn create_startup_loader(app: &tauri::App) -> tauri::Result<()> {
         "readyCommand": STARTUP_READY_COMMAND,
         "logoLight": LOGO_LIGHT,
         "logoDark": LOGO_DARK,
+        "nameLogoLight": NAME_LOGO_LIGHT,
+        "nameLogoDark": NAME_LOGO_DARK,
     });
-    let url = format!("{STARTUP_ASSET_SCHEME}://{STARTUP_ASSET_HOST}/{STARTUP_PAGE}").parse()
+    let url = format!("{STARTUP_ASSET_SCHEME}://{STARTUP_ASSET_HOST}/{STARTUP_PAGE}")
+        .parse()
         .expect("Embedded startup URL must be valid");
     tauri::WebviewWindowBuilder::new(app, STARTUP_WINDOW, tauri::WebviewUrl::CustomProtocol(url))
         .title(APPLICATION_NAME)
-        .initialization_script(format!("window.__DETQEL_STARTUP_CONFIG__ = {configuration};"))
+        .initialization_script(format!(
+            "window.__DETQEL_STARTUP_CONFIG__ = {configuration};"
+        ))
         .initialization_script(FRONTEND_DIAGNOSTICS_SCRIPT)
         .inner_size(STARTUP_WINDOW_WIDTH, STARTUP_WINDOW_HEIGHT)
         .min_inner_size(STARTUP_WINDOW_MINIMUM_WIDTH, STARTUP_WINDOW_MINIMUM_HEIGHT)
@@ -636,7 +842,11 @@ fn create_startup_loader(app: &tauri::App) -> tauri::Result<()> {
 }
 
 fn create_frontend_window(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
-    let configuration = app.config().app.windows.iter()
+    let configuration = app
+        .config()
+        .app
+        .windows
+        .iter()
         .find(|window| window.label == MAIN_WINDOW)
         .ok_or("Main frontend window configuration is unavailable")?;
     tauri::WebviewWindowBuilder::from_config(app, configuration)?
@@ -649,7 +859,11 @@ fn monitor_frontend_startup(shared: SharedBackend) {
     let deadline = Instant::now() + Duration::from_secs(FRONTEND_TIMEOUT_SECONDS);
     loop {
         match shared.lock() {
-            Ok(backend) if backend.frontend_ready || (backend.stopping && backend.error.is_none()) => return,
+            Ok(backend)
+                if backend.frontend_ready || (backend.stopping && backend.error.is_none()) =>
+            {
+                return
+            }
             Err(_) => return,
             _ => {}
         }
@@ -674,7 +888,8 @@ pub fn run() {
         token: uuid::Uuid::new_v4().to_string(),
         error: None,
         config_path: PathBuf::new(),
-        steps: STARTUP_STEPS.iter()
+        steps: STARTUP_STEPS
+            .iter()
             .map(|(id, label)| StartupStep {
                 id: (*id).to_owned(),
                 label: (*label).to_owned(),
@@ -704,12 +919,10 @@ pub fn run() {
         )
         .invoke_handler(tauri::generate_handler![startup_ready, backend_status, api_request, frontend_ready, frontend_log])
         .on_window_event(|window, event| {
-            if window.label() == STARTUP_WINDOW && matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
                 let shared = window.state::<SharedBackend>();
-                let close_application = shared.lock().map(|backend| !backend.opened).unwrap_or(true);
-                if close_application {
-                    window.app_handle().exit(0);
-                }
+                perform_graceful_shutdown(window.app_handle(), &shared);
             }
         })
         .setup(move |app| {
@@ -756,6 +969,7 @@ pub fn run() {
             if let Ok(mut backend) = app.state::<SharedBackend>().lock() {
                 backend.stop();
             }
+            stop_all_docker_containers(None);
         }
     });
 }

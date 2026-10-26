@@ -3,7 +3,7 @@ pub const FRONTEND_SOURCE_DIRECTORY: &str = "../frontend";
 pub const FRONTEND_REQUEST_TIMEOUT_SECONDS: u64 = 5;
 pub const FRONTEND_POLL_INTERVAL_MS: u64 = 500;
 pub const FRONTEND_RUNTIME_FAILURE: &str = "The frontend could not start. See the frontend logs.";
-pub const STARTUP_ASSET_CSP: &str = "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; frame-src 'none'";
+pub const STARTUP_ASSET_CSP: &str = "default-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; frame-src 'none'";
 
 pub const FRONTEND_DIAGNOSTICS_SCRIPT: &str = r#"
 (() => {

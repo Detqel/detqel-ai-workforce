@@ -21,6 +21,7 @@ import { LOOPBACK_HOST } from "./constants/networkConstants.js";
 import {
     DesktopInfrastructureError,
     ensureDesktopInfrastructure,
+    stopDesktopInfrastructure,
 } from "./desktop/infrastructure/desktop-infrastructure.js";
 import { DESKTOP_STARTUP_STEPS, emitStartupStep, listenOnPrivatePort } from "./desktop/startup.js";
 import { prepareApplicationDatabase } from "./desktop/infrastructure/application-database.js";
@@ -37,7 +38,8 @@ async function shutdown(): Promise<void> {
     if (stopping) return;
     stopping = true;
     startup.abort();
-    try { await app?.close(); }
+    try { await app?.close(); } catch {}
+    try { await stopDesktopInfrastructure(); } catch {}
     finally { input.close(); }
 }
 
@@ -121,7 +123,7 @@ async function main(): Promise<void> {
     app = await buildApp({ verifyDatabase: true, desktopToken: token });
     const health = await app.services.health.check();
     if (health.database !== DOCKER_HEALTH_VALUES.databaseConnected) throw new Error("Application PostgreSQL is unavailable");
-    report(DESKTOP_STARTUP_STEP_IDS.applicationDatabase, DESKTOP_STARTUP_STATUS.complete, "Database connection and migrations are ready");
+    report(DESKTOP_STARTUP_STEP_IDS.applicationDatabase, DESKTOP_STARTUP_STATUS.complete, "Database migrations and reference data are ready");
     if (parentClosed || startup.signal.aborted) { await app.close(); return; }
 
     report(DESKTOP_STARTUP_STEP_IDS.backendApi, DESKTOP_STARTUP_STATUS.running, "Starting the private workspace API");
@@ -133,6 +135,7 @@ async function main(): Promise<void> {
 }
 
 main().catch(async error => {
+    process.exitCode = 1;
     if (!stopping && !parentClosed) {
         await writeDesktopLog("desktop.startup.failed", {
             step: currentStep,
@@ -147,7 +150,6 @@ main().catch(async error => {
             report(currentStep, DESKTOP_STARTUP_STATUS.error, message);
         }
         process.stdout.write(JSON.stringify({ ready: false, error: message }) + "\n");
-        process.exitCode = 1;
     }
     await shutdown();
 });

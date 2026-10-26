@@ -24,7 +24,12 @@ impl RotatingLog {
     fn new(path: PathBuf) -> io::Result<Self> {
         let file = open_private_file(&path)?;
         let bytes = file.metadata()?.len();
-        Ok(Self { backup: path.with_extension("log.1"), path, file: Some(file), bytes })
+        Ok(Self {
+            backup: path.with_extension("log.1"),
+            path,
+            file: Some(file),
+            bytes,
+        })
     }
 
     fn append(&mut self, record: &[u8]) -> io::Result<()> {
@@ -147,10 +152,19 @@ impl DesktopLogs {
         let backend = directory.join(BACKEND_LOG_DIRECTORY);
         create_private_directory(&frontend)?;
         create_private_directory(&backend)?;
-        let redaction_rules = LOG_REDACTION_RULES.iter().map(|(pattern, replacement)| {
-            Regex::new(pattern).map(|regex| (regex, *replacement))
-                .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Desktop log redaction configuration is invalid"))
-        }).collect::<io::Result<Vec<_>>>()?;
+        let redaction_rules = LOG_REDACTION_RULES
+            .iter()
+            .map(|(pattern, replacement)| {
+                Regex::new(pattern)
+                    .map(|regex| (regex, *replacement))
+                    .map_err(|_| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            "Desktop log redaction configuration is invalid",
+                        )
+                    })
+            })
+            .collect::<io::Result<Vec<_>>>()?;
         Ok(Self {
             frontend_file: Mutex::new(RotatingLog::new(frontend.join(FRONTEND_LOG_FILE))?),
             backend_file: Mutex::new(RotatingLog::new(backend.join(BACKEND_RUNTIME_LOG_FILE))?),
@@ -165,7 +179,9 @@ impl DesktopLogs {
     }
 
     pub fn add_secret(&self, value: &str) {
-        if value.is_empty() { return; }
+        if value.is_empty() {
+            return;
+        }
         if let Ok(mut secrets) = self.secrets.write() {
             if !secrets.iter().any(|secret| secret == value) {
                 secrets.push(value.to_owned());
@@ -197,22 +213,30 @@ impl DesktopLogs {
         for (pattern, replacement) in &self.redaction_rules {
             value = pattern.replace_all(&value, *replacement).into_owned();
         }
-        let sanitized: String = value.chars()
-            .filter(|character| !character.is_control() || matches!(*character, '\n' | '\t')).collect();
+        let sanitized: String = value
+            .chars()
+            .filter(|character| !character.is_control() || matches!(*character, '\n' | '\t'))
+            .collect();
         bounded_text(&sanitized, MAXIMUM_LOG_MESSAGE_BYTES).to_owned()
     }
 
     fn write(&self, output: &Mutex<RotatingLog>, level: &str, message: &str) {
-        let Ok(timestamp) = SystemTime::now().duration_since(UNIX_EPOCH) else { return; };
+        let Ok(timestamp) = SystemTime::now().duration_since(UNIX_EPOCH) else {
+            return;
+        };
         let sanitized_level = self.redact(level);
-        let level: String = bounded_text(&sanitized_level, MAXIMUM_LOG_LEVEL_BYTES).chars()
-            .filter(|character| !character.is_control()).collect();
+        let level: String = bounded_text(&sanitized_level, MAXIMUM_LOG_LEVEL_BYTES)
+            .chars()
+            .filter(|character| !character.is_control())
+            .collect();
         let record = serde_json::json!({
             "timestampUnixMs": timestamp.as_millis().min(u64::MAX as u128) as u64,
             "level": level,
             "message": self.redact(message),
         });
-        let Ok(mut encoded) = serde_json::to_vec(&record) else { return; };
+        let Ok(mut encoded) = serde_json::to_vec(&record) else {
+            return;
+        };
         encoded.push(b'\n');
         if let Ok(mut file) = output.lock() {
             // Diagnostics must never crash the application or echo unsanitized data on I/O failure.

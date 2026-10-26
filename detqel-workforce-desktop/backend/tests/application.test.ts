@@ -1,15 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { testConfig as config } from "./fixtures/config.js";
 import { buildApp } from "../src/app.js";
 import { createServices } from "../src/bootstrap/services.js";
 import type { IUnitOfWork } from "../src/shared/contracts/unit-of-work.js";
 import { UnitOfWork } from "../src/infrastructure/database/unit-of-work.js";
 import type { DatabaseSession } from "../src/infrastructure/database/connection.js";
-import { envSchema } from "../src/config/env.js";
 
 const userId = "b7bc2723-5cdd-4c33-b8b7-260825d65030";
-const config = envSchema.parse({ DATABASE_URL: "postgres://test:test@localhost:5432/test", NODE_ENV: "test" });
 function mockUnit(overrides: Record<string, Record<string, unknown>> = {}): IUnitOfWork {
   const strictRepository = (name: string) => new Proxy(overrides[name] ?? {}, { get: (object, key: string) => object[key] ?? (() => { throw new Error(`Unexpected repository access: ${name}.${key}`); }) });
   const unit = Object.fromEntries(["users", "workspaces", "business", "connections", "workforce", "missions", "analytics", "automations", "activities", "notifications", "domains"].map(name => [name, strictRepository(name)])) as unknown as IUnitOfWork;
@@ -19,7 +18,7 @@ function mockUnit(overrides: Record<string, Record<string, unknown>> = {}): IUni
 
 test("all original API routes and documentation register with injected dependencies", async () => {
   let closed = 0;
-  const app = await buildApp({ config, services: createServices(mockUnit(), async () => {}), logger: false, close: async () => { closed++; } });
+  const app = await buildApp({ config, services: createServices(mockUnit(), async () => {}, config), logger: false, close: async () => { closed++; } });
   try {
     await app.ready();
     const routes = JSON.parse(await readFile(new URL("./fixtures/routes.json", import.meta.url), "utf8"));
@@ -34,7 +33,7 @@ test("all original API routes and documentation register with injected dependenc
 });
 
 test("database outages fail readiness but preserve process liveness", async () => {
-  const app = await buildApp({ config, services: createServices(mockUnit(), async () => { throw new Error("offline"); }), logger: false });
+  const app = await buildApp({ config, services: createServices(mockUnit(), async () => { throw new Error("offline"); }, config), logger: false });
   try {
     const response = await app.inject("/health");
     assert.equal(response.statusCode, 503);
@@ -44,7 +43,7 @@ test("database outages fail readiness but preserve process liveness", async () =
 });
 
 test("invalid identifiers and unbounded analytics requests fail before repository access", async () => {
-  const app = await buildApp({ config, services: createServices(mockUnit(), async () => {}), logger: false });
+  const app = await buildApp({ config, services: createServices(mockUnit(), async () => {}, config), logger: false });
   try {
     for (const url of ["/api/users/not-a-uuid", `/api/analytics/activity-heatmap?workspaceId=${userId}&days=1000000`, `/api/analytics/activities?workspaceId=${userId}&limit=-1`, "/api/missions"]) {
       const response = await app.inject(url);
@@ -59,7 +58,7 @@ test("notification and auth response envelopes remain compatible", async () => {
   const services = createServices(mockUnit({
     notifications: { listByUser: async () => [], countUnread: async () => 3 },
     users: { findByEmail: async () => null },
-  }), async () => {});
+  }), async () => {}, config);
   const app = await buildApp({ config, services, logger: false });
   try {
     assert.deepEqual((await app.inject(`/api/notifications?userId=${userId}`)).json(), { notifications: [], unreadCount: 3 });
@@ -69,14 +68,14 @@ test("notification and auth response envelopes remain compatible", async () => {
 
 test("internal database errors are concealed and unique conflicts map to 409", async () => {
   const unit = mockUnit({ users: { findMany: async () => { throw new Error("postgres://secret:password@internal"); } } });
-  const app = await buildApp({ config, services: createServices(unit, async () => {}), logger: false });
+  const app = await buildApp({ config, services: createServices(unit, async () => {}, config), logger: false });
   try {
     const response = await app.inject("/api/users");
     assert.equal(response.statusCode, 500);
     assert.doesNotMatch(response.body, /secret|password|internal/);
   } finally { await app.close(); }
   const conflict = mockUnit({ users: { findByEmail: async () => null, create: async () => { throw Object.assign(new Error("duplicate"), { code: "23505" }); } } });
-  const second = await buildApp({ config, services: createServices(conflict, async () => {}), logger: false });
+  const second = await buildApp({ config, services: createServices(conflict, async () => {}, config), logger: false });
   try { assert.equal((await second.inject({ method: "POST", url: "/api/users", payload: { name: "User", email: "user@example.com" } })).statusCode, 409); }
   finally { await second.close(); }
 });

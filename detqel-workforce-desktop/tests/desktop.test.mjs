@@ -32,8 +32,9 @@ test("desktop backend fails cleanly with an unavailable database", { timeout: 65
   const timer = setTimeout(() => child.kill(), 55000);
   try {
     assert.equal(await exit, 1);
-    assert.equal(output.length, 1);
-    assert.equal(JSON.parse(output[0]).ready, false);
+    const readyEvent = output.map(line => { try { return JSON.parse(line); } catch { return null; } }).find(e => e && typeof e.ready === "boolean");
+    assert.ok(readyEvent);
+    assert.equal(readyEvent.ready, false);
     assert.ok(![...output, stderr].join("\n").includes(secret));
   } finally {
     clearTimeout(timer);

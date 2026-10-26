@@ -1,15 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { testConfig } from "./fixtures/config.js";
 import { buildApp } from "../src/app.js";
-import { envSchema } from "../src/config/env.js";
 import type { ApplicationServices } from "../src/bootstrap/services.js";
 
 test("desktop token protects health, documentation, and feature route scopes", async () => {
     const token = "12345678-1234-1234-1234-123456789012";
     const app = await buildApp({
-        config: envSchema.parse({ DATABASE_URL: "postgres://test:test@localhost:5432/test", NODE_ENV: "test" }),
+        config: testConfig,
         desktopToken: token, logger: false,
-        services: { health: { check: async () => ({ database: "connected" }) } } as unknown as ApplicationServices,
+        services: { health: { check: async () => ({ database: "connected" }) }, connections: { close: async () => {} } } as unknown as ApplicationServices,
     });
     try {
         for (const url of ["/health/live", "/docs/json", "/api/settings/providers"]) {

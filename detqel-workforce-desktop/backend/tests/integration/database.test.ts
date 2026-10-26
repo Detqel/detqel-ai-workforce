@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import postgres from "postgres";
 import { eq, sql } from "drizzle-orm";
+import { testConfig } from "../fixtures/config.js";
 import { createDatabase, type DatabaseConnection } from "../../src/infrastructure/database/connection.js";
 import { UnitOfWork } from "../../src/infrastructure/database/unit-of-work.js";
 import { defaultMigrationsFolder, runMigrations } from "../../src/infrastructure/database/migrations/runner.js";
@@ -18,8 +19,13 @@ import { WorkspaceService } from "../../src/modules/workspaces/services/workspac
 import { MissionService } from "../../src/modules/missions/services/mission.service.js";
 import { createServices } from "../../src/bootstrap/services.js";
 import { buildApp } from "../../src/app.js";
+import { INITIAL_AI_PROVIDERS } from "../../src/constants/databaseSeedConstants.js";
+import { LOOPBACK_HOST, PRIVATE_PORT_RANGE } from "../../src/constants/networkConstants.js";
+import { prepareApplicationDatabase } from "../../src/desktop/infrastructure/application-database.js";
+import { readMigrationFiles } from "drizzle-orm/migrator";
 
 const adminUrl = process.env.TEST_DATABASE_ADMIN_URL;
+const migrationCount = readMigrationFiles({ migrationsFolder: defaultMigrationsFolder }).length;
 describe("isolated PostgreSQL integration", { skip: !adminUrl }, () => {
   const name = `detqel_refactor_test_${randomUUID().replaceAll("-", "")}`;
   const legacyName = `${name}_legacy`;
@@ -50,27 +56,35 @@ describe("isolated PostgreSQL integration", { skip: !adminUrl }, () => {
     try {
       for (const database of created) {
         // Only databases uniquely created by this suite are eligible for cleanup.
-        assert.match(database, /^detqel_refactor_test_[a-f0-9]{32}(?:_legacy)?$/);
+        assert.match(database, /^detqel_refactor_test_[a-f0-9]{32}(?:_legacy|_desktop)?$/);
         await admin`DROP DATABASE ${admin(database)} WITH (FORCE)`;
       }
     } finally { await admin.end({ timeout: 5 }); }
   });
 
-  test("fresh database has every table and exactly four tracked migrations", async () => {
+  test("fresh database has every table and every committed migration", async () => {
     const rows = await connection.db.execute(sql`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`);
     const tables = new Set(rows.map(row => row.table_name));
-    for (const table of ["users", "workspaces", "user_notifications", "industry_domains", "seed_history"]) assert.ok(tables.has(table));
+    for (const table of ["users", "workspaces", "user_notifications", "industry_domains", "seed_history", "ai_providers", "connector_types", "connector_catalog"]) assert.ok(tables.has(table));
     const migrations = await connection.db.execute(sql`SELECT hash FROM drizzle.__drizzle_migrations`);
-    assert.equal(migrations.length, 4);
+    assert.equal(migrations.length, migrationCount);
     await verifyMigrationState(connection.db);
     await runMigrations(databaseUrl);
-    assert.equal((await connection.db.execute(sql`SELECT hash FROM drizzle.__drizzle_migrations`)).length, 4);
+    assert.equal((await connection.db.execute(sql`SELECT hash FROM drizzle.__drizzle_migrations`)).length, migrationCount);
     assert.equal((await unit.users.findMany()).length, 1);
   });
 
   test("reference and demo seeds are repeatable and affect only their intended workspace", async () => {
     await Promise.all([seedReferenceData(connection.db), seedReferenceData(connection.db)]);
     assert.equal((await unit.domains.listAllDomains()).length, 7);
+    const providers = await unit.settings.listProviders();
+    assert.deepEqual(providers.map(provider => provider.id), INITIAL_AI_PROVIDERS.map(provider => provider.id));
+    for (const provider of providers) {
+      assert.equal(provider.apiKey, null);
+      assert.equal(provider.isConnected, false);
+      assert.equal(provider.status, "disconnected");
+      assert.deepEqual(provider.models, []);
+    }
     const other = await unit.workspaces.create({ name: "Unseeded", slug: "unseeded", createdBy: ownerId });
     await seedDemoData(connection.db);
     const countBefore = await connection.db.execute(sql`SELECT (SELECT count(*) FROM missions) AS missions, (SELECT count(*) FROM business_goals) AS goals, (SELECT count(*) FROM agents) AS agents`);
@@ -79,6 +93,67 @@ describe("isolated PostgreSQL integration", { skip: !adminUrl }, () => {
     assert.deepEqual(countAfter, countBefore);
     assert.equal((await unit.activities.listActivities(other.id)).length, 0);
     assert.equal((await connection.db.select().from(schema.seedHistory)).length, 1);
+  });
+
+  const managedTestEndpoint = adminUrl ? new URL(adminUrl) : undefined;
+  const managedTestPort = Number(managedTestEndpoint?.port);
+  test("desktop startup deploys pending migrations and providers before API readiness and preserves configuration on restart", {
+    skip: managedTestEndpoint?.hostname !== LOOPBACK_HOST || managedTestPort < PRIVATE_PORT_RANGE.minimum || managedTestPort > PRIVATE_PORT_RANGE.maximum,
+  }, async () => {
+    const desktopName = `${name}_desktop`;
+    const url = new URL(adminUrl!);
+    url.pathname = `/${desktopName}`;
+    const desktopUrl = url.toString();
+    await initializeDatabase(desktopUrl, adminUrl);
+    created.push(desktopName);
+    const desktop = createDatabase({ DATABASE_URL: desktopUrl, DB_POOL_MAX: 1, DB_IDLE_TIMEOUT: 5, DB_CONNECT_TIMEOUT: 5 });
+    const folder = await mkdtemp(path.join(tmpdir(), "detqel-startup-"));
+    try {
+      await mkdir(path.join(folder, "meta"));
+      const journal = JSON.parse(await readFile(path.join(defaultMigrationsFolder, "meta", "_journal.json"), "utf8"));
+      journal.entries = journal.entries.slice(0, 4);
+      await writeFile(path.join(folder, "meta", "_journal.json"), JSON.stringify(journal));
+      for (const entry of journal.entries) await copyFile(path.join(defaultMigrationsFolder, `${entry.tag}.sql`), path.join(folder, `${entry.tag}.sql`));
+      await runMigrations(desktopUrl, folder);
+      await assert.rejects(verifyMigrationState(desktop.db), /out of date/);
+      const repositories = new UnitOfWork(desktop.db);
+      const owner = await repositories.users.create({ email: "desktop-owner@example.test", name: "Preserved Owner" });
+      const details: string[] = [];
+      const prepare = () => prepareApplicationDatabase({ databaseUrl: desktopUrl, signal: new AbortController().signal, report: detail => details.push(detail) });
+      await prepare();
+      await verifyMigrationState(desktop.db);
+      assert.ok(details.some(detail => detail.includes("AI providers")));
+      assert.ok(await repositories.users.findById(owner.id));
+      const app = await buildApp({ config: { ...testConfig, DATABASE_URL: desktopUrl }, verifyDatabase: true, logger: false });
+      try {
+        const response = await app.inject("/api/settings/providers");
+        assert.equal(response.statusCode, 200);
+        assert.deepEqual(response.json().providers.map((provider: { id: string }) => provider.id), INITIAL_AI_PROVIDERS.map(provider => provider.id));
+      } finally { await app.close(); }
+
+      await repositories.settings.updateProvider(INITIAL_AI_PROVIDERS[0].id, {
+        name: "Saved provider name", apiKey: "test-saved-provider-key", isConnected: true, status: "connected",
+        models: [{ id: "saved-model", name: "Saved model", description: "Preserve discovered models" }],
+      });
+      await repositories.settings.upsertProvider({ id: "user-provider", name: "User Provider", iconKey: "custom" });
+      await repositories.settings.upsertVyraSettings({ selectedProviderId: INITIAL_AI_PROVIDERS[0].id, selectedModelId: "saved-model", apiKey: "saved-agent-key", isValidKey: true });
+      const before = { providers: await repositories.settings.listProviders(), settings: await repositories.settings.getVyraSettings() };
+      await prepare();
+      const after = { providers: await repositories.settings.listProviders(), settings: await repositories.settings.getVyraSettings() };
+      assert.deepEqual(after, before);
+      assert.equal((await repositories.domains.listAllDomains()).length, 7);
+      assert.ok(await repositories.users.findById(owner.id));
+
+      // A partial catalog is repaired on later launches without changing the remaining providers.
+      await desktop.db.delete(schema.aiProviders).where(eq(schema.aiProviders.id, INITIAL_AI_PROVIDERS[1].id));
+      await prepare();
+      assert.equal((await repositories.settings.listProviders()).length, INITIAL_AI_PROVIDERS.length + 1);
+      assert.deepEqual(await repositories.settings.getProviderById(INITIAL_AI_PROVIDERS[0].id), before.providers.find(provider => provider.id === INITIAL_AI_PROVIDERS[0].id));
+    } finally {
+      await desktop.close();
+      assert.ok(path.resolve(folder).startsWith(path.resolve(tmpdir()) + path.sep));
+      await rm(folder, { recursive: true, force: true });
+    }
   });
 
   test("workspace creation rolls back workspace, domain, owner, and profile when a write fails", async () => {
@@ -135,7 +210,7 @@ describe("isolated PostgreSQL integration", { skip: !adminUrl }, () => {
   });
 
   test("API workflows use real repositories and retain frontend response contracts", async () => {
-    const app = await buildApp({ services: createServices(unit, connection.check), logger: false });
+    const app = await buildApp({ config: { ...testConfig, DATABASE_URL: databaseUrl }, services: createServices(unit, connection.check, testConfig), logger: false });
     try {
       const registration = await app.inject({ method: "POST", url: "/api/auth/register", payload: { name: "API User", email: "api@example.test", password: "password", username: "apiuser" } });
       assert.equal(registration.statusCode, 201);
@@ -163,9 +238,10 @@ describe("isolated PostgreSQL integration", { skip: !adminUrl }, () => {
       await writeFile(path.join(folder, "meta", "_journal.json"), JSON.stringify(journal));
       await assert.rejects(runMigrations(databaseUrl, folder), /Migration history does not match/);
       await writeFile(path.join(folder, `${journal.entries[0].tag}.sql`), original);
-      journal.entries.push({ idx: 4, version: "7", when: journal.entries[3].when + 1, tag: "0004_failure", breakpoints: true });
+      const failureTag = `${String(journal.entries.length).padStart(4, "0")}_failure`;
+      journal.entries.push({ idx: journal.entries.length, version: "7", when: journal.entries.at(-1).when + 1, tag: failureTag, breakpoints: true });
       await writeFile(path.join(folder, "meta", "_journal.json"), JSON.stringify(journal));
-      await writeFile(path.join(folder, "0004_failure.sql"), "CREATE TABLE should_rollback (id int);\n--> statement-breakpoint\nSELECT * FROM deliberately_missing_table;");
+      await writeFile(path.join(folder, `${failureTag}.sql`), "CREATE TABLE should_rollback (id int);\n--> statement-breakpoint\nSELECT * FROM deliberately_missing_table;");
       await assert.rejects(runMigrations(databaseUrl, folder));
       const [table] = await connection.db.execute(sql`SELECT to_regclass('public.should_rollback') AS name`);
       assert.equal(table.name, null);
@@ -203,7 +279,7 @@ describe("isolated PostgreSQL integration", { skip: !adminUrl }, () => {
       const profiles = await legacy.db.insert(schema.businessProfile).values(Array.from({ length: 4 }, () => ({ workspaceId: seedWorkspace.id, businessName: "Same Business", description: "Preserve this" }))).returning();
       const [notification] = await legacy.db.insert(schema.userNotifications).values({ userId: seedOwner.id, workspaceId: seedWorkspace.id, title: "Preserve", message: "Existing notification" }).returning();
       const [distinctProfile] = await legacy.db.insert(schema.businessProfile).values({ workspaceId: seedWorkspace.id, businessName: "Distinct business content" }).returning();
-      await assert.rejects(runMigrations(legacyUrl), /unique index/);
+      await assert.rejects(runMigrations(legacyUrl), /unique index/i);
       assert.equal((await legacy.db.select().from(schema.workspaceMembers)).length, 4);
       assert.equal((await legacy.db.select().from(schema.businessProfile)).length, 5);
       const [archiveBeforeSuccess] = await legacy.db.execute(sql`SELECT to_regclass('drizzle.__reconciled_rows') AS name`);

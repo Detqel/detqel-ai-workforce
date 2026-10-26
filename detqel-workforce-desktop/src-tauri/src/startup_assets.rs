@@ -1,5 +1,5 @@
 use crate::constants::{
-    desktop_constants::{LOGO_DARK, LOGO_LIGHT, STARTUP_PAGE},
+    desktop_constants::{LOGO_DARK, LOGO_LIGHT, NAME_LOGO_DARK, NAME_LOGO_LIGHT, STARTUP_PAGE},
     frontend_constants::STARTUP_ASSET_CSP,
 };
 use tauri::http::{header, HeaderValue, Request, Response, StatusCode};
@@ -12,18 +12,42 @@ pub fn respond(request: &Request<Vec<u8>>) -> Response<Vec<u8>> {
             "text/html; charset=utf-8",
             include_bytes!("../../frontend/public/desktop-startup.html"),
         )),
-        LOGO_LIGHT => Some(("image/png", include_bytes!("../../frontend/public/images/detqel-kin-name-logo.png"))),
-        LOGO_DARK => Some(("image/png", include_bytes!("../../frontend/public/images/detqel-kin-name-logo-dark.png"))),
+        LOGO_LIGHT => Some((
+            "image/png",
+            include_bytes!("../../frontend/public/images/detqel-kin-logo.png"),
+        )),
+        LOGO_DARK => Some((
+            "image/png",
+            include_bytes!("../../frontend/public/images/detqel-kin-logo-dark.png"),
+        )),
+        NAME_LOGO_LIGHT => Some((
+            "image/png",
+            include_bytes!("../../frontend/public/images/detqel-kin-name-logo.png"),
+        )),
+        NAME_LOGO_DARK => Some((
+            "image/png",
+            include_bytes!("../../frontend/public/images/detqel-kin-name-logo-dark.png"),
+        )),
         _ => None,
     };
     let mut response = Response::new(asset.map(|(_, data)| data.to_vec()).unwrap_or_default());
     if let Some((content_type, _)) = asset {
-        response.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
+        response
+            .headers_mut()
+            .insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
     } else {
         *response.status_mut() = StatusCode::NOT_FOUND;
     }
-    response.headers_mut().insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static(STARTUP_ASSET_CSP));
-    response.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    response.headers_mut().insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+    response.headers_mut().insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(STARTUP_ASSET_CSP),
+    );
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response.headers_mut().insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
     response
 }

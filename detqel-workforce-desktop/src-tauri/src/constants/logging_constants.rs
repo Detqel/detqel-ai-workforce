@@ -13,7 +13,10 @@ pub const OVERSIZED_LOG_MESSAGE: &str = "[Log message omitted: exceeds the safe 
 // Mask authentication, URL credentials, and complete values of sensitive fields.
 // All URL query values are private: custom integrations can use arbitrary key names.
 pub const LOG_REDACTION_RULES: &[(&str, &str)] = &[
-    (r"(?i)\b(bearer|basic)\s+[A-Za-z0-9+/_.=:-]+", "$1 [REDACTED]"),
+    (
+        r"(?i)\b(bearer|basic)\s+[A-Za-z0-9+/_.=:-]+",
+        "$1 [REDACTED]",
+    ),
     (r"(?i)\b([a-z][a-z0-9+.-]*://)[^/\s?#@]+@", "$1[REDACTED]@"),
     (r#"([?&][^=\s&#"'<>]+\s*=)[^&#\s"'<>]*"#, "$1[REDACTED]"),
     (
@@ -28,6 +31,12 @@ pub const LOG_REDACTION_RULES: &[(&str, &str)] = &[
         r#"(?i)(--?[a-z0-9_-]*(?:password|passwd|token|secret|api[_-]?key|credential)[a-z0-9_-]*\s+)(?:"(?:\\.|[^"\\])*"?|'(?:\\.|[^'\\])*'?|[^\s,;]+)"#,
         "$1[REDACTED]",
     ),
-    (r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b", "[REDACTED]"),
-    (r"\b(?:sk-[A-Za-z0-9_-]{8,}|gh[opusr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+|AKIA[A-Z0-9]{16})\b", "[REDACTED]"),
+    (
+        r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b",
+        "[REDACTED]",
+    ),
+    (
+        r"\b(?:sk-[A-Za-z0-9_-]{8,}|gh[opusr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+|AKIA[A-Z0-9]{16})\b",
+        "[REDACTED]",
+    ),
 ];

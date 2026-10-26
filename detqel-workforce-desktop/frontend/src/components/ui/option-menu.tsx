@@ -23,9 +23,10 @@ interface OptionMenuProps {
   disabled?: boolean;
   primary?: boolean;
   icon?: React.ReactNode;
+  triggerClassName?: string;
 }
 
-export function OptionMenu({ options, value, placeholder, label, onSelect, loading, error, onRetry, disabled, primary, icon }: OptionMenuProps) {
+export function OptionMenu({ options, value, placeholder, label, onSelect, loading, error, onRetry, disabled, primary, icon, triggerClassName }: OptionMenuProps) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -72,7 +73,7 @@ export function OptionMenu({ options, value, placeholder, label, onSelect, loadi
           <PrimaryButton {...triggerProps} value={<span className="flex items-center gap-2">{placeholder}<ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} /></span>} icon={icon} iconPosition="left" />
         </span>
       ) : (
-        <button ref={triggerRef} type="button" {...triggerProps} aria-label={label} className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-left text-sm text-slate-700 outline-none transition-colors focus:border-[#8a2be2] focus:ring-2 focus:ring-[#8a2be2]/15 dark:border-slate-700 dark:bg-[#131c2d] dark:text-slate-200 dark:focus:border-[#FFA500] dark:focus:ring-[#FFA500]/15 disabled:opacity-50">
+        <button ref={triggerRef} type="button" {...triggerProps} aria-label={label} className={`flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-left text-sm text-slate-700 outline-none transition-colors focus:border-[#8a2be2] focus:ring-2 focus:ring-[#8a2be2]/15 dark:border-slate-700 dark:bg-[#131c2d] dark:text-slate-200 dark:focus:border-[#FFA500] dark:focus:ring-[#FFA500]/15 disabled:opacity-50 ${triggerClassName ?? ""}`}>
           <span className="min-w-0 truncate">{selected?.label ?? placeholder}</span>
           <ChevronDown className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
         </button>

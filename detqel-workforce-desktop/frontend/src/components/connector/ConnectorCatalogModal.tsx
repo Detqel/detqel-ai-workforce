@@ -51,8 +51,8 @@ export function ConnectorCatalogModal({ workspaceId, type, onClose, onSelect }: 
   return (
     <ConnectionDialog title={`Add ${type.name} connection`} wide onClose={onClose}>
       <div className="shrink-0 px-5 pb-3 pt-4">
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <label className="relative min-w-0 flex-1"><span className="sr-only">Search integrations</span><Search className="pointer-events-none absolute left-3.5 top-3 h-4 w-4 text-slate-400" /><input autoFocus type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search integrations" className={`${connectionInputClass} pl-10`} /></label>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <label className="relative min-w-0 flex-1"><span className="sr-only">Search integrations</span><Search className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" /><input autoFocus type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search integrations" className={`${connectionInputClass} pl-10`} /></label>
           <div className="min-w-0 sm:w-56 sm:shrink-0"><OptionMenu label="Filter integration category" placeholder={CATALOG_ALL_CATEGORIES_OPTION.label} value={category === null ? CATALOG_ALL_CATEGORIES_OPTION.value : category} options={[CATALOG_ALL_CATEGORIES_OPTION, ...categories.map(name => ({ value: name, label: name }))]} onSelect={value => setCategory(value === CATALOG_ALL_CATEGORIES_OPTION.value ? null : value)} disabled={loading || Boolean(error)} /></div>
         </div>
       </div>

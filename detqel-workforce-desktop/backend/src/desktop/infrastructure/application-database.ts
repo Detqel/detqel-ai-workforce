@@ -59,7 +59,7 @@ export async function prepareApplicationDatabase(options: ApplicationDatabaseOpt
         assertStartupActive(options.signal);
 
         phase = APPLICATION_DATABASE_PHASES.seed;
-        options.report("Preparing connector catalog and application reference data...");
+        options.report("Preparing AI providers, connector catalog, and application reference data...");
         await seedReferenceData(connection.db);
         assertStartupActive(options.signal);
 

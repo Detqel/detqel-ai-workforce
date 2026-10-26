@@ -51,7 +51,7 @@ npm run db:setup
 npm run dev
 ```
 
-`db:setup` provisions the database, applies migrations, and inserts the standard industry domains. It does not create demo accounts or demo workspaces. The PostgreSQL server must already be running. `DATABASE_ADMIN_URL`, when set, provides the maintenance connection for provisioning; otherwise provisioning connects to the `postgres` database using `DATABASE_URL` credentials. Provisioning needs `CREATEDB` privileges. Skip `db:init` when a managed service has already provisioned the target database.
+`db:setup` provisions the database, applies migrations, and inserts the AI provider catalog, connector catalogs, and standard industry domains. It does not create demo accounts or demo workspaces. The PostgreSQL server must already be running. `DATABASE_ADMIN_URL`, when set, provides the maintenance connection for provisioning; otherwise provisioning connects to the `postgres` database using `DATABASE_URL` credentials. Provisioning needs `CREATEDB` privileges. Skip `db:init` when a managed service has already provisioned the target database.
 
 The defaults expose the API on `http://127.0.0.1:8100`, Swagger UI on `/docs`, database readiness on `/health`, and process liveness on `/health/live`. Readiness returns HTTP 503 if the database is unavailable. Configuration is loaded from the project `.env` even when the compiled app is launched from another directory; process environment variables take precedence.
 
@@ -70,7 +70,7 @@ Demo seeding is transactional, serialized, and recorded as `demo-v1` in `seed_hi
 | `npm run db:init` | Create the target database if missing; no tables or seed data. |
 | `npm run db:generate -- --name change_name` | Generate SQL and snapshots after changing Drizzle schemas. Review and commit the generated files. |
 | `npm run db:migrate` | Apply pending migrations; no database creation or seeding. |
-| `npm run db:seed` | Insert standard industry domains; safe to repeat. |
+| `npm run db:seed` | Insert missing AI providers, connectors, and standard industry domains; safe to repeat. |
 | `npm run db:seed:demo` | Insert optional local demo data once. |
 | `npm run db:setup` | Local provisioning, migrations, and reference seeding. |
 | `npm run db:studio` | Inspect the database using Drizzle Studio. |
@@ -114,6 +114,8 @@ npm start
 
 Ship `dist/`, `drizzle/`, `package.json`, the lockfile, and production dependencies. The SQL directory must retain its location beside `dist`; migration resolution uses the module location, independent of the working directory. The compiled server validates migration history before listening. API startup performs no provisioning, migrations, DDL, or seeding. SIGINT/SIGTERM close Fastify and its connection pool.
 
+The desktop entry point owns deployment for its Docker-managed application database: every launch runs migrations and reference seeding before building the API and reporting readiness. Reference seeding adds the six supported provider cards without keys or models and preserves all existing provider records. The external database configured in `.env` is not modified by desktop startup. New schema changes must be committed as new SQL migrations and included in the migration journal; editing schema TypeScript alone does not deploy a database change.
+
 ## Adding or testing a feature
 
 Define repository operations explicitly in the feature contract. Implement them in its Drizzle repository with an injected `DatabaseSession`; never construct a global client. Register the repository in `UnitOfWork`, implement the use case in a service, and wire that service in `bootstrap/services.ts`. Controllers validate requests and translate service results into the existing API response shapes. Application layers have no runtime ORM dependency; shared entity DTOs use type-only schema exports to keep persistence shapes synchronized without importing table objects at runtime.
@@ -131,6 +133,6 @@ $env:TEST_DATABASE_ADMIN_URL = 'postgres://postgres:postgres@localhost:5432/post
 npm run test:integration
 ```
 
-Integration tests create uniquely named temporary databases, exercise fresh/legacy migrations, seed repeatability, API response contracts, and transaction rollback, then remove those databases. Without `TEST_DATABASE_ADMIN_URL`, the integration suite is skipped. The architecture tests enforce that HTTP and application layers never import database implementations. The compiled smoke test checks production ESM imports, migration paths, documentation, and pool shutdown from another working directory.
+Integration tests create uniquely named temporary databases, exercise fresh/legacy migrations, seed repeatability, API response contracts, and transaction rollback, then remove those databases. Without `TEST_DATABASE_ADMIN_URL`, the integration suite is skipped. When that URL uses `127.0.0.1` and a port in the desktop range 50000–59999, the suite also exercises desktop startup against an older schema, provider API visibility, repeated launches, preservation of saved keys and models, and repair of missing catalog records. The architecture tests enforce that HTTP and application layers never import database implementations. The compiled smoke test checks production ESM imports, migration paths, documentation, and pool shutdown from another working directory.
 
 This refactor preserves the current authentication behavior and public endpoints. Session/token authentication, authorization and tenant isolation, and replacing legacy SHA-256/plaintext password compatibility remain separate product work; they are not implemented by the repository restructuring.

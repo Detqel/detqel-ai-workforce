@@ -17,13 +17,15 @@ pub const CREATE_NO_WINDOW: u32 = 0x08000000;
 pub const FRONTEND_TIMEOUT_SECONDS: u64 = 180;
 pub const STARTUP_POLL_INTERVAL_MS: u64 = 1_000;
 pub const STARTUP_READY_TIMEOUT_SECONDS: u64 = 30;
-pub const STARTUP_WINDOW_WIDTH: f64 = 800.0;
-pub const STARTUP_WINDOW_HEIGHT: f64 = 570.0;
-pub const STARTUP_WINDOW_MINIMUM_WIDTH: f64 = 560.0;
-pub const STARTUP_WINDOW_MINIMUM_HEIGHT: f64 = 540.0;
+pub const STARTUP_WINDOW_WIDTH: f64 = 760.0;
+pub const STARTUP_WINDOW_HEIGHT: f64 = 450.0;
+pub const STARTUP_WINDOW_MINIMUM_WIDTH: f64 = 680.0;
+pub const STARTUP_WINDOW_MINIMUM_HEIGHT: f64 = 400.0;
 pub const THEME_STORAGE_KEY: &str = "detqel_theme";
-pub const LOGO_LIGHT: &str = "/images/detqel-kin-name-logo.png";
-pub const LOGO_DARK: &str = "/images/detqel-kin-name-logo-dark.png";
+pub const LOGO_LIGHT: &str = "/images/detqel-kin-logo.png";
+pub const LOGO_DARK: &str = "/images/detqel-kin-logo-dark.png";
+pub const NAME_LOGO_LIGHT: &str = "/images/detqel-kin-name-logo.png";
+pub const NAME_LOGO_DARK: &str = "/images/detqel-kin-name-logo-dark.png";
 pub const STARTUP_STEPS: &[(&str, &str)] = &[
     (FRONTEND_STEP, "Frontend startup"),
     (BACKEND_RUNTIME_STEP, "Backend startup"),

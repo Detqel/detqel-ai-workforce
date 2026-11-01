@@ -100,8 +100,8 @@ export async function stopDesktopInfrastructure(options?: { signal?: AbortSignal
 
         if (runningIds.length > 0) {
             await runInfrastructureProcess(DOCKER_EXECUTABLE, [
-                "stop", "--time", "5", ...runningIds
-            ], { signal, timeoutMs: 25_000, failureMessage: "Unable to stop running Docker containers." });
+                "stop", "--time", String(DOCKER_LIMITS.legacyStopSeconds), ...runningIds
+            ], { signal, timeoutMs: DOCKER_TIMEOUTS_MS.legacyReplacement, failureMessage: "Unable to stop running Docker containers." });
         }
     } catch {
         // Safe shutdown fallback
@@ -254,11 +254,21 @@ export async function ensureDesktopInfrastructure(options: DesktopInfrastructure
         });
         const ready = async (service: string): Promise<string> => {
             const id = await serviceId(service);
+            let consecutiveExits = 0;
+            const maxConsecutiveExits = 5;
             for (;;) {
                 const state = await inspect(id, DOCKER_INSPECT_FORMATS.state);
                 if (state === `${DOCKER_CONTAINER_STATUS.running}|${DOCKER_CONTAINER_STATUS.healthy}`) return id;
-                if (state.startsWith(`${DOCKER_CONTAINER_STATUS.exited}|`) || state.startsWith(`${DOCKER_CONTAINER_STATUS.dead}|`) || state.endsWith(`|${DOCKER_CONTAINER_STATUS.unhealthy}`)) {
+                if (state.endsWith(`|${DOCKER_CONTAINER_STATUS.unhealthy}`) || state.startsWith(`${DOCKER_CONTAINER_STATUS.dead}|`)) {
                     throw new DesktopInfrastructureError(`${service} failed its health check. Check this container in Docker Desktop and retry.`);
+                }
+                if (state.startsWith(`${DOCKER_CONTAINER_STATUS.exited}|`)) {
+                    consecutiveExits++;
+                    if (consecutiveExits >= maxConsecutiveExits) {
+                        throw new DesktopInfrastructureError(`${service} failed its health check. Check this container in Docker Desktop and retry.`);
+                    }
+                } else {
+                    consecutiveExits = 0;
                 }
                 if (Date.now() >= readinessDeadline) throw new DesktopInfrastructureError(`${service} did not become ready. Check this container in Docker Desktop and retry.`);
                 await startupDelay(DOCKER_TIMEOUTS_MS.pollInterval, options.signal);

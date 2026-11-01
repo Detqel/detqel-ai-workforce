@@ -133,12 +133,9 @@ export async function prepareInfrastructurePorts(options: InfrastructurePortsOpt
         for (const key of DOCKER_PORT_KEYS) {
             if (ports[key] !== undefined) continue;
             assertActive(options.signal);
-            if (saved !== null) {
-                const port = saved[key];
-                if (selected.has(port) || !await portIsAvailable(port, options.signal)) {
-                    throw new DesktopInfrastructureError("A saved private service port is already occupied or unavailable. Close the conflicting application before restarting; no public port was opened.");
-                }
-                ports[key] = port;
+            const savedPort = saved !== null ? saved[key] : undefined;
+            if (savedPort !== undefined && !selected.has(savedPort) && await portIsAvailable(savedPort, options.signal)) {
+                ports[key] = savedPort;
             } else {
                 ports[key] = await allocatePort(selected, options.signal);
             }

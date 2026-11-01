@@ -39,6 +39,7 @@ struct Backend {
     started_at: Instant,
     finished_at: Option<Instant>,
     stopping: bool,
+    shutdown_initiated: bool,
     frontend_ready: bool,
     launch_started: bool,
     opened: bool,
@@ -764,9 +765,11 @@ fn perform_graceful_shutdown(app: &tauri::AppHandle, shared: &SharedBackend) {
                 return;
             }
         };
-        if backend.stopping {
+        if backend.shutdown_initiated {
+            app.exit(0);
             return;
         }
+        backend.shutdown_initiated = true;
         backend.stopping = true;
     }
 
@@ -900,6 +903,7 @@ pub fn run() {
         started_at: Instant::now(),
         finished_at: None,
         stopping: false,
+        shutdown_initiated: false,
         frontend_ready: false,
         launch_started: false,
         opened: false,

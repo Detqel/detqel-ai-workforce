@@ -75,9 +75,10 @@ export async function prepareApplicationDatabase(options: ApplicationDatabaseOpt
             seed: "The managed application database could not prepare application reference data. Check its availability and restart the application.",
             verify: "The managed application database migration history could not be verified. Restore the committed migration files before restarting the application.",
         };
+        const causeMsg = error instanceof Error ? `: ${error.message}` : "";
         throw new DesktopInfrastructureError(options.signal.aborted
             ? "Desktop application database startup was cancelled."
-            : messages[phase]);
+            : `${messages[phase]}${causeMsg}`, { cause: error });
     } finally {
         await connection.close();
     }

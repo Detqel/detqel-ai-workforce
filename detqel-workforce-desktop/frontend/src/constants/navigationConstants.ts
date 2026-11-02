@@ -7,7 +7,6 @@ import {
   Workflow,
   Plug,
   MessageSquare,
-  LayoutGrid,
   Settings,
   HelpCircle,
 } from "lucide-react";
@@ -61,13 +60,6 @@ export const APP_PAGES = [
     icon: MessageSquare,
     sidebar: true,
     component: lazy(() => import("@/app/_pages/discussions/page")),
-  },
-  {
-    id: "marketplace",
-    name: "Marketplace",
-    icon: LayoutGrid,
-    sidebar: true,
-    component: lazy(() => import("@/app/_pages/marketplace/page")),
   },
   {
     id: "settings",

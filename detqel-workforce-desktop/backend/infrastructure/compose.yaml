@@ -95,11 +95,11 @@ services:
         host_ip: 127.0.0.1
         protocol: tcp
     healthcheck:
-      test: [CMD, curl, --fail, --silent, --max-time, '5', http://127.0.0.1:9091/healthz]
+      test: [CMD, curl, --fail, --silent, --max-time, '8', http://127.0.0.1:9091/healthz]
       interval: 10s
-      timeout: 8s
+      timeout: 10s
       retries: 30
-      start_period: 90s
+      start_period: 120s
 
   detqel-kin-app-db:
     container_name: detqel-kin-app-db

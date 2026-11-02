@@ -3,7 +3,7 @@
 import { AUTH_STORAGE_KEYS } from "@/constants/authConstants";
 
 import React, { createContext, useContext, useState, useEffect } from "react";
-import { clearAccessToken } from "@/lib/auth-session";
+import { clearAccessToken, readAccessToken, restoreSession } from "@/lib/auth-session";
 import {
   UserProfile,
   WorkspaceSummary,
@@ -49,6 +49,12 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
       const parsedUser: UserProfile | null = storedUser ? JSON.parse(storedUser) : null;
       if (parsedUser) {
         setUser(parsedUser);
+        const token = readAccessToken();
+        if (!token && parsedUser.id) {
+          restoreSession(parsedUser.id).catch((err) => {
+            console.warn("Could not restore session token on startup:", err);
+          });
+        }
       }
 
       const storedWorkspaces = localStorage.getItem(AUTH_STORAGE_KEYS.workspaces);

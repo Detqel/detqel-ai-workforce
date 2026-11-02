@@ -19,7 +19,7 @@ export const PrimaryButton: React.FC<PrimaryButtonProps> = ({
     return (
       <button
         type={type}
-        className={`inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-[#8a2be2] dark:bg-[#FFA500] hover:bg-[#7823c9] dark:hover:bg-[#FFA500]/90 text-white dark:text-slate-950 font-bold text-xs transition-all shadow-xs cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${className}`}
+        className={`inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-primary-fg font-bold text-xs transition-all shadow-xs cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${className}`}
         {...props}
       >
         {icon}
@@ -31,7 +31,7 @@ export const PrimaryButton: React.FC<PrimaryButtonProps> = ({
   return (
     <button
       type={type}
-      className={`inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-[#8a2be2] dark:bg-[#FFA500] hover:bg-[#7823c9] dark:hover:bg-[#FFA500]/90 text-white dark:text-slate-950 font-bold text-xs transition-all shadow-xs cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${className}`}
+      className={`inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-primary-fg font-bold text-xs transition-all shadow-xs cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${className}`}
       {...props}
     >
       <span>{value}</span>

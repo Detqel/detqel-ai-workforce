@@ -73,7 +73,7 @@ export function OptionMenu({ options, value, placeholder, label, onSelect, loadi
           <PrimaryButton {...triggerProps} value={<span className="flex items-center gap-2">{placeholder}<ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} /></span>} icon={icon} iconPosition="left" />
         </span>
       ) : (
-        <button ref={triggerRef} type="button" {...triggerProps} aria-label={label} className={`flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-left text-sm text-slate-700 outline-none transition-colors focus:border-[#8a2be2] focus:ring-2 focus:ring-[#8a2be2]/15 dark:border-slate-700 dark:bg-[#131c2d] dark:text-slate-200 dark:focus:border-[#FFA500] dark:focus:ring-[#FFA500]/15 disabled:opacity-50 ${triggerClassName ?? ""}`}>
+        <button ref={triggerRef} type="button" {...triggerProps} aria-label={label} className={`flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-left text-sm text-slate-700 outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary-ring dark:border-slate-700 dark:bg-[#131c2d] dark:text-slate-200 dark:focus:border-primary dark:focus:ring-primary-ring disabled:opacity-50 cursor-pointer ${triggerClassName ?? ""}`}>
           <span className="min-w-0 truncate">{selected?.label ?? placeholder}</span>
           <ChevronDown className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
         </button>
@@ -109,7 +109,7 @@ export function OptionMenu({ options, value, placeholder, label, onSelect, loadi
                 {error}
               </p>
               {onRetry && (
-                <button type="button" onClick={onRetry} className="font-semibold text-[#8a2be2] dark:text-[#FFA500]">
+                <button type="button" onClick={onRetry} className="font-semibold text-primary cursor-pointer">
                   Try again
                 </button>
               )}
@@ -125,10 +125,10 @@ export function OptionMenu({ options, value, placeholder, label, onSelect, loadi
                   triggerRef.current?.focus();
                   onSelect(option.value);
                 }}
-                className="group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left outline-none transition-colors hover:bg-purple-50 focus:bg-purple-50 dark:hover:bg-[#FFA500]/10 dark:focus:bg-[#FFA500]/10 cursor-pointer"
+                className="group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left outline-none transition-colors hover:bg-primary-muted focus:bg-primary-muted cursor-pointer"
               >
                 {option.icon && (
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-purple-50 text-[#8a2be2] dark:bg-[#FFA500]/10 dark:text-[#FFA500]">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary-muted text-primary">
                     {option.icon}
                   </span>
                 )}
@@ -142,7 +142,7 @@ export function OptionMenu({ options, value, placeholder, label, onSelect, loadi
                     </span>
                   )}
                 </span>
-                {option.value === value && <Check className="h-4 w-4 text-[#8a2be2] dark:text-[#FFA500]" />}
+                {option.value === value && <Check className="h-4 w-4 text-primary" />}
               </button>
             ))
           ) : (

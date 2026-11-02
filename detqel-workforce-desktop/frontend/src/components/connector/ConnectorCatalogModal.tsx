@@ -61,11 +61,20 @@ export function ConnectorCatalogModal({ workspaceId, type, onClose, onSelect }: 
           <section key={group.name} className="space-y-2">
             <h3 className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">{group.name}</h3>
             <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
-              {group.entries.map(entry => <button key={entry.id} type="button" onClick={() => onSelect(entry)} className="group flex min-w-0 items-center gap-2.5 rounded-xl border border-slate-200 bg-slate-50/40 p-2.5 text-left outline-none transition-colors hover:border-[#8a2be2]/40 hover:bg-purple-50/60 focus-visible:ring-2 focus-visible:ring-[#8a2be2] dark:border-slate-700 dark:bg-[#131c2d]/40 dark:hover:border-[#FFA500]/40 dark:hover:bg-[#FFA500]/5 dark:focus-visible:ring-[#FFA500]">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-purple-50 text-[#8a2be2] dark:bg-[#FFA500]/10 dark:text-[#FFA500]"><ConnectorCatalogIcon iconKey={entry.iconKey} className="h-4 w-4" /></span>
-                <span className="min-w-0 flex-1 break-words text-xs font-semibold">{entry.name}</span>
-                <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-slate-400 transition-colors group-hover:text-[#8a2be2] dark:group-hover:text-[#FFA500]" />
-              </button>)}
+              {group.entries.map(entry => (
+                <button
+                  key={entry.id}
+                  type="button"
+                  onClick={() => onSelect(entry)}
+                  className="group flex min-w-0 items-center gap-2.5 rounded-xl border border-slate-200 bg-slate-50/40 p-2.5 text-left outline-none transition-colors hover:border-primary/40 hover:bg-primary-muted focus-visible:ring-2 focus-visible:ring-primary dark:border-slate-700 dark:bg-[#131c2d]/40 dark:hover:border-primary/40 dark:hover:bg-primary-muted dark:focus-visible:ring-primary cursor-pointer"
+                >
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary-muted text-primary">
+                    <ConnectorCatalogIcon iconKey={entry.iconKey} className="h-4 w-4" />
+                  </span>
+                  <span className="min-w-0 flex-1 break-words text-xs font-semibold">{entry.name}</span>
+                  <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-slate-400 transition-colors group-hover:text-primary" />
+                </button>
+              ))}
             </div>
           </section>
         )) : <p role="status" className="py-16 text-center text-sm text-slate-500 dark:text-slate-400">{entries.length ? "No integrations match your search." : "No enabled integrations are available for this connector type."}</p>}

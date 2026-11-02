@@ -11,3 +11,5 @@ export type { IndustryDomain, NewIndustryDomain } from "../../infrastructure/dat
 export type { Approval, Execution, Mission, MissionAgent, MissionEvent, MissionSource, NewApproval, NewExecution, NewMission, NewMissionAgent, NewMissionEvent, NewMissionSource } from "../../infrastructure/database/schema/missions.js";
 export type { NewUserNotification, UserNotification } from "../../infrastructure/database/schema/notifications.js";
 export type { Agent, AgentConnection, AgentMemory, NewAgent, NewAgentConnection, NewAgentMemory } from "../../infrastructure/database/schema/workforce.js";
+export type { AgentLevel, AgentRun, AgentSection, AgentStatus, AgentTemplate, AgentTemplateVersion, NewAgentLevel, NewAgentRun, NewAgentSection, NewAgentStatus, NewAgentTemplate, NewAgentTemplateVersion, NewOrganization, NewOrganizationAgent, Organization, OrganizationAgent } from "../../infrastructure/database/schema/recruit.js";
+export type { AgentTeam, NewAgentTeam, AgentTeamMember, NewAgentTeamMember } from "../../infrastructure/database/schema/teams.js";

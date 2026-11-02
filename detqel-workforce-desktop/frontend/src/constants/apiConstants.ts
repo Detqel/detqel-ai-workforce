@@ -8,6 +8,7 @@ export const API_PATHS = {
   authCheckUser: "/api/auth/check-user",
   authLogin: "/api/auth/login",
   authRegister: "/api/auth/register",
+  authMe: "/api/auth/me",
   workspaces: "/api/workspaces",
   userWorkspaces: "/api/workspaces/user",
   domains: "/api/domains",
@@ -21,6 +22,12 @@ export const API_PATHS = {
   connections: "/api/connections",
   connectorCatalog: "/api/connector-catalog",
   lookups: "/api/lookups",
+  agents: "/api/agents",
+  agentSections: "/api/agents/sections",
+  agentTemplates: "/api/agents/templates",
+  agentRecruit: "/api/agents/recruit",
+  agentRecruited: "/api/agents/recruited",
+  teams: "/api/teams",
 } as const;
 
 export const LOOKUP_RESOURCES = { root: "lookups", connectorTypes: "connector-types" } as const;

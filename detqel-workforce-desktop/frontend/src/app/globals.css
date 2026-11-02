@@ -3,6 +3,14 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
+  --primary: #8a2be2;
+  --primary-hover: #7823c9;
+  --primary-active: #671cae;
+  --primary-fg: #ffffff;
+  --primary-surface: #fbf7ff;
+  --primary-muted: rgba(138, 43, 226, 0.08);
+  --primary-border: rgba(138, 43, 226, 0.25);
+  --primary-ring: rgba(138, 43, 226, 0.25);
   --purple-primary: #8a2be2;
   --emerald-primary: #0A3C30;
   --bg-midnight: #0f172a;
@@ -13,7 +21,26 @@
 
 .dark {
   color-scheme: dark;
+  --primary: #FFA500;
+  --primary-hover: #ff9900;
+  --primary-active: #e68200;
+  --primary-fg: #090d16;
+  --primary-surface: #1e1b15;
+  --primary-muted: rgba(255, 165, 0, 0.12);
+  --primary-border: rgba(255, 165, 0, 0.3);
+  --primary-ring: rgba(255, 165, 0, 0.25);
   --purple-primary: #FFA500;
+}
+
+@theme {
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-active: var(--primary-active);
+  --color-primary-fg: var(--primary-fg);
+  --color-primary-surface: var(--primary-surface);
+  --color-primary-muted: var(--primary-muted);
+  --color-primary-border: var(--primary-border);
+  --color-primary-ring: var(--primary-ring);
 }
 
 .font-title {
@@ -31,6 +58,17 @@ html, body {
   margin: 0;
   padding: 0;
   min-height: 100%;
+}
+
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]),
+[role="tab"]:not([aria-disabled="true"]),
+input[type="button"]:not(:disabled),
+input[type="submit"]:not(:disabled),
+input[type="reset"]:not(:disabled),
+input[type="checkbox"]:not(:disabled),
+input[type="radio"]:not(:disabled) {
+  cursor: pointer;
 }
 
 ::-webkit-scrollbar {
@@ -69,6 +107,40 @@ html, body {
 
 .primary-emerald-text {
   color: var(--emerald-primary);
+}
+
+/* Generic Primary Theme Utility Classes */
+.btn-primary-themed {
+  background-color: var(--primary);
+  color: var(--primary-fg);
+  font-weight: 600;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.btn-primary-themed:hover {
+  background-color: var(--primary-hover);
+}
+.btn-primary-themed:active {
+  background-color: var(--primary-active);
+}
+.btn-primary-themed:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.text-primary-themed {
+  color: var(--primary);
+}
+
+.bg-primary-themed {
+  background-color: var(--primary);
+}
+
+.bg-primary-muted-themed {
+  background-color: var(--primary-muted);
+}
+
+.border-primary-themed {
+  border-color: var(--primary-border);
 }
 
 @keyframes shake {

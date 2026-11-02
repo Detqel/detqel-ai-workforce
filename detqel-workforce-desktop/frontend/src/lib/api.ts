@@ -1,6 +1,7 @@
 import { API_BASE_URL, API_PATHS, API_ACTIONS } from "@/constants/apiConstants";
 import { desktopFetch } from "./desktop";
-import { storeAccessToken } from "./auth-session";
+import { storeAccessToken, restoreSession } from "./auth-session";
+export { restoreSession as apiRestoreSession } from "./auth-session";
 export { API_BASE_URL } from "@/constants/apiConstants";
 
 export interface UserProfile {
@@ -575,6 +576,364 @@ export async function apiTestVyraPrompt(params: {
     };
   }
 }
+
+export interface AgentRecord {
+  id: string;
+  workspaceId: string | null;
+  name: string;
+  description: string;
+  purpose: string;
+  instructions: string;
+  agentType: "platform" | "custom" | "marketplace";
+  scope: Record<string, unknown>;
+  capabilities: string[];
+  approvalPolicy: Record<string, unknown>;
+  status: "active" | "draft" | "paused" | "archived";
+  createdBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateAgentPayload {
+  workspaceId?: string;
+  name: string;
+  description: string;
+  purpose: string;
+  instructions: string;
+  agentType?: "platform" | "custom" | "marketplace";
+  scope?: Record<string, unknown>;
+  capabilities?: unknown[];
+  approvalPolicy?: Record<string, unknown>;
+  createdBy?: string;
+}
+
+export async function apiGetAgents(workspaceId?: string): Promise<AgentRecord[]> {
+  const query = workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : "";
+  const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.agents}${query}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || "Failed to load agents");
+  }
+  return res.json();
+}
+
+export async function apiCreateAgent(payload: CreateAgentPayload): Promise<AgentRecord> {
+  const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.agents}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || "Failed to create agent");
+  }
+  return res.json();
+}
+
+export interface RecruitSection {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  icon: string | null;
+  displayOrder: number;
+  isActive: boolean;
+  templateCount?: number;
+}
+
+export interface RecruitTemplate {
+  id: string;
+  sectionId: string;
+  name: string;
+  role: string;
+  slug: string;
+  levelId: string;
+  statusId: string;
+  summary: string | null;
+  description: string | null;
+  avatarUrl: string | null;
+  isFeatured: boolean;
+  isUserCreated?: boolean;
+  currentVersion: string;
+  section?: RecruitSection | null;
+  level?: {
+    id: string;
+    code: string;
+    name: string;
+    description: string | null;
+    rank: number;
+  } | null;
+  latestVersion?: {
+    id: string;
+    templateId: string;
+    version: string;
+    systemPrompt: string | null;
+    instructionTemplate: string | null;
+    configurationSchema: Record<string, unknown>;
+  } | null;
+}
+
+export interface RecruitedAgent {
+  id: string;
+  organizationId: string;
+  workspaceId: string;
+  templateId: string | null;
+  templateVersionId: string | null;
+  customName: string | null;
+  customRole: string | null;
+  systemPrompt: string | null;
+  customInstructions: string | null;
+  configuration: Record<string, unknown>;
+  status: string;
+  isUserCreated?: boolean;
+  recruitedAt: string;
+  recruitedBy?: string | null;
+  template?: RecruitTemplate | null;
+  teams?: {
+    teamId: string;
+    teamName: string;
+    memberRole: string;
+    isLead: boolean;
+    accentColor: string;
+  }[];
+}
+
+export interface RecruitAgentPayload {
+  workspaceId: string;
+  templateId: string;
+  customName?: string;
+  customRole?: string;
+  customInstructions?: string;
+  userId?: string;
+}
+
+export interface CreateCustomAgentPayload {
+  workspaceId: string;
+  name: string;
+  role: string;
+  sectionId: string;
+  levelId?: string;
+  summary?: string;
+  description?: string;
+  systemPrompt?: string;
+  capabilities?: string[];
+  userId?: string;
+}
+
+export async function apiCreateCustomAgent(payload: CreateCustomAgentPayload): Promise<RecruitedAgent> {
+  const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.agents}/custom`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    const message = err.issues?.[0]?.message || err.message || "Failed to create custom agent";
+    throw new Error(message);
+  }
+  return res.json();
+}
+
+export async function apiGetRecruitSections(): Promise<RecruitSection[]> {
+  const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.agentSections}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || "Failed to load agent marketplace sections");
+  }
+  return res.json();
+}
+
+export async function apiGetRecruitTemplates(params?: {
+  section?: string;
+  level?: string;
+  search?: string;
+  limit?: number;
+}): Promise<RecruitTemplate[]> {
+  const searchParams = new URLSearchParams();
+  if (params?.section && params.section !== "all") searchParams.set("section", params.section);
+  if (params?.level && params.level !== "all") searchParams.set("level", params.level);
+  if (params?.search?.trim()) searchParams.set("search", params.search.trim());
+  if (params?.limit) searchParams.set("limit", String(params.limit));
+
+  const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+  const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.agentTemplates}${query}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || "Failed to load agent templates");
+  }
+  return res.json();
+}
+
+export async function apiRecruitAgent(payload: RecruitAgentPayload): Promise<RecruitedAgent> {
+  const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.agentRecruit}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || "Failed to recruit agent");
+  }
+  return res.json();
+}
+
+export async function apiGetRecruitedAgents(workspaceId: string): Promise<RecruitedAgent[]> {
+  const res = await desktopFetch(
+    `${API_BASE_URL}${API_PATHS.agentRecruited}?workspaceId=${encodeURIComponent(workspaceId)}`
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || "Failed to load recruited agents");
+  }
+  return res.json();
+}
+
+export interface AgentTeamMember {
+  id: string;
+  teamId: string;
+  agentId: string;
+  memberRole: string;
+  isLead: boolean;
+  assignedBy?: string | null;
+  joinedAt: string;
+  agent: RecruitedAgent;
+}
+
+export interface AgentTeam {
+  id: string;
+  workspaceId: string;
+  name: string;
+  description: string | null;
+  focus: string;
+  icon: string;
+  accentColor: string;
+  status: string;
+  missionObjective: string | null;
+  settings: Record<string, unknown>;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+  members: AgentTeamMember[];
+  memberCount: number;
+  lead?: AgentTeamMember | null;
+}
+
+export interface CreateTeamPayload {
+  workspaceId: string;
+  name: string;
+  description?: string;
+  focus?: string;
+  icon?: string;
+  accentColor?: string;
+  missionObjective?: string;
+  memberAgentIds?: string[];
+  leadAgentId?: string;
+  userId?: string;
+}
+
+export interface UpdateTeamPayload {
+  name?: string;
+  description?: string;
+  focus?: string;
+  icon?: string;
+  accentColor?: string;
+  missionObjective?: string;
+  status?: string;
+}
+
+export async function apiGetTeams(workspaceId: string): Promise<AgentTeam[]> {
+  const res = await desktopFetch(
+    `${API_BASE_URL}${API_PATHS.teams}?workspaceId=${encodeURIComponent(workspaceId)}`
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || "Failed to load teams");
+  }
+  return res.json();
+}
+
+export async function apiGetTeam(id: string, workspaceId: string): Promise<AgentTeam> {
+  const res = await desktopFetch(
+    `${API_BASE_URL}${API_PATHS.teams}/${encodeURIComponent(id)}?workspaceId=${encodeURIComponent(workspaceId)}`
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || "Failed to get team");
+  }
+  return res.json();
+}
+
+export async function apiCreateTeam(payload: CreateTeamPayload): Promise<AgentTeam> {
+  const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.teams}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    const message = err.issues?.[0]?.message || err.message || "Failed to create team";
+    throw new Error(message);
+  }
+  return res.json();
+}
+
+export async function apiUpdateTeam(id: string, workspaceId: string, payload: UpdateTeamPayload): Promise<AgentTeam> {
+  const res = await desktopFetch(
+    `${API_BASE_URL}${API_PATHS.teams}/${encodeURIComponent(id)}?workspaceId=${encodeURIComponent(workspaceId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || "Failed to update team");
+  }
+  return res.json();
+}
+
+export async function apiDeleteTeam(id: string, workspaceId: string): Promise<boolean> {
+  const res = await desktopFetch(
+    `${API_BASE_URL}${API_PATHS.teams}/${encodeURIComponent(id)}?workspaceId=${encodeURIComponent(workspaceId)}`,
+    {
+      method: "DELETE",
+    }
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || "Failed to delete team");
+  }
+  const data = await res.json().catch(() => ({ success: true }));
+  return Boolean(data.success);
+}
+
+export async function apiAddTeamMember(teamId: string, payload: { agentId: string; memberRole?: string; isLead?: boolean; userId?: string }): Promise<void> {
+  const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.teams}/${encodeURIComponent(teamId)}/members`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || "Failed to add team member");
+  }
+}
+
+export async function apiRemoveTeamMember(teamId: string, agentId: string): Promise<void> {
+  const res = await desktopFetch(
+    `${API_BASE_URL}${API_PATHS.teams}/${encodeURIComponent(teamId)}/members/${encodeURIComponent(agentId)}`,
+    {
+      method: "DELETE",
+    }
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || "Failed to remove team member");
+  }
+}
+
+
 
 
 

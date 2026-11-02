@@ -255,22 +255,22 @@ export async function ensureDesktopInfrastructure(options: DesktopInfrastructure
         const ready = async (service: string): Promise<string> => {
             const id = await serviceId(service);
             let consecutiveExits = 0;
-            const maxConsecutiveExits = 5;
+            const maxConsecutiveExits = 15;
             for (;;) {
                 const state = await inspect(id, DOCKER_INSPECT_FORMATS.state);
                 if (state === `${DOCKER_CONTAINER_STATUS.running}|${DOCKER_CONTAINER_STATUS.healthy}`) return id;
                 if (state.endsWith(`|${DOCKER_CONTAINER_STATUS.unhealthy}`) || state.startsWith(`${DOCKER_CONTAINER_STATUS.dead}|`)) {
-                    throw new DesktopInfrastructureError(`${service} failed its health check. Check this container in Docker Desktop and retry.`);
+                    throw new DesktopInfrastructureError(`${service} failed its health check (status: ${state}). Check this container in Docker Desktop and retry.`);
                 }
                 if (state.startsWith(`${DOCKER_CONTAINER_STATUS.exited}|`)) {
                     consecutiveExits++;
                     if (consecutiveExits >= maxConsecutiveExits) {
-                        throw new DesktopInfrastructureError(`${service} failed its health check. Check this container in Docker Desktop and retry.`);
+                        throw new DesktopInfrastructureError(`${service} stopped unexpectedly (status: ${state}). Check this container in Docker Desktop and retry.`);
                     }
                 } else {
                     consecutiveExits = 0;
                 }
-                if (Date.now() >= readinessDeadline) throw new DesktopInfrastructureError(`${service} did not become ready. Check this container in Docker Desktop and retry.`);
+                if (Date.now() >= readinessDeadline) throw new DesktopInfrastructureError(`${service} did not become ready within the allocated startup time (status: ${state}). Check this container in Docker Desktop and retry.`);
                 await startupDelay(DOCKER_TIMEOUTS_MS.pollInterval, options.signal);
             }
         };

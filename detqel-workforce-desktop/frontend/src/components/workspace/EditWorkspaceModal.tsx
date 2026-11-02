@@ -2,7 +2,7 @@
 
 import { CUSTOM_WORKSPACE_DOMAIN_VALUE } from "@/constants/workspaceConstants";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   Building2,
   Layers,
@@ -10,6 +10,7 @@ import {
   Loader2,
   Sparkles,
   AlertCircle,
+  Plus,
 } from "lucide-react";
 import {
   WorkspaceSummary,
@@ -20,6 +21,7 @@ import { useWorkspace } from "@/context/WorkspaceContext";
 import { PrimaryButton } from "@/components/ui/primary-button";
 import { SecondaryButton } from "@/components/ui/secondary-button";
 import { IconOnlyButton } from "@/components/ui/icon-only-button";
+import { CustomDropdown, type CustomDropdownOption } from "@/components/ui/custom-dropdown";
 
 interface EditWorkspaceModalProps {
   workspace: WorkspaceSummary | null;
@@ -83,6 +85,21 @@ export const EditWorkspaceModal: React.FC<EditWorkspaceModalProps> = ({
         });
     }
   }, [workspace, isOpen]);
+
+  const domainOptions = useMemo<CustomDropdownOption[]>(() => {
+    const list: CustomDropdownOption[] = domains.map((dom) => ({
+      value: dom.name,
+      label: dom.name,
+      icon: <Layers className="h-3.5 w-3.5" />,
+    }));
+    list.push({
+      value: CUSTOM_WORKSPACE_DOMAIN_VALUE,
+      label: "Add Domain +",
+      badge: "Custom",
+      icon: <Plus className="h-3.5 w-3.5" />,
+    });
+    return list;
+  }, [domains]);
 
   if (!isOpen || !workspace) return null;
 
@@ -212,24 +229,16 @@ export const EditWorkspaceModal: React.FC<EditWorkspaceModalProps> = ({
             <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
               Industry Domain
             </label>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400 dark:text-slate-400">
-                <Layers className="w-4 h-4" />
-              </div>
-              <select
-                value={industry}
-                disabled={loadingDomains}
-                onChange={(e) => setIndustry(e.target.value)}
-                className="w-full pl-9 pr-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#151f32] text-xs font-medium text-slate-900 dark:text-slate-100 outline-none focus:border-[#8a2be2] dark:focus:border-[#FFA500] focus:bg-white dark:focus:bg-[#1e2a40] focus:ring-2 focus:ring-[#8a2be2]/20 dark:focus:ring-[#FFA500]/20 transition-all cursor-pointer disabled:opacity-60"
-              >
-                {domains.map((dom) => (
-                  <option key={dom.id} value={dom.name} className="dark:bg-[#182234]">
-                    {dom.name}
-                  </option>
-                ))}
-                <option value={CUSTOM_WORKSPACE_DOMAIN_VALUE} className="dark:bg-[#182234]">Add Domain +</option>
-              </select>
-            </div>
+            <CustomDropdown
+              options={domainOptions}
+              value={industry}
+              onChange={(val) => setIndustry(val)}
+              placeholder="Select industry domain..."
+              disabled={loadingDomains}
+              loading={loadingDomains}
+              loadingText="Loading domains..."
+              icon={<Layers className="w-4 h-4" />}
+            />
 
             {industry === CUSTOM_WORKSPACE_DOMAIN_VALUE && (
               <div className="mt-2.5 animate-in fade-in slide-in-from-top-1 duration-200">
@@ -242,7 +251,7 @@ export const EditWorkspaceModal: React.FC<EditWorkspaceModalProps> = ({
                   value={customDomain}
                   onChange={(e) => setCustomDomain(e.target.value)}
                   placeholder="Enter custom domain name..."
-                  className="w-full px-3.5 py-2 rounded-xl border border-[#8a2be2]/40 dark:border-[#FFA500]/40 bg-purple-50/20 dark:bg-[#151f32] text-xs font-medium text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none focus:border-[#8a2be2] dark:focus:border-[#FFA500] focus:ring-2 focus:ring-[#8a2be2]/20 dark:focus:ring-[#FFA500]/20 transition-all"
+                  className="w-full px-3.5 py-2 rounded-xl border border-primary/40 bg-slate-50/60 dark:bg-slate-800/60 text-xs font-medium text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none focus:border-primary focus:ring-2 focus:ring-primary-ring transition-all"
                 />
               </div>
             )}

@@ -50,9 +50,14 @@ export class AuthService {
         if (!userId)
             throw new AppError(400, "userId query parameter is required");
         const user = await this.users.findById(userId);
-        if (!user)
+        if (!user || user.status !== "active")
             throw new AppError(404, "User not found");
         const workspaces = await this.workspaces.listAuthWorkspaces(user.id);
-        return { user: profile(user), workspaces, hasWorkspace: workspaces.length > 0 };
+        return {
+            user: profile(user),
+            workspaces,
+            hasWorkspace: workspaces.length > 0,
+            ...this.sessions.issue(user.id),
+        };
     }
 }

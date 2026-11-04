@@ -230,8 +230,7 @@ export async function ensureDesktopInfrastructure(options: DesktopInfrastructure
             });
             report(phase, DESKTOP_STARTUP_STATUS.pending, null);
         }
-        phase = DESKTOP_STARTUP_STEP_IDS.litellmDatabase;
-        report(phase, DESKTOP_STARTUP_STATUS.running, null);
+        phase = DESKTOP_STARTUP_STEP_IDS.docker;
         await removeOwnedInfrastructureContainers(deployment, options.signal);
         const ports = await prepareInfrastructurePorts({ directory, signal: options.signal });
         const env = await writeInfrastructureConfiguration(directory, options.assetsDirectory, credentials, ports, deployment.litellmDatabaseVolume);
@@ -239,9 +238,14 @@ export async function ensureDesktopInfrastructure(options: DesktopInfrastructure
         const compose = (args: string[], failureMessage: string, timeoutMs: number = DOCKER_TIMEOUTS_MS.cli, onActivity?: () => void) => runInfrastructureProcess(DOCKER_EXECUTABLE, [...composePrefix, ...args], {
             signal: options.signal, cwd: directory, env, timeoutMs, failureMessage, onActivity,
         });
-        // The explicit pull must succeed. Avoid a second pull while creating containers from exactly those images.
-        await compose(["up", "--detach", "--force-recreate", "--no-build", "--pull", "never"], "The managed infrastructure containers could not start. Check Docker Desktop memory, disk space, and this application's Docker project, then retry.", DOCKER_TIMEOUTS_MS.stackStart);
-        const readinessDeadline = Date.now() + DOCKER_TIMEOUTS_MS.serviceReady;
+
+        const startService = async (service: string, failureMessage: string) => {
+            await compose(
+                ["up", "--detach", "--force-recreate", "--no-deps", "--no-build", "--pull", "never", service],
+                failureMessage,
+                DOCKER_TIMEOUTS_MS.stackStart
+            );
+        };
 
         const serviceId = async (service: string): Promise<string> => {
             const ids = (await compose(["ps", "--all", "--quiet", service], "A managed service container could not be located. Retry startup from Docker Desktop.")).split(/\r?\n/).filter(Boolean);
@@ -253,22 +257,23 @@ export async function ensureDesktopInfrastructure(options: DesktopInfrastructure
             failureMessage: "Managed service health could not be inspected. Confirm Docker Desktop is running and retry.",
         });
         const ready = async (service: string): Promise<string> => {
+            const readinessDeadline = Date.now() + DOCKER_TIMEOUTS_MS.serviceReady;
             const id = await serviceId(service);
-            let consecutiveExits = 0;
-            const maxConsecutiveExits = 15;
+            let consecutiveFailures = 0;
+            const maxConsecutiveFailures = 15;
             for (;;) {
                 const state = await inspect(id, DOCKER_INSPECT_FORMATS.state);
                 if (state === `${DOCKER_CONTAINER_STATUS.running}|${DOCKER_CONTAINER_STATUS.healthy}`) return id;
-                if (state.endsWith(`|${DOCKER_CONTAINER_STATUS.unhealthy}`) || state.startsWith(`${DOCKER_CONTAINER_STATUS.dead}|`)) {
+                if (state === `${DOCKER_CONTAINER_STATUS.running}|${DOCKER_CONTAINER_STATUS.unhealthy}` || state.startsWith(`${DOCKER_CONTAINER_STATUS.dead}|`)) {
                     throw new DesktopInfrastructureError(`${service} failed its health check (status: ${state}). Check this container in Docker Desktop and retry.`);
                 }
-                if (state.startsWith(`${DOCKER_CONTAINER_STATUS.exited}|`)) {
-                    consecutiveExits++;
-                    if (consecutiveExits >= maxConsecutiveExits) {
+                if (state.startsWith(`${DOCKER_CONTAINER_STATUS.exited}|`) || state.startsWith(`${DOCKER_CONTAINER_STATUS.restarting}|`)) {
+                    consecutiveFailures++;
+                    if (consecutiveFailures >= maxConsecutiveFailures) {
                         throw new DesktopInfrastructureError(`${service} stopped unexpectedly (status: ${state}). Check this container in Docker Desktop and retry.`);
                     }
                 } else {
-                    consecutiveExits = 0;
+                    consecutiveFailures = 0;
                 }
                 if (Date.now() >= readinessDeadline) throw new DesktopInfrastructureError(`${service} did not become ready within the allocated startup time (status: ${state}). Check this container in Docker Desktop and retry.`);
                 await startupDelay(DOCKER_TIMEOUTS_MS.pollInterval, options.signal);
@@ -289,12 +294,25 @@ export async function ensureDesktopInfrastructure(options: DesktopInfrastructure
             return `${DOCKER_PROTOCOLS.http}//${LOOPBACK_HOST}:${port}`;
         };
 
-        report(DESKTOP_STARTUP_STEP_IDS.litellmDatabase, DESKTOP_STARTUP_STATUS.running, "Waiting for the dedicated LiteLLM PostgreSQL database...");
+        // 1. LiteLLM Database: Run dedicated PostgreSQL service and wait for it to be healthy
+        phase = DESKTOP_STARTUP_STEP_IDS.litellmDatabase;
+        report(phase, DESKTOP_STARTUP_STATUS.running, "Starting the dedicated LiteLLM PostgreSQL database...");
+        await startService(
+            DOCKER_SERVICE_NAMES.litellmDatabase,
+            "The private LiteLLM database container could not start. Check Docker Desktop memory, disk space, and this application's Docker project, then retry."
+        );
+        report(phase, DESKTOP_STARTUP_STATUS.running, "Waiting for the dedicated LiteLLM PostgreSQL database to become healthy...");
         await ready(DOCKER_SERVICE_NAMES.litellmDatabase);
-        report(DESKTOP_STARTUP_STEP_IDS.litellmDatabase, DESKTOP_STARTUP_STATUS.complete, "The private LiteLLM database is healthy.");
+        report(phase, DESKTOP_STARTUP_STATUS.complete, "The private LiteLLM database is healthy.");
 
+        // 2. Milvus Vector Store: Run Milvus service and wait for health & authenticated access verification
         phase = DESKTOP_STARTUP_STEP_IDS.milvus;
-        report(phase, DESKTOP_STARTUP_STATUS.running, null);
+        report(phase, DESKTOP_STARTUP_STATUS.running, "Starting the Milvus vector store...");
+        await startService(
+            DOCKER_SERVICE_NAMES.milvus,
+            "The managed Milvus container could not start. Check Docker Desktop memory, disk space, and this application's Docker project, then retry."
+        );
+        report(phase, DESKTOP_STARTUP_STATUS.running, "Waiting for the Milvus vector store to become healthy...");
         const milvusId = await ready(DOCKER_SERVICE_NAMES.milvus);
         const milvusUrl = await publishedUrl(milvusId, SERVICE_PORTS.milvus);
         const milvusToken = `${DOCKER_CREDENTIAL_SETTINGS.milvusRootUsername}:${credentials.milvusRootPassword}`;
@@ -302,7 +320,13 @@ export async function ensureDesktopInfrastructure(options: DesktopInfrastructure
         if (milvus?.code !== DOCKER_HEALTH_VALUES.milvusSuccess || !Array.isArray(milvus.data)) throw new DesktopInfrastructureError("Milvus did not pass its authenticated startup check. Restore its saved credentials or inspect the managed Milvus service before retrying.");
         report(phase, DESKTOP_STARTUP_STATUS.complete, "Milvus is healthy and authenticated access is verified.");
 
+        // 3. LiteLLM Gateway: Run LiteLLM gateway service (with LiteLLM DB already verified healthy)
         phase = DESKTOP_STARTUP_STEP_IDS.litellm;
+        report(phase, DESKTOP_STARTUP_STATUS.running, "Starting the LiteLLM AI gateway...");
+        await startService(
+            DOCKER_SERVICE_NAMES.litellm,
+            "The managed LiteLLM container could not start. Check Docker Desktop memory, disk space, and this application's Docker project, then retry."
+        );
         report(phase, DESKTOP_STARTUP_STATUS.running, "Waiting for LiteLLM database migrations and authenticated gateway readiness...");
         const litellmId = await ready(DOCKER_SERVICE_NAMES.litellm);
         const litellmUrl = await publishedUrl(litellmId, SERVICE_PORTS.litellm);
@@ -311,8 +335,15 @@ export async function ensureDesktopInfrastructure(options: DesktopInfrastructure
         const models = responseObject(await infrastructureJson(`${litellmUrl}${DOCKER_HEALTH_ENDPOINTS.litellmModels}`, { signal: options.signal, authorization: credentials.litellmMasterKey }));
         if (!Array.isArray(models?.data)) throw new DesktopInfrastructureError("LiteLLM did not pass its authenticated startup check. Restore its saved private credentials before retrying.");
         report(phase, DESKTOP_STARTUP_STATUS.complete, "LiteLLM is ready with its private database and verified master key.");
+
+        // 4. Application Database: Run main application PostgreSQL service and wait for it to be healthy
         phase = DESKTOP_STARTUP_STEP_IDS.applicationDatabase;
-        report(phase, DESKTOP_STARTUP_STATUS.running, null);
+        report(phase, DESKTOP_STARTUP_STATUS.running, "Starting the application PostgreSQL database...");
+        await startService(
+            DOCKER_SERVICE_NAMES.applicationDatabase,
+            "The managed application database container could not start. Check Docker Desktop memory, disk space, and this application's Docker project, then retry."
+        );
+        report(phase, DESKTOP_STARTUP_STATUS.running, "Waiting for the application PostgreSQL database to become healthy...");
         const applicationDatabaseId = await ready(DOCKER_SERVICE_NAMES.applicationDatabase);
         const applicationDatabasePort = new URL(await publishedUrl(applicationDatabaseId, SERVICE_PORTS.postgresql)).port;
         const applicationDatabaseAddress = new URL(`${DOCKER_PROTOCOLS.postgresql}//${LOOPBACK_HOST}:${applicationDatabasePort}`);

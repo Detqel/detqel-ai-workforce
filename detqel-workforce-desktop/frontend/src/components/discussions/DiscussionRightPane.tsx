@@ -280,7 +280,7 @@ export const DiscussionRightPane: React.FC<DiscussionRightPaneProps> = ({
                   {uploadedArtifacts.map((art) => (
                     <div
                       key={art.id}
-                      className="flex items-center justify-between p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-850 shadow-xs"
+                      className="flex items-center justify-between p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs"
                     >
                       <div className="flex items-center gap-2 min-w-0">
                         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-800 text-primary">
@@ -327,7 +327,7 @@ export const DiscussionRightPane: React.FC<DiscussionRightPaneProps> = ({
                 {knowledgeDocs.map((doc) => (
                   <div
                     key={doc.id}
-                    className="p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-slate-850 shadow-xs"
+                    className="p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-slate-900 shadow-xs"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
@@ -387,7 +387,7 @@ export const DiscussionRightPane: React.FC<DiscussionRightPaneProps> = ({
                 {connectors.map((conn) => (
                   <div
                     key={conn.id}
-                    className="flex items-center justify-between p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-slate-850 shadow-xs"
+                    className="flex items-center justify-between p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-slate-900 shadow-xs"
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary-muted text-primary">

@@ -27,6 +27,47 @@ export const THEME_BOOTSTRAP_SCRIPT = `
   } catch (_) {}
 `;
 
+export const DESKTOP_RESTRICTION_SCRIPT = `
+  (() => {
+    // Restrict desktop context menu (preventing Inspect Element & Reload)
+    window.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+    }, true);
+
+    // Restrict keyboard shortcuts for DevTools (F12, Ctrl+Shift+I/J/C) and Refresh (F5, Ctrl+R)
+    window.addEventListener('keydown', (event) => {
+      // F12 -> DevTools
+      if (event.key === 'F12' || event.keyCode === 123) {
+        event.preventDefault();
+        event.stopPropagation();
+        return false;
+      }
+      // Ctrl+Shift+I / Ctrl+Shift+J / Ctrl+Shift+C -> DevTools
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && ['i', 'I', 'j', 'J', 'c', 'C'].includes(event.key)) {
+        event.preventDefault();
+        event.stopPropagation();
+        return false;
+      }
+      // Ctrl+U -> View Source
+      if ((event.ctrlKey || event.metaKey) && ['u', 'U'].includes(event.key)) {
+        event.preventDefault();
+        event.stopPropagation();
+        return false;
+      }
+      // F5, Ctrl+F5, Ctrl+R, Ctrl+Shift+R -> Browser Refresh
+      if (
+        event.key === 'F5' ||
+        event.keyCode === 116 ||
+        ((event.ctrlKey || event.metaKey) && ['r', 'R'].includes(event.key))
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        return false;
+      }
+    }, true);
+  })();
+`;
+
 export const APPLICATION_METADATA = {
   title: "DETQEL - AI Operating System for Businesses",
   description:

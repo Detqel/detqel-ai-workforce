@@ -23,7 +23,7 @@ export const DOCKER_SERVICE_NAMES = {
 export const DOCKER_IMAGES = {
     litellm: "ghcr.io/berriai/litellm:latest",
     postgresql: "postgres:16",
-    milvus: "milvusdb/milvus:v3.0.3",
+    milvus: "milvusdb/milvus:v2.5.5",
 } as const;
 export const DOCKER_IMAGE_PULLS = [
     { image: DOCKER_IMAGES.postgresql, service: DOCKER_SERVICE_NAMES.litellmDatabase, step: DESKTOP_STARTUP_STEP_IDS.litellmDatabase },

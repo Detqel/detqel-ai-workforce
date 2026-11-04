@@ -230,14 +230,6 @@ async fn startup_ready(
             frontend_app.state::<FrontendRuntime>().stop();
         }
     });
-    std::thread::spawn(move || {
-        if let Err(error) = start_backend(&app, shared.clone()) {
-            fail_startup(
-                &shared,
-                format!("Unable to start the packaged backend: {error}"),
-            );
-        }
-    });
     Ok(())
 }
 
@@ -251,17 +243,34 @@ async fn frontend_ready(
         return Err("Only the main frontend can report readiness".into());
     }
     let shared = state.inner().clone();
-    {
+    let should_start_backend = {
         let mut backend = shared.lock().map_err(|_| "Backend state unavailable")?;
-        backend.frontend_ready = true;
-        if let Some(logs) = &backend.logs {
-            logs.frontend(
-                "info",
-                "Main frontend mounted and native IPC readiness confirmed.",
-            );
+        if backend.frontend_ready || backend.stopping {
+            false
+        } else {
+            backend.frontend_ready = true;
+            if let Some(logs) = &backend.logs {
+                logs.frontend(
+                    "info",
+                    "Main frontend mounted and native IPC readiness confirmed.",
+                );
+            }
+            true
         }
+    };
+    if should_start_backend {
+        update_startup_step(&shared, FRONTEND_STEP, StartupStepStatus::Complete);
+        let backend_app = app.clone();
+        let backend_shared = shared.clone();
+        std::thread::spawn(move || {
+            if let Err(error) = start_backend(&backend_app, backend_shared.clone()) {
+                fail_startup(
+                    &backend_shared,
+                    format!("Unable to start the packaged backend: {error}"),
+                );
+            }
+        });
     }
-    update_startup_step(&shared, FRONTEND_STEP, StartupStepStatus::Complete);
     reveal_workspace(&app, &shared)
 }
 
@@ -832,6 +841,8 @@ fn create_startup_loader(app: &tauri::App) -> tauri::Result<()> {
         .expect("Embedded startup URL must be valid");
     tauri::WebviewWindowBuilder::new(app, STARTUP_WINDOW, tauri::WebviewUrl::CustomProtocol(url))
         .title(APPLICATION_NAME)
+        .devtools(false)
+        .disable_drag_drop_handler()
         .initialization_script(format!(
             "window.__DETQEL_STARTUP_CONFIG__ = {configuration};"
         ))
@@ -853,6 +864,8 @@ fn create_frontend_window(app: &tauri::AppHandle) -> Result<(), Box<dyn std::err
         .find(|window| window.label == MAIN_WINDOW)
         .ok_or("Main frontend window configuration is unavailable")?;
     tauri::WebviewWindowBuilder::from_config(app, configuration)?
+        .devtools(false)
+        .disable_drag_drop_handler()
         .initialization_script(FRONTEND_DIAGNOSTICS_SCRIPT)
         .build()?;
     Ok(())

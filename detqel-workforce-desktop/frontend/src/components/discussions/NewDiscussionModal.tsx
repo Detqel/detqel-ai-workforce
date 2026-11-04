@@ -135,7 +135,7 @@ export const NewDiscussionModal: React.FC<NewDiscussionModalProps> = ({
                     });
                     onClose();
                   }}
-                  className="flex items-center justify-between p-3 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-850 hover:border-primary hover:bg-primary-muted/20 transition-all cursor-pointer shadow-xs"
+                  className="flex items-center justify-between p-3 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-primary hover:bg-primary-muted/20 transition-all cursor-pointer shadow-xs"
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-fg font-bold text-xs shadow-xs">
@@ -179,7 +179,7 @@ export const NewDiscussionModal: React.FC<NewDiscussionModalProps> = ({
                     });
                     onClose();
                   }}
-                  className="flex items-center justify-between p-3 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-850 hover:border-primary hover:bg-primary-muted/20 transition-all cursor-pointer shadow-xs"
+                  className="flex items-center justify-between p-3 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-primary hover:bg-primary-muted/20 transition-all cursor-pointer shadow-xs"
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 text-slate-800 dark:text-slate-100 font-bold text-xs shadow-xs">

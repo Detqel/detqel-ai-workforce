@@ -17,6 +17,55 @@ export function DesktopGate({ children }: { children: ReactNode }) {
   const frontendReadySignal = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
+    const handleContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // F12 -> DevTools
+      if (e.key === "F12" || e.keyCode === 123) {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+      }
+      // Ctrl+Shift+I / Ctrl+Shift+J / Ctrl+Shift+C -> DevTools
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        e.shiftKey &&
+        ["i", "I", "j", "J", "c", "C"].includes(e.key)
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+      }
+      // Ctrl+U -> View Source
+      if ((e.ctrlKey || e.metaKey) && ["u", "U"].includes(e.key)) {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+      }
+      // F5, Ctrl+F5, Ctrl+R, Ctrl+Shift+R -> Reload/Refresh
+      if (
+        e.key === "F5" ||
+        e.keyCode === 116 ||
+        ((e.ctrlKey || e.metaKey) && ["r", "R"].includes(e.key))
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+      }
+    };
+
+    window.addEventListener("contextmenu", handleContextMenu, true);
+    window.addEventListener("keydown", handleKeyDown, true);
+
+    return () => {
+      window.removeEventListener("contextmenu", handleContextMenu, true);
+      window.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!inDesktop()) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;

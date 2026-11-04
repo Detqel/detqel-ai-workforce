@@ -7,6 +7,43 @@ pub const STARTUP_ASSET_CSP: &str = "default-src 'none'; script-src 'self' 'unsa
 
 pub const FRONTEND_DIAGNOSTICS_SCRIPT: &str = r#"
 (() => {
+  // Restrict desktop context menu (preventing Inspect Element & Reload)
+  window.addEventListener('contextmenu', event => {
+    event.preventDefault();
+  }, true);
+
+  // Restrict keyboard shortcuts for DevTools (F12, Ctrl+Shift+I/J/C) and Refresh (F5, Ctrl+R)
+  window.addEventListener('keydown', event => {
+    // F12 -> DevTools
+    if (event.key === 'F12' || event.keyCode === 123) {
+      event.preventDefault();
+      event.stopPropagation();
+      return false;
+    }
+    // Ctrl+Shift+I / Ctrl+Shift+J / Ctrl+Shift+C -> DevTools
+    if ((event.ctrlKey || event.metaKey) && event.shiftKey && ['i', 'I', 'j', 'J', 'c', 'C'].includes(event.key)) {
+      event.preventDefault();
+      event.stopPropagation();
+      return false;
+    }
+    // Ctrl+U -> View Source
+    if ((event.ctrlKey || event.metaKey) && ['u', 'U'].includes(event.key)) {
+      event.preventDefault();
+      event.stopPropagation();
+      return false;
+    }
+    // F5, Ctrl+F5, Ctrl+R, Ctrl+Shift+R -> Browser Refresh
+    if (
+      event.key === 'F5' ||
+      event.keyCode === 116 ||
+      ((event.ctrlKey || event.metaKey) && ['r', 'R'].includes(event.key))
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      return false;
+    }
+  }, true);
+
   const serialize = value => {
     if (value instanceof Error) return value.stack || value.message;
     if (value === null) return 'null';

@@ -330,7 +330,7 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
               className={`max-w-xl rounded-2xl p-4 shadow-xs text-xs space-y-1.5 ${
                 msg.role === "user"
                   ? "bg-primary text-primary-fg rounded-tr-none ml-12"
-                  : "bg-white dark:bg-slate-850 border border-slate-200/80 dark:border-slate-800 text-slate-800 dark:text-slate-200 rounded-tl-none mr-12"
+                  : "bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 text-slate-800 dark:text-slate-200 rounded-tl-none mr-12"
               }`}
             >
               {msg.role === "assistant" && msg.sender && (

@@ -1,4 +1,8 @@
-import { APPLICATION_METADATA, THEME_BOOTSTRAP_SCRIPT } from "@/constants/commonConstants";
+import {
+  APPLICATION_METADATA,
+  THEME_BOOTSTRAP_SCRIPT,
+  DESKTOP_RESTRICTION_SCRIPT,
+} from "@/constants/commonConstants";
 import { DesktopGate } from "@/components/DesktopGate";
 import type { Metadata } from "next";
 import { Poppins, Rammetto_One } from "next/font/google";
@@ -37,7 +41,7 @@ export default function RootLayout({
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: THEME_BOOTSTRAP_SCRIPT,
+            __html: `${THEME_BOOTSTRAP_SCRIPT}\n${DESKTOP_RESTRICTION_SCRIPT}`,
           }}
         />
       </head>

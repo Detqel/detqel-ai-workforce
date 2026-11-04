@@ -86,6 +86,60 @@ impl Drop for FrontendRuntime {
     }
 }
 
+#[cfg(windows)]
+fn try_free_orphaned_frontend_port(port: u16, logs: &Arc<DesktopLogs>) {
+    use std::os::windows::process::CommandExt;
+    let output = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            &format!(
+                "(Get-NetTCPConnection -LocalPort {port} -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -First 1)"
+            ),
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+
+    if let Ok(output) = output {
+        let pid_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if let Ok(pid) = pid_str.parse::<u32>() {
+            if pid > 4 {
+                let name_output = Command::new("powershell")
+                    .args([
+                        "-NoProfile",
+                        "-Command",
+                        &format!(
+                            "(Get-Process -Id {pid} -ErrorAction SilentlyContinue).ProcessName"
+                        ),
+                    ])
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .output();
+                if let Ok(name_out) = name_output {
+                    let name = String::from_utf8_lossy(&name_out.stdout)
+                        .trim()
+                        .to_lowercase();
+                    if name.contains("detqel") || name.contains("node") {
+                        logs.frontend(
+                            "warn",
+                            &format!(
+                                "Terminating orphaned frontend process (PID {pid}, {name}) on port {port}..."
+                            ),
+                        );
+                        let _ = Command::new("taskkill")
+                            .args(["/PID", &pid.to_string(), "/T", "/F"])
+                            .creation_flags(CREATE_NO_WINDOW)
+                            .status();
+                        std::thread::sleep(Duration::from_millis(500));
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn try_free_orphaned_frontend_port(_port: u16, _logs: &Arc<DesktopLogs>) {}
+
 pub async fn start(app: &tauri::AppHandle, logs: Arc<DesktopLogs>) -> Result<(), String> {
     if !tauri::is_dev() {
         logs.frontend("info", "Loading the bundled frontend assets.");
@@ -109,8 +163,18 @@ pub async fn start(app: &tauri::AppHandle, logs: Arc<DesktopLogs>) -> Result<(),
         url.host_str().ok_or("Frontend host is missing")?,
         url.port().ok_or("Frontend port is missing")?
     );
-    let reservation = std::net::TcpListener::bind(&address)
-        .map_err(|_| format!("The configured frontend port is occupied ({address}). Stop the conflicting process and restart."))?;
+    let port = url.port().ok_or("Frontend port is missing")?;
+    let reservation = match std::net::TcpListener::bind(&address) {
+        Ok(listener) => listener,
+        Err(_) => {
+            try_free_orphaned_frontend_port(port, &logs);
+            std::net::TcpListener::bind(&address).map_err(|_| {
+                format!(
+                    "The configured frontend port is occupied ({address}). Stop the conflicting process and restart."
+                )
+            })?
+        }
+    };
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let node = manifest.join(DEVELOPMENT_BINARY_DIRECTORY).join(format!(
         "{NODE_BINARY_NAME}-{}{}",

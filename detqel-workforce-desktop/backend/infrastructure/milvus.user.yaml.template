@@ -9,11 +9,9 @@ etcd:
 localStorage:
   path: /var/lib/milvus/data
 mq:
-  type: woodpecker
-woodpecker:
-  storage:
-    type: local
-    rootPath: /var/lib/milvus/woodpecker
+  type: rocksmq
+rocksmq:
+  path: /var/lib/milvus/rdb
 common:
   storageType: local
   security:

@@ -1,4 +1,3 @@
-import { PAGINATION_LIMITS } from "../../../constants/httpConstants.js";
 import type { IUnitOfWork } from "../../../shared/contracts/unit-of-work.js";
 import { AppError } from "../../../shared/errors/app-error.js";
 export interface CreateWorkspaceDTO {
@@ -25,12 +24,6 @@ export interface AddMemberDTO {
 }
 export class WorkspaceService {
     constructor(private readonly dbCtx: IUnitOfWork) { }
-    /**
-     * List all workspaces (system/admin view)
-     */
-    async listAllWorkspaces() {
-        return this.dbCtx.workspaces.findMany({ limit: PAGINATION_LIMITS.maximum });
-    }
     /**
      * List workspaces belonging to a user through workspace membership
      */
@@ -204,6 +197,10 @@ export class WorkspaceService {
      * Remove a member from a workspace
      */
     async removeMember(workspaceId: string, userId: string) {
+        const workspace = await this.dbCtx.workspaces.findById(workspaceId);
+        if (!workspace) throw new AppError(404, "Workspace not found");
+        // The creator is the owner of record; removing them would leave the workspace without one.
+        if (workspace.createdBy === userId) throw new AppError(409, "The workspace creator cannot be removed");
         return this.dbCtx.workspaces.removeMember(workspaceId, userId);
     }
 }

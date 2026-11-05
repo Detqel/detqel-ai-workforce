@@ -44,13 +44,13 @@ export class NotificationRepository implements INotificationRepository {
         return result?.count ?? 0;
     }
     /**
-     * Mark a notification as read
+     * Mark one of the user's own notifications as read
      */
-    async markAsRead(id: string): Promise<UserNotification | null> {
+    async markAsRead(id: string, userId: string): Promise<UserNotification | null> {
         const [updated] = await this.database
             .update(userNotifications)
             .set({ isRead: true })
-            .where(eq(userNotifications.id, id))
+            .where(and(eq(userNotifications.id, id), eq(userNotifications.userId, userId)))
             .returning();
         return updated || null;
     }

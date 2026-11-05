@@ -45,6 +45,14 @@ export class BusinessRepository implements IBusinessRepository {
             .returning();
         return result.length > 0;
     }
+    async findKnowledgeWorkspaceId(id: string): Promise<string | null> {
+        const [item] = await this.database
+            .select({ workspaceId: businessKnowledge.workspaceId })
+            .from(businessKnowledge)
+            .where(eq(businessKnowledge.id, id))
+            .limit(1);
+        return item?.workspaceId ?? null;
+    }
     // Business Goals
     async listGoals(workspaceId: string): Promise<BusinessGoal[]> {
         return this.database

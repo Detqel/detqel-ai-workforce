@@ -14,6 +14,10 @@ pub const DEVELOPMENT_LOG_DIRECTORY: &str = "logs";
 pub const NODE_BINARY_NAME: &str = "detqel-node";
 pub const DEVELOPMENT_BINARY_DIRECTORY: &str = "binaries";
 pub const CREATE_NO_WINDOW: u32 = 0x08000000;
+/// Label every managed container carries (see backend/infrastructure/compose.yaml). Shutdown stops only
+/// containers with this label so unrelated containers are never touched.
+pub const DOCKER_OWNERSHIP_LABEL: &str = "com.detqel.desktop.runtime";
+pub const DOCKER_STOP_TIMEOUT_SECONDS: &str = "5";
 pub const FRONTEND_TIMEOUT_SECONDS: u64 = 180;
 pub const STARTUP_POLL_INTERVAL_MS: u64 = 1_000;
 pub const STARTUP_READY_TIMEOUT_SECONDS: u64 = 30;

@@ -21,7 +21,7 @@ export class SessionService {
     }
 
     verify(authorization: string | undefined): string {
-        if (!authorization?.startsWith(BEARER_AUTHORIZATION_PREFIX) || authorization.length > MAX_AUTHORIZATION_HEADER_LENGTH) throw new AppError(401, "Sign in to manage connections");
+        if (!authorization?.startsWith(BEARER_AUTHORIZATION_PREFIX) || authorization.length > MAX_AUTHORIZATION_HEADER_LENGTH) throw new AppError(401, "Sign in to continue");
         const parts = authorization.slice(BEARER_AUTHORIZATION_PREFIX.length).split(".");
         if (parts.length !== 2) throw new AppError(401, "Invalid session");
         const [payload, signature] = parts;
@@ -33,7 +33,7 @@ export class SessionService {
             if (claims.exp <= Math.floor(Date.now() / SESSION_CRYPTO.millisecondsPerSecond)) throw new Error("expired");
             return claims.sub;
         } catch {
-            throw new AppError(401, "Your session expired. Sign in again to manage connections");
+            throw new AppError(401, "Your session expired. Sign in again to continue");
         }
     }
 }

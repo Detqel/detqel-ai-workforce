@@ -6,7 +6,7 @@ mod startup_assets;
 use constants::desktop_constants::{
     APPLICATION_NAME, BACKEND_API_STEP, BACKEND_RUNTIME_STEP, BACKEND_STATUS_COMMAND,
     CREATE_NO_WINDOW, DESKTOP_LOG_DIRECTORY_ENV, DEVELOPMENT_BINARY_DIRECTORY,
-    DEVELOPMENT_LOG_DIRECTORY, FRONTEND_STEP, FRONTEND_TIMEOUT_SECONDS, LOGO_DARK, LOGO_LIGHT,
+    DEVELOPMENT_LOG_DIRECTORY, DOCKER_OWNERSHIP_LABEL, DOCKER_STOP_TIMEOUT_SECONDS, FRONTEND_STEP, FRONTEND_TIMEOUT_SECONDS, LOGO_DARK, LOGO_LIGHT,
     MAIN_WINDOW, NAME_LOGO_DARK, NAME_LOGO_LIGHT, NODE_BINARY_NAME, STARTUP_ASSET_HOST,
     STARTUP_ASSET_SCHEME, STARTUP_PAGE, STARTUP_POLL_INTERVAL_MS, STARTUP_READY_COMMAND,
     STARTUP_READY_TIMEOUT_SECONDS, STARTUP_STEPS, STARTUP_WINDOW, STARTUP_WINDOW_HEIGHT,
@@ -724,16 +724,19 @@ fn start_backend(
     Ok(())
 }
 
-fn stop_all_docker_containers(logs: Option<&Arc<DesktopLogs>>) {
+/// Arguments that list only running containers created by this application's managed stack.
+fn owned_container_query_args() -> [String; 4] {
+    [
+        "ps".into(),
+        "-q".into(),
+        "--filter".into(),
+        format!("label={DOCKER_OWNERSHIP_LABEL}"),
+    ]
+}
+
+fn stop_owned_docker_containers(logs: Option<&Arc<DesktopLogs>>) {
     let mut ps_cmd = Command::new("docker");
-    ps_cmd.args([
-        "ps",
-        "-q",
-        "--filter",
-        "name=detqel-kin",
-        "--filter",
-        "name=workforce",
-    ]);
+    ps_cmd.args(owned_container_query_args());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -753,7 +756,10 @@ fn stop_all_docker_containers(logs: Option<&Arc<DesktopLogs>>) {
                 );
             }
             let mut stop_cmd = Command::new("docker");
-            stop_cmd.arg("stop").arg("--time").arg("5");
+            stop_cmd
+                .arg("stop")
+                .arg("--time")
+                .arg(DOCKER_STOP_TIMEOUT_SECONDS);
             stop_cmd.args(&ids);
             #[cfg(windows)]
             {
@@ -803,7 +809,7 @@ fn perform_graceful_shutdown(app: &tauri::AppHandle, shared: &SharedBackend) {
             let _ = startup_win.eval("window.__DETQEL_UPDATE_SHUTDOWN__ && window.__DETQEL_UPDATE_SHUTDOWN__('Stopping Docker containers...', 35);");
         }
 
-        stop_all_docker_containers(logs.as_ref());
+        stop_owned_docker_containers(logs.as_ref());
 
         if let Some(startup_win) = app_handle.get_webview_window(STARTUP_WINDOW) {
             let _ = startup_win.eval("window.__DETQEL_UPDATE_SHUTDOWN__ && window.__DETQEL_UPDATE_SHUTDOWN__('Stopping platform backend & services...', 75);");
@@ -986,14 +992,23 @@ pub fn run() {
             if let Ok(mut backend) = app.state::<SharedBackend>().lock() {
                 backend.stop();
             }
-            stop_all_docker_containers(None);
+            stop_owned_docker_containers(None);
         }
     });
 }
 
 #[cfg(test)]
 mod tests {
-    use super::valid_api_path;
+    use super::{owned_container_query_args, valid_api_path};
+    #[test]
+    fn docker_shutdown_selects_containers_by_ownership_label_only() {
+        let args = owned_container_query_args();
+        assert_eq!(args[3], "label=com.detqel.desktop.runtime");
+        assert!(
+            !args.iter().any(|arg| arg.starts_with("name=")),
+            "shutdown must not match containers by name"
+        );
+    }
     #[test]
     fn restricts_bridge_to_application_paths() {
         assert!(valid_api_path("/api/settings/providers?workspaceId=123"));

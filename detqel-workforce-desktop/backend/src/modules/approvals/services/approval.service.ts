@@ -1,11 +1,20 @@
 import type { IUnitOfWork } from "../../../shared/contracts/unit-of-work.js";
+import { AppError } from "../../../shared/errors/app-error.js";
 import type { Approval, NewApproval } from "../../../shared/types/entities.js";
+import { assertMissionInWorkspace } from "../../missions/services/mission-scope.js";
 export class ApprovalService {
     constructor(private readonly unit: IUnitOfWork) { }
     private get repository() { return this.unit.missions; }
     listApprovals(workspaceId: string, status?: string): Promise<Approval[]> { return this.repository.listApprovals(workspaceId, status); }
+    /** The workspace that owns an approval, so access can be checked before it is reviewed. */
+    async requireWorkspaceId(approvalId: string): Promise<string> {
+        const approval = await this.repository.findApprovalById(approvalId);
+        if (!approval) throw new AppError(404, "Approval request not found");
+        return approval.workspaceId;
+    }
     createWithEvent(body: NewApproval) {
         return this.unit.transaction(async (repositories) => {
+            await assertMissionInWorkspace(repositories.missions, body.missionId, body.workspaceId);
             const approval = await repositories.missions.createApproval({
                 ...body,
                 status: "pending",

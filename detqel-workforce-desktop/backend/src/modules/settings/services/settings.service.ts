@@ -7,25 +7,112 @@ import type {
   VyraSettings,
 } from "../repositories/settings.repository.js";
 import { env } from "../../../config/env.js";
+import { LEGACY_PLACEHOLDER_KEY_MARKER } from "../../../constants/settingsConstants.js";
+import { SecretCipher, secretHint } from "../../../shared/security/secret-cipher.js";
+import type { CredentialSummary, PublicAIProvider, PublicVyraSettings } from "./settings.types.js";
+import type { TestPromptInput, UpdateProviderInput, UpdateVyraSettingsInput } from "../validation/settings.schemas.js";
+
+const providerContext = (providerId: string) => `ai_providers:${providerId}`;
+const vyraContext = (workspaceId: string | null) => `vyra_settings:${workspaceId ?? "global"}`;
 
 export class SettingsService {
-  constructor(private readonly repository: ISettingsRepository) {}
+  constructor(private readonly repository: ISettingsRepository, private readonly cipher: SecretCipher) {}
 
-  async listProviders(): Promise<AIProvider[]> {
-    return this.repository.listProviders();
+  // ---- Credential protection -------------------------------------------------------------------------------
+
+  /** Encrypts a key for storage. An empty key is stored as an empty value so "no key" stays distinguishable. */
+  private protect(plaintext: string, context: string): string {
+    return plaintext === "" ? "" : this.cipher.encrypt(plaintext, context);
   }
 
-  async getProviderById(id: string): Promise<AIProvider | null> {
-    return this.repository.getProviderById(id);
+  /**
+   * Reads a stored key. Values written before encryption existed are plain text and are returned as is until
+   * {@link protectStoredCredentials} rewrites them. Returns null when nothing usable is stored.
+   */
+  private reveal(stored: string | null | undefined, context: string): string | null {
+    if (!stored || stored.includes(LEGACY_PLACEHOLDER_KEY_MARKER)) return null;
+    if (!SecretCipher.isEnvelope(stored)) return stored;
+    try {
+      return this.cipher.decrypt(stored, context);
+    } catch {
+      // The master key changed or the value was copied from another row. The user must enter the key again.
+      return null;
+    }
   }
 
-  async updateProvider(id: string, updates: Partial<AIProvider>): Promise<AIProvider | null> {
-    return this.repository.updateProvider(id, updates);
+  private summarize(stored: string | null | undefined, context: string): CredentialSummary {
+    const key = this.reveal(stored, context);
+    return { hasApiKey: key !== null, apiKeyHint: key === null ? null : secretHint(key) };
   }
 
-  async getProviderModels(providerId: string, apiKey?: string): Promise<AIProviderModel[]> {
+  private publicProvider({ apiKey, ...provider }: AIProvider): PublicAIProvider {
+    return { ...provider, ...this.summarize(apiKey, providerContext(provider.id)) };
+  }
+
+  private publicVyra({ apiKey, ...settings }: VyraSettings): PublicVyraSettings {
+    return { ...settings, ...this.summarize(apiKey, vyraContext(settings.workspaceId)) };
+  }
+
+  /**
+   * Picks the key to use for a provider: one the caller just typed, then the key saved in the workspace's VYRA
+   * settings (when it targets this provider), then the key saved on the provider itself.
+   */
+  private async resolveApiKey(providerId: string, typed: string | undefined, workspaceId: string | undefined): Promise<string | null> {
+    const supplied = typed?.trim();
+    if (supplied) return supplied;
+    if (workspaceId) {
+      const settings = await this.repository.getVyraSettings(workspaceId);
+      if (settings && settings.selectedProviderId === providerId) {
+        const key = this.reveal(settings.apiKey, vyraContext(settings.workspaceId));
+        if (key) return key;
+      }
+    }
     const provider = await this.repository.getProviderById(providerId);
-    const keyToUse = apiKey?.trim() ? apiKey.trim() : provider?.apiKey?.trim();
+    return provider ? this.reveal(provider.apiKey, providerContext(provider.id)) : null;
+  }
+
+  /**
+   * Encrypts credentials that were stored as plain text before encryption existed and removes the decorative
+   * placeholder key. Safe to run on every start: rows that are already protected are left alone.
+   */
+  async protectStoredCredentials(): Promise<{ providers: number; vyraSettings: number }> {
+    let providers = 0;
+    let vyraSettings = 0;
+    for (const provider of await this.repository.listProviders()) {
+      if (!provider.apiKey || SecretCipher.isEnvelope(provider.apiKey)) continue;
+      const context = providerContext(provider.id);
+      await this.repository.updateProvider(provider.id, { apiKey: this.reveal(provider.apiKey, context) === null ? null : this.protect(provider.apiKey, context) });
+      providers++;
+    }
+    for (const settings of await this.repository.listAllVyraSettings()) {
+      if (!settings.apiKey || SecretCipher.isEnvelope(settings.apiKey)) continue;
+      const context = vyraContext(settings.workspaceId);
+      const isPlaceholder = this.reveal(settings.apiKey, context) === null;
+      await this.repository.updateVyraSettingsById(settings.id, isPlaceholder
+        ? { apiKey: "", keyStatus: "", isValidKey: false }
+        : { apiKey: this.protect(settings.apiKey, context) });
+      vyraSettings++;
+    }
+    return { providers, vyraSettings };
+  }
+
+  // ---- Providers -------------------------------------------------------------------------------------------
+
+  async listProviders(): Promise<PublicAIProvider[]> {
+    return (await this.repository.listProviders()).map(provider => this.publicProvider(provider));
+  }
+
+  async updateProvider(id: string, updates: UpdateProviderInput): Promise<PublicAIProvider | null> {
+    const { apiKey, ...rest } = updates;
+    const changes: Partial<AIProvider> = { ...rest };
+    if (apiKey !== undefined) changes.apiKey = this.protect(apiKey.trim(), providerContext(id));
+    const updated = await this.repository.updateProvider(id, changes);
+    return updated ? this.publicProvider(updated) : null;
+  }
+
+  async getProviderModels(providerId: string, options: { apiKey?: string; workspaceId?: string } = {}): Promise<AIProviderModel[]> {
+    const provider = await this.repository.getProviderById(providerId);
+    const keyToUse = await this.resolveApiKey(providerId, options.apiKey, options.workspaceId);
 
     if (keyToUse) {
       const liveModels = await this.fetchLiveModelsFromProvider(providerId, keyToUse);
@@ -182,7 +269,7 @@ export class SettingsService {
     }
   }
 
-  async testConnection(providerId: string, apiKey?: string, modelId?: string): Promise<{
+  async testConnection(providerId: string, apiKey?: string, modelId?: string, workspaceId?: string): Promise<{
     success: boolean;
     status: string;
     message: string;
@@ -191,7 +278,7 @@ export class SettingsService {
     modelId?: string;
   }> {
     const provider = await this.repository.getProviderById(providerId);
-    const keyToTest = apiKey?.trim() ? apiKey.trim() : provider?.apiKey?.trim();
+    const keyToTest = await this.resolveApiKey(providerId, apiKey, workspaceId);
 
     if (!keyToTest) {
       return {
@@ -213,7 +300,7 @@ export class SettingsService {
         await this.repository.updateProvider(providerId, {
           status: "connected",
           isConnected: true,
-          apiKey: keyToTest,
+          apiKey: this.protect(keyToTest, providerContext(providerId)),
           models: liveModels,
         });
       }
@@ -237,7 +324,7 @@ export class SettingsService {
     };
   }
 
-  async getVyraSettings(workspaceId?: string): Promise<VyraSettings> {
+  async getVyraSettings(workspaceId: string): Promise<PublicVyraSettings> {
     let settings = await this.repository.getVyraSettings(workspaceId);
     if (!settings) {
       settings = await this.repository.upsertVyraSettings({
@@ -263,24 +350,22 @@ export class SettingsService {
         previewMode: "chat",
       });
     }
-    return settings;
+    return this.publicVyra(settings);
   }
 
-  async updateVyraSettings(workspaceId: string | undefined, updates: Partial<VyraSettings>): Promise<VyraSettings> {
-    return this.repository.upsertVyraSettings({
-      ...updates,
-      workspaceId,
-    });
+  async updateVyraSettings(workspaceId: string, updates: UpdateVyraSettingsInput): Promise<PublicVyraSettings> {
+    const { apiKey, ...rest } = updates;
+    const changes: Partial<VyraSettings> = { ...rest };
+    if (apiKey !== undefined) {
+      changes.apiKey = this.protect(apiKey.trim(), vyraContext(workspaceId));
+      // Connection state describes the previous key, so a new or removed key cannot inherit it.
+      changes.keyStatus ??= "";
+      changes.isValidKey ??= false;
+    }
+    return this.publicVyra(await this.repository.upsertVyraSettings({ ...changes, workspaceId }));
   }
 
-  async testPrompt(params: {
-    prompt: string;
-    providerId?: string;
-    modelId?: string;
-    apiKey?: string;
-    mode?: "chat" | "structured";
-    systemPrompt?: string;
-  }): Promise<{
+  async testPrompt(params: TestPromptInput): Promise<{
     success: boolean;
     output: string;
     structuredOutput?: Record<string, unknown>;
@@ -296,7 +381,9 @@ export class SettingsService {
     const provider = params.providerId
       ? await this.repository.getProviderById(params.providerId)
       : null;
-    const keyToUse = params.apiKey?.trim() || provider?.apiKey?.trim();
+    const keyToUse = params.providerId
+      ? await this.resolveApiKey(params.providerId, params.apiKey, params.workspaceId)
+      : params.apiKey?.trim();
     const modelToUse = params.modelId?.trim() || provider?.models?.[0]?.id;
     const pId = (params.providerId || provider?.id || "").toLowerCase().trim();
 

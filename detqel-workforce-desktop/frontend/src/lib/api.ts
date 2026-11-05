@@ -1,7 +1,7 @@
 import { API_BASE_URL, API_PATHS, API_ACTIONS } from "@/constants/apiConstants";
 import { desktopFetch } from "./desktop";
-import { storeAccessToken, restoreSession } from "./auth-session";
-export { restoreSession as apiRestoreSession } from "./auth-session";
+import { authorizedFetch, storeAccessToken } from "./auth-session";
+export { refreshSession as apiRefreshSession } from "./auth-session";
 export { API_BASE_URL } from "@/constants/apiConstants";
 
 export interface UserProfile {
@@ -131,7 +131,7 @@ export async function apiRegister(payload: {
 export async function apiGetUserWorkspaces(
   userId: string
 ): Promise<WorkspaceSummary[]> {
-  const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.userWorkspaces}/${userId}`);
+  const res = await authorizedFetch(`${API_BASE_URL}${API_PATHS.userWorkspaces}/${userId}`);
   if (!res.ok) {
     throw new Error("Failed to retrieve user workspaces");
   }
@@ -148,7 +148,7 @@ export async function apiCreateWorkspace(payload: {
   description?: string;
   createdBy: string;
 }): Promise<WorkspaceSummary> {
-  const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.workspaces}`, {
+  const res = await authorizedFetch(`${API_BASE_URL}${API_PATHS.workspaces}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -168,7 +168,7 @@ export async function apiCreateWorkspace(payload: {
  * Permanently delete a workspace by ID
  */
 export async function apiDeleteWorkspace(workspaceId: string): Promise<boolean> {
-  const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.workspaces}/${workspaceId}`, {
+  const res = await authorizedFetch(`${API_BASE_URL}${API_PATHS.workspaces}/${workspaceId}`, {
     method: "DELETE",
   });
   if (!res.ok) {
@@ -189,7 +189,7 @@ export async function apiUpdateWorkspace(
     description?: string;
   }
 ): Promise<WorkspaceSummary> {
-  const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.workspaces}/${workspaceId}`, {
+  const res = await authorizedFetch(`${API_BASE_URL}${API_PATHS.workspaces}/${workspaceId}`, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
@@ -218,7 +218,7 @@ export interface IndustryDomainItem {
  * Fetch all industry domains dynamically from database
  */
 export async function apiGetDomains(): Promise<IndustryDomainItem[]> {
-  const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.domains}`);
+  const res = await authorizedFetch(`${API_BASE_URL}${API_PATHS.domains}`);
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
     throw new Error(errorData.message || "Failed to retrieve industry domains");
@@ -230,7 +230,7 @@ export async function apiGetDomains(): Promise<IndustryDomainItem[]> {
  * Store a custom industry domain in the database
  */
 export async function apiCreateDomain(name: string): Promise<IndustryDomainItem> {
-  const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.domains}`, {
+  const res = await authorizedFetch(`${API_BASE_URL}${API_PATHS.domains}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -273,7 +273,7 @@ export async function apiGetActivityHeatmap(params: {
     if (params.userId) query.set("userId", params.userId);
     if (params.days) query.set("days", params.days.toString());
 
-    const res = await desktopFetch(
+    const res = await authorizedFetch(
       `${API_BASE_URL}${API_PATHS.activityHeatmap}?${query.toString()}`
     );
     if (!res.ok) return null;
@@ -314,7 +314,7 @@ export async function apiGetUserNotifications(params: {
     if (params.workspaceId) query.set("workspaceId", params.workspaceId);
     if (params.unreadOnly) query.set("unreadOnly", "true");
 
-    const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.notifications}?${query.toString()}`);
+    const res = await authorizedFetch(`${API_BASE_URL}${API_PATHS.notifications}?${query.toString()}`);
     if (!res.ok) {
       return { notifications: [], unreadCount: 0 };
     }
@@ -329,7 +329,7 @@ export async function apiGetUserNotifications(params: {
  */
 export async function apiMarkNotificationRead(id: string): Promise<boolean> {
   try {
-    const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.notifications}/${id}/${API_ACTIONS.notificationRead}`, {
+    const res = await authorizedFetch(`${API_BASE_URL}${API_PATHS.notifications}/${id}/${API_ACTIONS.notificationRead}`, {
       method: "PATCH",
     });
     return res.ok;
@@ -346,7 +346,7 @@ export async function apiMarkAllNotificationsRead(params: {
   workspaceId?: string;
 }): Promise<boolean> {
   try {
-    const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.markNotificationsRead}`, {
+    const res = await authorizedFetch(`${API_BASE_URL}${API_PATHS.markNotificationsRead}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
@@ -424,7 +424,7 @@ export interface VyraSettings {
 
 export async function apiGetAIProviders(): Promise<AIProvider[]> {
   try {
-    const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.aiProviders}`);
+    const res = await authorizedFetch(`${API_BASE_URL}${API_PATHS.aiProviders}`);
     if (!res.ok) return [];
     const data = await res.json();
     return data.providers || [];
@@ -440,7 +440,7 @@ export async function apiGetProviderModels(
   if (!providerId) return [];
   try {
     const query = apiKey?.trim() ? `?apiKey=${encodeURIComponent(apiKey.trim())}` : "";
-    const res = await desktopFetch(
+    const res = await authorizedFetch(
       `${API_BASE_URL}${API_PATHS.aiProviders}/${encodeURIComponent(providerId)}/${API_ACTIONS.providerModels}${query}`
     );
     if (!res.ok) {
@@ -461,7 +461,7 @@ export async function apiUpdateAIProvider(
   updates: Partial<AIProvider>
 ): Promise<AIProvider | null> {
   try {
-    const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.aiProviders}/${id}`, {
+    const res = await authorizedFetch(`${API_BASE_URL}${API_PATHS.aiProviders}/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updates),
@@ -485,7 +485,7 @@ export async function apiTestConnection(params: {
   latencyMs: number;
 }> {
   try {
-    const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.testAIConnection}`, {
+    const res = await authorizedFetch(`${API_BASE_URL}${API_PATHS.testAIConnection}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
@@ -512,7 +512,7 @@ export async function apiTestConnection(params: {
 export async function apiGetVyraSettings(workspaceId?: string): Promise<VyraSettings | null> {
   try {
     const query = workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : "";
-    const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.agentSettings}${query}`);
+    const res = await authorizedFetch(`${API_BASE_URL}${API_PATHS.agentSettings}${query}`);
     if (!res.ok) return null;
     const data = await res.json();
     return data.settings || null;
@@ -527,7 +527,7 @@ export async function apiUpdateVyraSettings(
 ): Promise<VyraSettings | null> {
   try {
     const query = workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : "";
-    const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.agentSettings}${query}`, {
+    const res = await authorizedFetch(`${API_BASE_URL}${API_PATHS.agentSettings}${query}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updates),
@@ -556,7 +556,7 @@ export async function apiTestVyraPrompt(params: {
   timestamp: string;
 }> {
   try {
-    const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.testAgentPrompt}`, {
+    const res = await authorizedFetch(`${API_BASE_URL}${API_PATHS.testAgentPrompt}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
@@ -609,7 +609,7 @@ export interface CreateAgentPayload {
 
 export async function apiGetAgents(workspaceId?: string): Promise<AgentRecord[]> {
   const query = workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : "";
-  const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.agents}${query}`);
+  const res = await authorizedFetch(`${API_BASE_URL}${API_PATHS.agents}${query}`);
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || "Failed to load agents");
@@ -618,7 +618,7 @@ export async function apiGetAgents(workspaceId?: string): Promise<AgentRecord[]>
 }
 
 export async function apiCreateAgent(payload: CreateAgentPayload): Promise<AgentRecord> {
-  const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.agents}`, {
+  const res = await authorizedFetch(`${API_BASE_URL}${API_PATHS.agents}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -721,7 +721,7 @@ export interface CreateCustomAgentPayload {
 }
 
 export async function apiCreateCustomAgent(payload: CreateCustomAgentPayload): Promise<RecruitedAgent> {
-  const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.agents}/custom`, {
+  const res = await authorizedFetch(`${API_BASE_URL}${API_PATHS.agents}/custom`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -735,7 +735,7 @@ export async function apiCreateCustomAgent(payload: CreateCustomAgentPayload): P
 }
 
 export async function apiGetRecruitSections(): Promise<RecruitSection[]> {
-  const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.agentSections}`);
+  const res = await authorizedFetch(`${API_BASE_URL}${API_PATHS.agentSections}`);
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || "Failed to load agent marketplace sections");
@@ -756,7 +756,7 @@ export async function apiGetRecruitTemplates(params?: {
   if (params?.limit) searchParams.set("limit", String(params.limit));
 
   const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
-  const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.agentTemplates}${query}`);
+  const res = await authorizedFetch(`${API_BASE_URL}${API_PATHS.agentTemplates}${query}`);
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || "Failed to load agent templates");
@@ -765,7 +765,7 @@ export async function apiGetRecruitTemplates(params?: {
 }
 
 export async function apiRecruitAgent(payload: RecruitAgentPayload): Promise<RecruitedAgent> {
-  const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.agentRecruit}`, {
+  const res = await authorizedFetch(`${API_BASE_URL}${API_PATHS.agentRecruit}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -778,7 +778,7 @@ export async function apiRecruitAgent(payload: RecruitAgentPayload): Promise<Rec
 }
 
 export async function apiGetRecruitedAgents(workspaceId: string): Promise<RecruitedAgent[]> {
-  const res = await desktopFetch(
+  const res = await authorizedFetch(
     `${API_BASE_URL}${API_PATHS.agentRecruited}?workspaceId=${encodeURIComponent(workspaceId)}`
   );
   if (!res.ok) {
@@ -842,7 +842,7 @@ export interface UpdateTeamPayload {
 }
 
 export async function apiGetTeams(workspaceId: string): Promise<AgentTeam[]> {
-  const res = await desktopFetch(
+  const res = await authorizedFetch(
     `${API_BASE_URL}${API_PATHS.teams}?workspaceId=${encodeURIComponent(workspaceId)}`
   );
   if (!res.ok) {
@@ -853,7 +853,7 @@ export async function apiGetTeams(workspaceId: string): Promise<AgentTeam[]> {
 }
 
 export async function apiGetTeam(id: string, workspaceId: string): Promise<AgentTeam> {
-  const res = await desktopFetch(
+  const res = await authorizedFetch(
     `${API_BASE_URL}${API_PATHS.teams}/${encodeURIComponent(id)}?workspaceId=${encodeURIComponent(workspaceId)}`
   );
   if (!res.ok) {
@@ -864,7 +864,7 @@ export async function apiGetTeam(id: string, workspaceId: string): Promise<Agent
 }
 
 export async function apiCreateTeam(payload: CreateTeamPayload): Promise<AgentTeam> {
-  const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.teams}`, {
+  const res = await authorizedFetch(`${API_BASE_URL}${API_PATHS.teams}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -878,7 +878,7 @@ export async function apiCreateTeam(payload: CreateTeamPayload): Promise<AgentTe
 }
 
 export async function apiUpdateTeam(id: string, workspaceId: string, payload: UpdateTeamPayload): Promise<AgentTeam> {
-  const res = await desktopFetch(
+  const res = await authorizedFetch(
     `${API_BASE_URL}${API_PATHS.teams}/${encodeURIComponent(id)}?workspaceId=${encodeURIComponent(workspaceId)}`,
     {
       method: "PATCH",
@@ -894,7 +894,7 @@ export async function apiUpdateTeam(id: string, workspaceId: string, payload: Up
 }
 
 export async function apiDeleteTeam(id: string, workspaceId: string): Promise<boolean> {
-  const res = await desktopFetch(
+  const res = await authorizedFetch(
     `${API_BASE_URL}${API_PATHS.teams}/${encodeURIComponent(id)}?workspaceId=${encodeURIComponent(workspaceId)}`,
     {
       method: "DELETE",
@@ -909,7 +909,7 @@ export async function apiDeleteTeam(id: string, workspaceId: string): Promise<bo
 }
 
 export async function apiAddTeamMember(teamId: string, payload: { agentId: string; memberRole?: string; isLead?: boolean; userId?: string }): Promise<void> {
-  const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.teams}/${encodeURIComponent(teamId)}/members`, {
+  const res = await authorizedFetch(`${API_BASE_URL}${API_PATHS.teams}/${encodeURIComponent(teamId)}/members`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -921,7 +921,7 @@ export async function apiAddTeamMember(teamId: string, payload: { agentId: strin
 }
 
 export async function apiRemoveTeamMember(teamId: string, agentId: string): Promise<void> {
-  const res = await desktopFetch(
+  const res = await authorizedFetch(
     `${API_BASE_URL}${API_PATHS.teams}/${encodeURIComponent(teamId)}/members/${encodeURIComponent(agentId)}`,
     {
       method: "DELETE",

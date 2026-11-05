@@ -1,10 +1,27 @@
 import type { IUnitOfWork } from "../../../shared/contracts/unit-of-work.js";
+import { AppError } from "../../../shared/errors/app-error.js";
 import type { NewExecution } from "../../../shared/types/entities.js";
 export class ExecutionService {
     constructor(private readonly unit: IUnitOfWork) { }
     private get repository() { return this.unit.missions; }
+    /** The workspace that owns the mission an execution is recorded against. */
+    async requireMissionWorkspaceId(missionId: string): Promise<string> {
+        const mission = await this.repository.findById(missionId);
+        if (!mission) throw new AppError(404, "Mission not found");
+        return mission.workspaceId;
+    }
+    /** The workspace that owns an execution (through its mission). */
+    async requireWorkspaceId(executionId: string): Promise<string> {
+        const workspaceId = await this.repository.findExecutionWorkspaceId(executionId);
+        if (!workspaceId) throw new AppError(404, "Execution not found");
+        return workspaceId;
+    }
     createWithEvent(body: NewExecution) {
         return this.unit.transaction(async (repositories) => {
+            if (body.approvalId) {
+                const [mission, approval] = await Promise.all([repositories.missions.findById(body.missionId), repositories.missions.findApprovalById(body.approvalId)]);
+                if (!mission || !approval || approval.workspaceId !== mission.workspaceId) throw new AppError(404, "Approval not found in this workspace");
+            }
             const execution = await repositories.missions.recordExecution({
                 ...body,
                 status: "running",

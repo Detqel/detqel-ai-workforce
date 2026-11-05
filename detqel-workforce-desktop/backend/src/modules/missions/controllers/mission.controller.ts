@@ -1,6 +1,7 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { idParamsSchema } from "../../../shared/validation/http.schemas.js";
+import { actingUser } from "../../../shared/security/request-context.js";
 import type { MissionService } from "../services/mission.service.js";
 import { addSourceSchema, createMissionSchema, logEventSchema, updateStatusSchema } from "../validation/mission.schemas.js";
 export class MissionController {
@@ -13,7 +14,7 @@ export class MissionController {
     async create(request: FastifyRequest, reply: FastifyReply) {
         const body = createMissionSchema.parse(request.body);
         const { assignedAgents, ...missionData } = body;
-        const mission = await this.service.createWithEvent(missionData, assignedAgents);
+        const mission = await this.service.createWithEvent({ ...missionData, initiatedBy: actingUser(request, missionData.initiatedBy) }, assignedAgents);
         return reply.status(201).send(mission);
     }
     async getById(request: FastifyRequest, reply: FastifyReply) {

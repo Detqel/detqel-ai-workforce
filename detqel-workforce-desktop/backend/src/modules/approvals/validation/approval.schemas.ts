@@ -9,6 +9,7 @@ export const createApprovalSchema = z.object({
     requestedBy: z.string().uuid().optional(),
 });
 export const reviewApprovalSchema = z.object({
-    userId: z.string().uuid(),
+    // Optional and verified against the session: the reviewer is always the signed-in user.
+    userId: z.string().uuid().optional(),
     status: z.enum(["approved", "rejected"]),
 });

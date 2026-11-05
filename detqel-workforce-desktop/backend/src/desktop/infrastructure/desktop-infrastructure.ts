@@ -32,6 +32,7 @@ import {
 import { LOOPBACK_HOST, PRIVATE_PORT_RANGE, SERVICE_PORTS } from "../../constants/networkConstants.js";
 import {
     createInfrastructureCredentials,
+    infrastructureOwnershipFilter,
     infrastructureStackName,
     infrastructureRuntimeId,
     legacyInfrastructureStackName,
@@ -91,12 +92,14 @@ function launchDockerDesktopWindows(): void {
     }
 }
 
-export async function stopDesktopInfrastructure(options?: { signal?: AbortSignal }): Promise<void> {
+/** Stops only the running containers created for this installation's runtime directory. */
+export async function stopDesktopInfrastructure(options: { runtimeDirectory: string; signal?: AbortSignal }): Promise<void> {
     try {
-        const signal = options?.signal ?? new AbortController().signal;
+        const signal = options.signal ?? new AbortController().signal;
         const runningIds = (await runInfrastructureProcess(DOCKER_EXECUTABLE, [
-            "ps", "-q", "--filter", "name=detqel-kin", "--filter", "name=workforce"
-        ], { signal, timeoutMs: 10_000, failureMessage: "Unable to query running Docker containers." })).split(/\r?\n/).filter(Boolean);
+            "ps", "--filter", infrastructureOwnershipFilter(options.runtimeDirectory), "--format", DOCKER_INSPECT_FORMATS.ids,
+        ], { signal, timeoutMs: DOCKER_TIMEOUTS_MS.ownershipCli, failureMessage: "Unable to query running Docker containers." })).split(/\r?\n/).filter(Boolean);
+        if (runningIds.some(id => !DOCKER_VALIDATION.containerId.test(id))) return;
 
         if (runningIds.length > 0) {
             await runInfrastructureProcess(DOCKER_EXECUTABLE, [

@@ -3,7 +3,7 @@
 import { AUTH_STORAGE_KEYS } from "@/constants/authConstants";
 
 import React, { createContext, useContext, useState, useEffect } from "react";
-import { clearAccessToken, readAccessToken, restoreSession } from "@/lib/auth-session";
+import { SESSION_EXPIRED_EVENT, clearAccessToken, readAccessToken } from "@/lib/auth-session";
 import {
   UserProfile,
   WorkspaceSummary,
@@ -34,6 +34,13 @@ const WorkspaceContext = createContext<WorkspaceContextType | undefined>(
   undefined
 );
 
+function clearStoredSession(): void {
+  clearAccessToken();
+  localStorage.removeItem(AUTH_STORAGE_KEYS.user);
+  localStorage.removeItem(AUTH_STORAGE_KEYS.workspaces);
+  localStorage.removeItem(AUTH_STORAGE_KEYS.currentWorkspace);
+}
+
 export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
@@ -47,15 +54,12 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
     try {
       const storedUser = localStorage.getItem(AUTH_STORAGE_KEYS.user);
       const parsedUser: UserProfile | null = storedUser ? JSON.parse(storedUser) : null;
-      if (parsedUser) {
-        setUser(parsedUser);
-        const token = readAccessToken();
-        if (!token && parsedUser.id) {
-          restoreSession(parsedUser.id).catch((err) => {
-            console.warn("Could not restore session token on startup:", err);
-          });
-        }
+      if (parsedUser && !readAccessToken()) {
+        // A saved profile without a session token cannot be renewed; the user must sign in again.
+        clearStoredSession();
+        return;
       }
+      if (parsedUser) setUser(parsedUser);
 
       const storedWorkspaces = localStorage.getItem(AUTH_STORAGE_KEYS.workspaces);
       const parsedWorkspaces: WorkspaceSummary[] = storedWorkspaces ? JSON.parse(storedWorkspaces) : [];
@@ -179,15 +183,18 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   const logout = () => {
-    clearAccessToken();
+    clearStoredSession();
     setUser(null);
     setWorkspaces([]);
     setCurrentWorkspace(null);
-    localStorage.removeItem(AUTH_STORAGE_KEYS.user);
-    localStorage.removeItem(AUTH_STORAGE_KEYS.workspaces);
-    localStorage.removeItem(AUTH_STORAGE_KEYS.currentWorkspace);
     setIsCreateWorkspaceModalOpen(false);
   };
+
+  useEffect(() => {
+    window.addEventListener(SESSION_EXPIRED_EVENT, logout);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, logout);
+    // logout only calls state setters and clears storage, so the first-render closure stays valid.
+  }, []);
 
   return (
     <WorkspaceContext.Provider

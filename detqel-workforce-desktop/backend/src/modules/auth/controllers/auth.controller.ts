@@ -1,5 +1,6 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { requireUserId } from "../../../shared/security/request-context.js";
 import type { AuthService } from "../services/auth.service.js";
 import { loginSchema, registerSchema } from "../validation/auth.schemas.js";
 export class AuthController {
@@ -17,7 +18,6 @@ export class AuthController {
         return reply.status(response.isExistingUser ? 200 : 201).send(response);
     }
     async me(request: FastifyRequest, reply: FastifyReply) {
-        const { userId } = z.object({ userId: z.string().uuid().optional() }).parse(request.query);
-        return reply.send(await this.service.me(userId));
+        return reply.send(await this.service.me(requireUserId(request)));
     }
 }

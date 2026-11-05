@@ -7,7 +7,7 @@ export type UserWithMemberships = User & {
 export type WorkspaceOverview = Workspace & {
     businessProfile: BusinessProfile | null;
     members: (WorkspaceMember & {
-        user: User;
+        user: Pick<User, "id" | "name" | "email" | "avatarUrl">;
     })[];
 };
 export type AgentWithDetails = Agent & {

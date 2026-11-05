@@ -7,6 +7,7 @@ export interface IBusinessRepository {
     listKnowledge(workspaceId: string): Promise<BusinessKnowledge[]>;
     addKnowledge(data: NewBusinessKnowledge): Promise<BusinessKnowledge>;
     deleteKnowledge(id: string): Promise<boolean>;
+    findKnowledgeWorkspaceId(id: string): Promise<string | null>;
     listGoals(workspaceId: string): Promise<BusinessGoal[]>;
     createGoal(data: NewBusinessGoal): Promise<BusinessGoal>;
     updateGoal(id: string, data: Partial<NewBusinessGoal>): Promise<BusinessGoal | null>;

@@ -15,14 +15,17 @@ import { WorkspaceService } from "../modules/workspaces/services/workspace.servi
 import { SettingsService } from "../modules/settings/services/settings.service.js";
 import { LookupService } from "../modules/lookups/services/lookup.service.js";
 import type { Environment } from "../config/env.js";
+import { SECRET_PURPOSES } from "../constants/authConstants.js";
 import { SessionService } from "../shared/security/session.js";
-import { ConnectionAccessService } from "../modules/connections/services/connection-access.service.js";
+import { SecretCipher } from "../shared/security/secret-cipher.js";
+import { WorkspaceAccessService } from "../modules/workspaces/services/workspace-access.service.js";
 import { ConnectionCredentialsService } from "../modules/connections/services/connection-credentials.service.js";
 import { ConnectorAdapterRegistry } from "../modules/connections/adapters/connector-adapter.registry.js";
 import type { IUnitOfWork } from "../shared/contracts/unit-of-work.js";
 export function createServices(unit: IUnitOfWork, checkDatabase: () => Promise<void>, config: Environment) {
     const sessions = new SessionService(config.AUTH_SESSION_SECRET, config.AUTH_SESSION_TTL_SECONDS);
     const credentials = new ConnectionCredentialsService(config.CONNECTOR_ENCRYPTION_KEY);
+    const providerSecrets = new SecretCipher(config.CONNECTOR_ENCRYPTION_KEY, SECRET_PURPOSES.aiProviderCredentials);
     const adapters = new ConnectorAdapterRegistry({
         requestTimeoutMs: config.CONNECTOR_REQUEST_TIMEOUT_MS,
         allowedCommandPaths: config.CONNECTOR_ALLOWED_COMMANDS,
@@ -32,20 +35,20 @@ export function createServices(unit: IUnitOfWork, checkDatabase: () => Promise<v
         auth: new AuthService(unit.users, unit.workspaces, sessions),
         workspaces: new WorkspaceService(unit),
         domains: new DomainService(unit.domains),
-        users: new UserService(unit.users),
+        users: new UserService(unit.users, unit.workspaces),
         business: new BusinessService(unit.business),
-        workforce: new WorkforceService(unit.workforce),
+        workforce: new WorkforceService(unit.workforce, unit.connections),
         connections: new ConnectionService(unit.connections, unit.connectorCatalog, credentials, adapters),
-        connectionAccess: new ConnectionAccessService(sessions, unit.users, unit.workspaces),
+        workspaceAccess: new WorkspaceAccessService(sessions, unit.users, unit.workspaces),
         sessions,
         missions: new MissionService(unit),
         approvals: new ApprovalService(unit),
         executions: new ExecutionService(unit),
-        analytics: new AnalyticsService(unit.analytics, unit.activities),
-        automations: new AutomationService(unit.automations),
+        analytics: new AnalyticsService(unit.analytics, unit.activities, unit.missions),
+        automations: new AutomationService(unit.automations, unit.missions),
         notifications: new NotificationService(unit.notifications),
         health: new HealthService(checkDatabase),
-        settings: new SettingsService(unit.settings),
+        settings: new SettingsService(unit.settings, providerSecrets),
         lookups: new LookupService(unit.lookups),
     };
 }

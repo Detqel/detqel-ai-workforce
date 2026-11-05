@@ -1,20 +1,24 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
+import { AppError } from "../../../shared/errors/app-error.js";
+import { actingUser, requireUserId } from "../../../shared/security/request-context.js";
 import type { WorkspaceService } from "../services/workspace.service.js";
 import { addMemberSchema, createWorkspaceSchema, memberParamSchema, updateWorkspaceSchema, userWorkspaceParamSchema, workspaceIdParamSchema } from "../validation/workspace.schemas.js";
 export class WorkspaceController {
     constructor(private readonly service: WorkspaceService) { }
-    async listAll(_request: FastifyRequest, reply: FastifyReply) {
-        const list = await this.service.listAllWorkspaces();
+    /** Lists the signed-in user's workspaces. Other people's workspaces are never listed. */
+    async listAll(request: FastifyRequest, reply: FastifyReply) {
+        const list = await this.service.listUserWorkspaces(requireUserId(request));
         return reply.send(list);
     }
     async listByUser(request: FastifyRequest, reply: FastifyReply) {
         const { userId } = userWorkspaceParamSchema.parse(request.params);
+        if (userId !== requireUserId(request)) throw new AppError(403, "You can only list your own workspaces");
         const workspaces = await this.service.listUserWorkspaces(userId);
         return reply.send(workspaces);
     }
     async create(request: FastifyRequest, reply: FastifyReply) {
         const body = createWorkspaceSchema.parse(request.body);
-        const workspace = await this.service.createWorkspace(body);
+        const workspace = await this.service.createWorkspace({ ...body, createdBy: actingUser(request, body.createdBy) });
         return reply.status(201).send(workspace);
     }
     async update(request: FastifyRequest, reply: FastifyReply) {

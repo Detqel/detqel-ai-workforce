@@ -16,6 +16,7 @@ import {
     DOCKER_ENVIRONMENT_KEYS,
     DOCKER_FILE_MODES,
     DOCKER_IMAGES,
+    DOCKER_LABELS,
     DOCKER_LEGACY,
     DOCKER_PORT_KEYS,
     DOCKER_PROJECT_NAME,
@@ -50,6 +51,15 @@ export function infrastructureRuntimeId(directory: string): string {
     return createHash(DOCKER_CREDENTIAL_SETTINGS.hashAlgorithm).update(canonical).digest(DOCKER_CREDENTIAL_SETTINGS.encoding);
 }
 
+export function infrastructureDirectory(runtimeDirectory: string): string {
+    return join(resolve(runtimeDirectory), DOCKER_ASSET_FILES.directory);
+}
+
+/** Docker filter matching only containers created for this installation's runtime directory. */
+export function infrastructureOwnershipFilter(runtimeDirectory: string): string {
+    return `label=${DOCKER_LABELS.runtime}=${infrastructureRuntimeId(infrastructureDirectory(runtimeDirectory))}`;
+}
+
 export function legacyInfrastructureStackName(runtimeDirectory: string): string {
     return `${DOCKER_LEGACY.projectPrefix}${infrastructureRuntimeId(runtimeDirectory).slice(0, DOCKER_LEGACY.hashLength)}`;
 }
@@ -75,7 +85,7 @@ async function persistUpgradedCredentials(directory: string, credentials: Infras
 
 export async function preparePrivateInfrastructureDirectory(runtimeDirectory: string, signal: AbortSignal): Promise<string> {
     if (!isAbsolute(runtimeDirectory)) throw new DesktopInfrastructureError("Desktop infrastructure requires an absolute private runtime directory.");
-    const directory = join(resolve(runtimeDirectory), DOCKER_ASSET_FILES.directory);
+    const directory = infrastructureDirectory(runtimeDirectory);
     await mkdir(directory, { recursive: true, mode: DOCKER_FILE_MODES.privateDirectory });
     if (process.platform !== DESKTOP_PLATFORM.windows) {
         await chmod(directory, DOCKER_FILE_MODES.privateDirectory);

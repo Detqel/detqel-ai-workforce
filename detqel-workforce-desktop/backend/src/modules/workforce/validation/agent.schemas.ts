@@ -1,11 +1,13 @@
 import { z } from "zod";
 export const createAgentSchema = z.object({
-    workspaceId: z.string().uuid().optional(),
+    // An agent without a workspace would be visible to every workspace, so one is always required.
+    workspaceId: z.string().uuid(),
     name: z.string().min(1),
     description: z.string().min(1),
     purpose: z.string().min(1),
     instructions: z.string().min(1),
-    agentType: z.enum(["platform", "custom", "marketplace"]).default("custom"),
+    // "platform" agents are shared by every workspace and are provisioned by the product, not created through the API.
+    agentType: z.enum(["custom", "marketplace"]).default("custom"),
     scope: z.record(z.unknown()).default({}),
     capabilities: z.array(z.unknown()).default([]),
     approvalPolicy: z.record(z.unknown()).default({}),

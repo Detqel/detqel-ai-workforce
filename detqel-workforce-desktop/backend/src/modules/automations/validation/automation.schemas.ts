@@ -9,7 +9,8 @@ export const createAutomationSchema = z.object({
     agentStrategy: z.record(z.unknown()).optional(),
     approvalPolicy: z.record(z.unknown()).default({}),
     faultTolerance: z.record(z.unknown()).optional(),
-    createdBy: z.string().uuid(),
+    // Optional and verified against the session: the creator is always the signed-in user.
+    createdBy: z.string().uuid().optional(),
 });
 export const triggerRunSchema = z.object({
     missionId: z.string().uuid().optional(),

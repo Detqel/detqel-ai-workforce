@@ -9,15 +9,15 @@ function profile(user: User) {
 }
 export class AuthService {
     constructor(private readonly users: IUserRepository, private readonly workspaces: IWorkspaceRepository, private readonly sessions: SessionService) { }
+    // Public endpoint: it answers only whether the account the caller named exists, and echoes back what the
+    // caller supplied. It never discloses another user's id, name, or workspaces.
     async checkUser(email?: string, username?: string) {
         if (!email && !username)
             throw new AppError(400, "Either email or username query parameter is required.");
         const [emailUser, usernameUser] = await Promise.all([email ? this.users.findByEmail(email) : null, username ? this.users.findByIdentifier(username) : null]);
-        const user = emailUser || usernameUser;
-        if (!user)
+        if (!emailUser && !usernameUser)
             return { exists: false, hasWorkspace: false, workspaceCount: 0 };
-        const workspaces = await this.workspaces.listAuthWorkspaces(user.id);
-        return { exists: true, emailMatch: !!emailUser, usernameMatch: !!usernameUser, hasWorkspace: workspaces.length > 0, workspaceCount: workspaces.length, user: { id: user.id, name: user.name, email: user.email, username: user.username } };
+        return { exists: true, emailMatch: !!emailUser, usernameMatch: !!usernameUser, user: { email: email ?? null, username: username ?? null } };
     }
     async login(identifier: string, password: string) {
         const user = await this.users.findByIdentifier(identifier);
@@ -46,9 +46,8 @@ export class AuthService {
         const user = await this.users.create({ name: body.name.trim(), email, username, passwordHash: hashPassword(body.password), status: "active" });
         return { user: profile(user), workspaces: [], hasWorkspace: false, isExistingUser: false, ...this.sessions.issue(user.id) };
     }
-    async me(userId?: string) {
-        if (!userId)
-            throw new AppError(400, "userId query parameter is required");
+    /** Returns the signed-in user's profile and a renewed token. `userId` comes from a verified session, never from the client. */
+    async me(userId: string) {
         const user = await this.users.findById(userId);
         if (!user || user.status !== "active")
             throw new AppError(404, "User not found");

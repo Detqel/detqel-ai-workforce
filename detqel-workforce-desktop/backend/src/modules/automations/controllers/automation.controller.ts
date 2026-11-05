@@ -1,5 +1,6 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { idParamsSchema, workspaceQuerySchema } from "../../../shared/validation/http.schemas.js";
+import { actingUser } from "../../../shared/security/request-context.js";
 import type { AutomationService } from "../services/automation.service.js";
 import { createAutomationSchema, createScheduledTaskSchema, triggerRunSchema } from "../validation/automation.schemas.js";
 export class AutomationController {
@@ -13,6 +14,7 @@ export class AutomationController {
         const body = createAutomationSchema.parse(request.body);
         const automation = await this.service.createAutomation({
             ...body,
+            createdBy: actingUser(request, body.createdBy),
             status: "active",
         });
         return reply.status(201).send(automation);

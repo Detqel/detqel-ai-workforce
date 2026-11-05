@@ -1,13 +1,21 @@
 import type { NewPrediction, NewSimulation, NewUserActivity, Prediction, Simulation, UserActivity } from "../../../shared/types/entities.js";
 import type { IAnalyticsRepository } from "../../analytics/repositories/analytics.repository.js";
+import type { IMissionRepository } from "../../missions/repositories/mission.repository.js";
+import { assertMissionInWorkspace } from "../../missions/services/mission-scope.js";
 import type { IActivityRepository } from "../repositories/activity.repository.js";
 import type { ActivityHeatmapResult } from "../repositories/activity.types.js";
 export class AnalyticsService {
-    constructor(private readonly repository: IAnalyticsRepository, private readonly activities: IActivityRepository) { }
+    constructor(private readonly repository: IAnalyticsRepository, private readonly activities: IActivityRepository, private readonly missions: IMissionRepository) { }
     listPredictions(workspaceId: string): Promise<Prediction[]> { return this.repository.listPredictions(workspaceId); }
-    createPrediction(data: NewPrediction): Promise<Prediction> { return this.repository.createPrediction(data); }
+    async createPrediction(data: NewPrediction): Promise<Prediction> {
+        await assertMissionInWorkspace(this.missions, data.missionId, data.workspaceId);
+        return this.repository.createPrediction(data);
+    }
     listSimulations(workspaceId: string): Promise<Simulation[]> { return this.repository.listSimulations(workspaceId); }
-    createSimulation(data: NewSimulation): Promise<Simulation> { return this.repository.createSimulation(data); }
+    async createSimulation(data: NewSimulation): Promise<Simulation> {
+        await assertMissionInWorkspace(this.missions, data.missionId, data.workspaceId);
+        return this.repository.createSimulation(data);
+    }
     recordActivity(data: NewUserActivity): Promise<UserActivity> { return this.activities.recordActivity(data); }
     listActivities(workspaceId: string, options?: {
         userId?: string;

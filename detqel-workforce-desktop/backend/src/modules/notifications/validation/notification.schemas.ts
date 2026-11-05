@@ -18,6 +18,7 @@ export const createNotificationSchema = z.object({
     link: z.string().max(255).optional(),
 });
 export const markAllReadSchema = z.object({
-    userId: z.string().uuid(),
+    // Optional and verified against the session: only the signed-in user's notifications can be changed.
+    userId: z.string().uuid().optional(),
     workspaceId: z.string().uuid().optional(),
 });

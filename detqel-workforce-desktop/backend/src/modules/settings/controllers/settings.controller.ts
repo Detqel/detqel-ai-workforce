@@ -1,5 +1,15 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { SettingsService } from "../services/settings.service.js";
+import {
+  providerIdParamsSchema,
+  providerModelsBodySchema,
+  providerModelsQuerySchema,
+  testConnectionSchema,
+  testPromptSchema,
+  updateProviderSchema,
+  updateVyraSettingsSchema,
+  workspaceScopeQuerySchema,
+} from "../validation/settings.schemas.js";
 
 export class SettingsController {
   constructor(private readonly service: SettingsService) {}
@@ -12,88 +22,52 @@ export class SettingsController {
     });
   }
 
-  async updateProvider(
-    req: FastifyRequest<{ Params: { id: string }; Body: Record<string, unknown> }>,
-    reply: FastifyReply
-  ) {
-    const { id } = req.params;
-    const updated = await this.service.updateProvider(id, req.body);
+  async updateProvider(req: FastifyRequest, reply: FastifyReply) {
+    const { id } = providerIdParamsSchema.parse(req.params);
+    const updated = await this.service.updateProvider(id, updateProviderSchema.parse(req.body));
     if (!updated) {
       return reply.status(404).send({ error: "Provider not found" });
     }
     return reply.send({ provider: updated });
   }
 
-  async getProviderModels(
-    req: FastifyRequest<{
-      Params: { id?: string };
-      Querystring: { apiKey?: string; provider?: string };
-    }>,
-    reply: FastifyReply
-  ) {
-    const targetProviderId = req.params.id || req.query.provider;
+  /** Lists models with the key saved on the server. A key is never accepted in the URL. */
+  async getProviderModels(req: FastifyRequest, reply: FastifyReply) {
+    const { id } = providerIdParamsSchema.partial().parse(req.params);
+    const query = providerModelsQuerySchema.parse(req.query);
+    const targetProviderId = id || query.provider;
     if (!targetProviderId) {
       return reply.status(400).send({ error: "providerId is required" });
     }
-    const models = await this.service.getProviderModels(targetProviderId, req.query.apiKey);
+    const models = await this.service.getProviderModels(targetProviderId, { workspaceId: query.workspaceId });
     return reply.send({ providerId: targetProviderId, models });
   }
 
-  async testConnection(
-    req: FastifyRequest<{ Body: { providerId: string; apiKey?: string; modelId?: string } }>,
-    reply: FastifyReply
-  ) {
-    const { providerId, apiKey, modelId } = req.body;
-    if (!providerId) {
-      return reply.status(400).send({ error: "providerId is required" });
-    }
-    const result = await this.service.testConnection(providerId, apiKey, modelId);
-    return reply.send(result);
+  /** Lists models with a key typed by the user, sent in the request body so it never appears in a URL. */
+  async lookupProviderModels(req: FastifyRequest, reply: FastifyReply) {
+    const { id } = providerIdParamsSchema.parse(req.params);
+    const body = providerModelsBodySchema.parse(req.body ?? {});
+    const models = await this.service.getProviderModels(id, body);
+    return reply.send({ providerId: id, models });
   }
 
-  async getVyraSettings(
-    req: FastifyRequest<{ Querystring: { workspaceId?: string } }>,
-    reply: FastifyReply
-  ) {
-    const { workspaceId } = req.query;
-    const settings = await this.service.getVyraSettings(workspaceId);
-    return reply.send({ settings });
+  async testConnection(req: FastifyRequest, reply: FastifyReply) {
+    const { providerId, apiKey, modelId, workspaceId } = testConnectionSchema.parse(req.body);
+    return reply.send(await this.service.testConnection(providerId, apiKey, modelId, workspaceId));
   }
 
-  async updateVyraSettings(
-    req: FastifyRequest<{ Body: Record<string, unknown>; Querystring: { workspaceId?: string } }>,
-    reply: FastifyReply
-  ) {
-    const { workspaceId } = req.query;
-    const updated = await this.service.updateVyraSettings(workspaceId, req.body);
+  async getVyraSettings(req: FastifyRequest, reply: FastifyReply) {
+    const { workspaceId } = workspaceScopeQuerySchema.parse(req.query);
+    return reply.send({ settings: await this.service.getVyraSettings(workspaceId) });
+  }
+
+  async updateVyraSettings(req: FastifyRequest, reply: FastifyReply) {
+    const { workspaceId } = workspaceScopeQuerySchema.parse(req.query);
+    const updated = await this.service.updateVyraSettings(workspaceId, updateVyraSettingsSchema.parse(req.body));
     return reply.send({ settings: updated });
   }
 
-  async testPrompt(
-    req: FastifyRequest<{
-      Body: {
-        prompt: string;
-        providerId?: string;
-        modelId?: string;
-        apiKey?: string;
-        mode?: "chat" | "structured";
-        systemPrompt?: string;
-      };
-    }>,
-    reply: FastifyReply
-  ) {
-    const { prompt, providerId, modelId, apiKey, mode, systemPrompt } = req.body;
-    if (!prompt) {
-      return reply.status(400).send({ error: "prompt is required" });
-    }
-    const result = await this.service.testPrompt({
-      prompt,
-      providerId,
-      modelId,
-      apiKey,
-      mode,
-      systemPrompt,
-    });
-    return reply.send(result);
+  async testPrompt(req: FastifyRequest, reply: FastifyReply) {
+    return reply.send(await this.service.testPrompt(testPromptSchema.parse(req.body)));
   }
 }

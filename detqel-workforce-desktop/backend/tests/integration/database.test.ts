@@ -23,6 +23,9 @@ import { INITIAL_AI_PROVIDERS } from "../../src/constants/databaseSeedConstants.
 import { LOOPBACK_HOST, PRIVATE_PORT_RANGE } from "../../src/constants/networkConstants.js";
 import { prepareApplicationDatabase } from "../../src/desktop/infrastructure/application-database.js";
 import { readMigrationFiles } from "drizzle-orm/migrator";
+import { SessionService } from "../../src/shared/security/session.js";
+import { SecretCipher } from "../../src/shared/security/secret-cipher.js";
+import { SECRET_PURPOSES } from "../../src/constants/authConstants.js";
 
 const adminUrl = process.env.TEST_DATABASE_ADMIN_URL;
 const migrationCount = readMigrationFiles({ migrationsFolder: defaultMigrationsFolder }).length;
@@ -36,6 +39,7 @@ describe("isolated PostgreSQL integration", { skip: !adminUrl }, () => {
   const created: string[] = [];
   let ownerId: string;
   let workspaceId: string;
+  const sessionFor = (userId: string) => new SessionService(testConfig.AUTH_SESSION_SECRET, testConfig.AUTH_SESSION_TTL_SECONDS).issue(userId).accessToken;
 
   before(async () => {
     const url = new URL(adminUrl!);
@@ -126,20 +130,23 @@ describe("isolated PostgreSQL integration", { skip: !adminUrl }, () => {
       assert.ok(await repositories.users.findById(owner.id));
       const app = await buildApp({ config: { ...testConfig, DATABASE_URL: desktopUrl }, verifyDatabase: true, logger: false });
       try {
-        const response = await app.inject("/api/settings/providers");
+        const anonymous = await app.inject("/api/settings/providers");
+        assert.equal(anonymous.statusCode, 401);
+        const response = await app.inject({ url: "/api/settings/providers", headers: { authorization: `Bearer ${sessionFor(owner.id)}` } });
         assert.equal(response.statusCode, 200);
         assert.deepEqual(response.json().providers.map((provider: { id: string }) => provider.id), INITIAL_AI_PROVIDERS.map(provider => provider.id));
       } finally { await app.close(); }
 
+      const desktopWorkspace = await repositories.workspaces.create({ name: "Desktop Workspace", slug: "desktop-workspace", createdBy: owner.id });
       await repositories.settings.updateProvider(INITIAL_AI_PROVIDERS[0].id, {
         name: "Saved provider name", apiKey: "test-saved-provider-key", isConnected: true, status: "connected",
         models: [{ id: "saved-model", name: "Saved model", description: "Preserve discovered models" }],
       });
       await repositories.settings.upsertProvider({ id: "user-provider", name: "User Provider", iconKey: "custom" });
-      await repositories.settings.upsertVyraSettings({ selectedProviderId: INITIAL_AI_PROVIDERS[0].id, selectedModelId: "saved-model", apiKey: "saved-agent-key", isValidKey: true });
-      const before = { providers: await repositories.settings.listProviders(), settings: await repositories.settings.getVyraSettings() };
+      await repositories.settings.upsertVyraSettings({ workspaceId: desktopWorkspace.id, selectedProviderId: INITIAL_AI_PROVIDERS[0].id, selectedModelId: "saved-model", apiKey: "saved-agent-key", isValidKey: true });
+      const before = { providers: await repositories.settings.listProviders(), settings: await repositories.settings.getVyraSettings(desktopWorkspace.id) };
       await prepare();
-      const after = { providers: await repositories.settings.listProviders(), settings: await repositories.settings.getVyraSettings() };
+      const after = { providers: await repositories.settings.listProviders(), settings: await repositories.settings.getVyraSettings(desktopWorkspace.id) };
       assert.deepEqual(after, before);
       assert.equal((await repositories.domains.listAllDomains()).length, 7);
       assert.ok(await repositories.users.findById(owner.id));
@@ -219,12 +226,76 @@ describe("isolated PostgreSQL integration", { skip: !adminUrl }, () => {
       const login = await app.inject({ method: "POST", url: "/api/auth/login", payload: { identifier: "apiuser", password: "password" } });
       assert.equal(login.statusCode, 200);
       assert.equal(login.json().user.id, registration.json().user.id);
-      const create = await app.inject({ method: "POST", url: "/api/workspaces", payload: { name: "API Workspace", createdBy: registration.json().user.id } });
+      const authorization = { authorization: `Bearer ${registration.json().accessToken}` };
+      const create = await app.inject({ method: "POST", url: "/api/workspaces", headers: authorization, payload: { name: "API Workspace", createdBy: registration.json().user.id } });
       assert.equal(create.statusCode, 201);
       assert.equal(create.json().role, "owner");
-      const workspaces = await app.inject(`/api/workspaces/user/${registration.json().user.id}`);
+      const workspaces = await app.inject({ url: `/api/workspaces/user/${registration.json().user.id}`, headers: authorization });
       assert.equal(workspaces.json().length, 1);
+      // A different user can neither list these workspaces nor read their members.
+      const outsider = await app.inject({ method: "POST", url: "/api/auth/register", payload: { name: "Outsider", email: "outsider@example.test", password: "password", username: "outsider" } });
+      const outsiderAuthorization = { authorization: `Bearer ${outsider.json().accessToken}` };
+      assert.equal((await app.inject({ url: `/api/workspaces/user/${registration.json().user.id}`, headers: outsiderAuthorization })).statusCode, 403);
+      assert.equal((await app.inject({ url: `/api/workspaces/${create.json().id}`, headers: outsiderAuthorization })).statusCode, 403);
+      const overview = await app.inject({ url: `/api/workspaces/${create.json().id}`, headers: authorization });
+      assert.equal(overview.statusCode, 200);
+      assert.doesNotMatch(overview.body, /passwordHash|password_hash/);
     } finally { await app.close(); }
+  });
+
+  test("AI provider keys are encrypted at rest, migrated from plain text, and never returned", async () => {
+    const services = createServices(unit, connection.check, testConfig);
+    const cipher = new SecretCipher(testConfig.CONNECTOR_ENCRYPTION_KEY, SECRET_PURPOSES.aiProviderCredentials);
+    const owner = (await unit.users.create({ name: "Key Owner", email: "key-owner@example.test" })).id;
+    const first = (await unit.workspaces.create({ name: "Key Workspace A", slug: "key-workspace-a", createdBy: owner })).id;
+    const second = (await unit.workspaces.create({ name: "Key Workspace B", slug: "key-workspace-b", createdBy: owner })).id;
+    const placeholder = (await unit.workspaces.create({ name: "Key Workspace C", slug: "key-workspace-c", createdBy: owner })).id;
+
+    // Rows written before encryption existed: plain text keys, plus the decorative key migration 0004 used to seed.
+    await unit.settings.updateProvider("openai", { apiKey: "sk-legacy-plaintext-key-1234" });
+    await unit.settings.upsertVyraSettings({ workspaceId: first, selectedProviderId: "openai", apiKey: "sk-vyra-legacy-key-5678", isValidKey: true, keyStatus: "ok" });
+    await unit.settings.upsertVyraSettings({ workspaceId: placeholder, apiKey: "sk-\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022", isValidKey: true, keyStatus: "Valid key" });
+
+    const migrated = await services.settings.protectStoredCredentials();
+    assert.equal(migrated.providers, 1);
+    assert.equal(migrated.vyraSettings, 2);
+    assert.deepEqual(await services.settings.protectStoredCredentials(), { providers: 0, vyraSettings: 0 }, "the sweep is idempotent");
+
+    const storedProvider = (await unit.settings.getProviderById("openai"))!;
+    assert.ok(SecretCipher.isEnvelope(storedProvider.apiKey));
+    assert.doesNotMatch(storedProvider.apiKey!, /sk-legacy-plaintext-key-1234/);
+    assert.equal(cipher.decrypt(storedProvider.apiKey!, "ai_providers:openai"), "sk-legacy-plaintext-key-1234");
+    assert.throws(() => cipher.decrypt(storedProvider.apiKey!, "ai_providers:groq"), "ciphertext is bound to its row");
+    const storedVyra = (await unit.settings.getVyraSettings(first))!;
+    assert.equal(cipher.decrypt(storedVyra.apiKey!, `vyra_settings:${first}`), "sk-vyra-legacy-key-5678");
+    const storedPlaceholder = (await unit.settings.getVyraSettings(placeholder))!;
+    assert.deepEqual([storedPlaceholder.apiKey, storedPlaceholder.isValidKey, storedPlaceholder.keyStatus], ["", false, ""], "the decorative key is removed, not encrypted");
+
+    // Clients see that a key exists and its last characters, never the key.
+    const openai = (await services.settings.listProviders()).find(provider => provider.id === "openai")!;
+    assert.equal(openai.hasApiKey, true);
+    assert.equal(openai.apiKeyHint, "1234");
+    assert.equal("apiKey" in openai, false);
+    const vyra = await services.settings.getVyraSettings(first);
+    assert.deepEqual([vyra.hasApiKey, vyra.apiKeyHint, "apiKey" in vyra], [true, "5678", false]);
+    assert.equal((await services.settings.getVyraSettings(placeholder)).hasApiKey, false);
+
+    // Omitting the key keeps it, a new value replaces it, and an empty value removes it. A new key resets the old status.
+    await services.settings.updateVyraSettings(first, { instructions: { core: "x", behaviour: "", knowledge: "", boundaries: "", responseStyle: "" } });
+    assert.equal(cipher.decrypt((await unit.settings.getVyraSettings(first))!.apiKey!, `vyra_settings:${first}`), "sk-vyra-legacy-key-5678");
+    const replaced = await services.settings.updateVyraSettings(first, { apiKey: "sk-brand-new-key-9999" });
+    assert.deepEqual([replaced.apiKeyHint, replaced.isValidKey, replaced.keyStatus], ["9999", false, ""]);
+    assert.equal((await services.settings.updateVyraSettings(first, { apiKey: "" })).hasApiKey, false);
+    assert.equal((await unit.settings.getVyraSettings(first))!.apiKey, "");
+
+    // Settings belong to one workspace: a workspace without a row gets its own and cannot see or change another's.
+    await services.settings.updateVyraSettings(first, { apiKey: "sk-first-workspace-key-0001", selectedModelId: "model-a" });
+    const untouched = await services.settings.getVyraSettings(second);
+    assert.notEqual(untouched.id, (await unit.settings.getVyraSettings(first))!.id);
+    assert.deepEqual([untouched.workspaceId, untouched.hasApiKey, untouched.selectedModelId], [second, false, ""]);
+    await services.settings.updateVyraSettings(second, { selectedModelId: "model-b" });
+    assert.equal((await unit.settings.getVyraSettings(first))!.selectedModelId, "model-a");
+    assert.equal((await unit.settings.getVyraSettings(first))!.workspaceId, first);
   });
 
   test("migration failure leaves no partial DDL and checksum mismatches are rejected", async () => {

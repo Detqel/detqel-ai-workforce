@@ -72,7 +72,8 @@ export class WorkspaceRepository extends BaseRepository<typeof workspaces, Works
                 businessProfile: true,
                 members: {
                     with: {
-                        user: true,
+                        // Never load credentials with a member's profile.
+                        user: { columns: { id: true, name: true, email: true, avatarUrl: true } },
                     },
                 },
             },

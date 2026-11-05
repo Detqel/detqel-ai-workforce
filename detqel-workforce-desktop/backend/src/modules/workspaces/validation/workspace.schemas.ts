@@ -6,7 +6,8 @@ export const createWorkspaceSchema = z.object({
     industry: z.string().trim().max(100).optional(),
     timezone: z.string().default("UTC"),
     logoUrl: z.string().optional(),
-    createdBy: z.string().uuid(),
+    // Accepted for compatibility with existing clients, but the signed-in user is always the creator.
+    createdBy: z.string().uuid().optional(),
 });
 export const updateWorkspaceSchema = z.object({
     name: z.string().trim().min(1).max(255).optional(),

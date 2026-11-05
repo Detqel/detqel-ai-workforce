@@ -6,7 +6,8 @@ export interface INotificationRepository {
         limit?: number;
     }): Promise<UserNotification[]>;
     countUnread(userId: string, workspaceId?: string): Promise<number>;
-    markAsRead(id: string): Promise<UserNotification | null>;
+    /** Marks the user's own notification as read. Another user's notification is never matched. */
+    markAsRead(id: string, userId: string): Promise<UserNotification | null>;
     markAllAsRead(userId: string, workspaceId?: string): Promise<number>;
     create(data: NewUserNotification): Promise<UserNotification>;
     delete(id: string): Promise<boolean>;

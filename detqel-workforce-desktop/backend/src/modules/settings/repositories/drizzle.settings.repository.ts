@@ -64,36 +64,36 @@ export class DrizzleSettingsRepository implements ISettingsRepository {
     return updated || null;
   }
 
-  async getVyraSettings(workspaceId?: string): Promise<VyraSettings | null> {
-    if (workspaceId) {
-      const results = await this.database
-        .select()
-        .from(vyraSettings)
-        .where(eq(vyraSettings.workspaceId, workspaceId))
-        .limit(1);
-      if (results[0]) return results[0];
-    }
-    // Fall back to default global record
-    const all = await this.database
+  async getVyraSettings(workspaceId: string): Promise<VyraSettings | null> {
+    const results = await this.database
       .select()
       .from(vyraSettings)
+      .where(eq(vyraSettings.workspaceId, workspaceId))
       .orderBy(desc(vyraSettings.createdAt))
       .limit(1);
-    return all[0] || null;
+    return results[0] || null;
   }
 
-  async upsertVyraSettings(settings: Partial<NewVyraSettings> & { workspaceId?: string }): Promise<VyraSettings> {
+  async listAllVyraSettings(): Promise<VyraSettings[]> {
+    return this.database.select().from(vyraSettings);
+  }
+
+  async updateVyraSettingsById(id: string, updates: Partial<NewVyraSettings>): Promise<VyraSettings | null> {
+    const [updated] = await this.database
+      .update(vyraSettings)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(vyraSettings.id, id))
+      .returning();
+    return updated || null;
+  }
+
+  async upsertVyraSettings(settings: Partial<NewVyraSettings> & { workspaceId: string }): Promise<VyraSettings> {
     const existing = await this.getVyraSettings(settings.workspaceId);
     if (existing) {
-      const [updated] = await this.database
-        .update(vyraSettings)
-        .set({
-          ...settings,
-          updatedAt: new Date(),
-        })
-        .where(eq(vyraSettings.id, existing.id))
-        .returning();
-      return updated;
+      // The row identity and ownership never change through an update.
+      const { id: _id, workspaceId: _workspaceId, createdAt: _createdAt, ...changes } = settings;
+      const updated = await this.updateVyraSettingsById(existing.id, changes);
+      return updated ?? existing;
     }
 
     const [created] = await this.database

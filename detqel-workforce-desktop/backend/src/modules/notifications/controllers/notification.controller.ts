@@ -1,17 +1,20 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { idParamsSchema } from "../../../shared/validation/http.schemas.js";
+import { actingUser } from "../../../shared/security/request-context.js";
 import type { NotificationService } from "../services/notification.service.js";
 import { createNotificationSchema, getNotificationsQuerySchema, markAllReadSchema } from "../validation/notification.schemas.js";
 export class NotificationController {
     constructor(private readonly service: NotificationService) { }
     async list(request: FastifyRequest, reply: FastifyReply) {
         const query = getNotificationsQuerySchema.parse(request.query);
-        const notifications = await this.service.listByUser(query.userId, {
+        // Notifications are private: the query may name only the signed-in user.
+        const userId = actingUser(request, query.userId);
+        const notifications = await this.service.listByUser(userId, {
             workspaceId: query.workspaceId,
             unreadOnly: query.unreadOnly,
             limit: query.limit,
         });
-        const unreadCount = await this.service.countUnread(query.userId, query.workspaceId);
+        const unreadCount = await this.service.countUnread(userId, query.workspaceId);
         return reply.send({
             notifications,
             unreadCount,
@@ -24,15 +27,15 @@ export class NotificationController {
     }
     async markRead(request: FastifyRequest, reply: FastifyReply) {
         const { id } = idParamsSchema.parse(request.params);
-        const updated = await this.service.markAsRead(id);
+        const updated = await this.service.markAsRead(id, actingUser(request));
         if (!updated) {
             return reply.status(404).send({ message: "Notification not found" });
         }
         return reply.send(updated);
     }
     async markAllRead(request: FastifyRequest, reply: FastifyReply) {
-        const body = markAllReadSchema.parse(request.body);
-        await this.service.markAllAsRead(body.userId, body.workspaceId);
+        const body = markAllReadSchema.parse(request.body ?? {});
+        await this.service.markAllAsRead(actingUser(request, body.userId), body.workspaceId);
         return reply.send({ success: true, message: "All notifications marked as read" });
     }
 }

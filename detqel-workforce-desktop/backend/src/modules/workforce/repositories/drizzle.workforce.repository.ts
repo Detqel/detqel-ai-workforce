@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, ilike, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import type { DatabaseSession } from "../../../infrastructure/database/connection.js";
 import { BaseRepository } from "../../../infrastructure/database/repositories/base.repository.js";
 import {
@@ -653,5 +653,23 @@ export class WorkforceRepository extends BaseRepository<typeof agents, Agent, Ne
         await this.database
             .delete(agentTeamMembers)
             .where(and(eq(agentTeamMembers.teamId, teamId), eq(agentTeamMembers.agentId, agentId)));
+    }
+
+    async getTeamWorkspaceId(teamId: string): Promise<string | null> {
+        const [team] = await this.database
+            .select({ workspaceId: agentTeams.workspaceId })
+            .from(agentTeams)
+            .where(eq(agentTeams.id, teamId))
+            .limit(1);
+        return team?.workspaceId ?? null;
+    }
+
+    async countOrganizationAgentsInWorkspace(agentIds: string[], workspaceId: string): Promise<number> {
+        if (agentIds.length === 0) return 0;
+        const [row] = await this.database
+            .select({ total: sql<number>`count(*)::int` })
+            .from(organizationAgents)
+            .where(and(inArray(organizationAgents.id, agentIds), eq(organizationAgents.workspaceId, workspaceId)));
+        return row?.total ?? 0;
     }
 }

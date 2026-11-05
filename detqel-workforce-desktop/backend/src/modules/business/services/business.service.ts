@@ -1,5 +1,6 @@
 import type { BusinessGoal, BusinessKnowledge, BusinessMemory, BusinessProfile, BusinessRule, BusinessState, NewBusinessGoal, NewBusinessKnowledge, NewBusinessMemory, NewBusinessProfile, NewBusinessRule, NewBusinessState } from "../../../shared/types/entities.js";
 import type { IBusinessRepository } from "../../business/repositories/business.repository.js";
+import { AppError } from "../../../shared/errors/app-error.js";
 export class BusinessService {
     constructor(private readonly repository: IBusinessRepository) { }
     getProfile(workspaceId: string): Promise<BusinessProfile | null> { return this.repository.getProfile(workspaceId); }
@@ -9,6 +10,12 @@ export class BusinessService {
     listKnowledge(workspaceId: string): Promise<BusinessKnowledge[]> { return this.repository.listKnowledge(workspaceId); }
     addKnowledge(data: NewBusinessKnowledge): Promise<BusinessKnowledge> { return this.repository.addKnowledge(data); }
     deleteKnowledge(id: string): Promise<boolean> { return this.repository.deleteKnowledge(id); }
+    /** The workspace that owns a knowledge item, so access can be checked before the item is touched. */
+    async requireKnowledgeWorkspaceId(id: string): Promise<string> {
+        const workspaceId = await this.repository.findKnowledgeWorkspaceId(id);
+        if (!workspaceId) throw new AppError(404, "Knowledge item not found");
+        return workspaceId;
+    }
     listGoals(workspaceId: string): Promise<BusinessGoal[]> { return this.repository.listGoals(workspaceId); }
     createGoal(data: NewBusinessGoal): Promise<BusinessGoal> { return this.repository.createGoal(data); }
     listRules(workspaceId: string): Promise<BusinessRule[]> { return this.repository.listRules(workspaceId); }

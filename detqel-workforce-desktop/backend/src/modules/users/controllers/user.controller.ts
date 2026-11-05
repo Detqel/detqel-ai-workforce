@@ -1,13 +1,12 @@
-import { PAGINATION_LIMITS } from "../../../constants/httpConstants.js";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { idParamsSchema } from "../../../shared/validation/http.schemas.js";
+import { requireUserId } from "../../../shared/security/request-context.js";
 import type { UserService } from "../services/user.service.js";
 import { createUserSchema } from "../validation/user.schemas.js";
 export class UserController {
     constructor(private readonly service: UserService) { }
     async list(request: FastifyRequest, reply: FastifyReply) {
-        const list = await this.service.findMany({ limit: PAGINATION_LIMITS.maximum });
-        return reply.send(list);
+        return reply.send(await this.service.listVisibleTo(requireUserId(request)));
     }
     async create(request: FastifyRequest, reply: FastifyReply) {
         const body = createUserSchema.parse(request.body);
@@ -20,7 +19,7 @@ export class UserController {
     }
     async getById(request: FastifyRequest, reply: FastifyReply) {
         const { id } = idParamsSchema.parse(request.params);
-        const user = await this.service.findWithMemberships(id);
+        const user = await this.service.getVisibleTo(requireUserId(request), id);
         if (!user) {
             return reply.status(404).send({ message: "User not found" });
         }

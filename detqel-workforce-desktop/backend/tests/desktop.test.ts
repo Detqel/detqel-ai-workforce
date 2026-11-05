@@ -9,6 +9,7 @@ import { buildApp } from "../src/app.js";
 import type { ApplicationServices } from "../src/bootstrap/services.js";
 import { prepareInfrastructurePorts } from "../src/desktop/infrastructure/infrastructure-ports.js";
 import { PRIVATE_PORT_RANGE } from "../src/constants/networkConstants.js";
+import { infrastructureDirectory, infrastructureOwnershipFilter, infrastructureRuntimeId } from "../src/desktop/infrastructure/infrastructure-configuration.js";
 
 test("desktop token protects health, documentation, and feature route scopes", async () => {
     const token = "12345678-1234-1234-1234-123456789012";
@@ -62,4 +63,15 @@ test("prepareInfrastructurePorts reallocates unavailable saved ports without err
     } finally {
         await rm(tempDir, { recursive: true, force: true });
     }
+});
+
+test("Docker shutdown selects containers by this installation's ownership label, never by name", () => {
+    const first = path.resolve(tmpdir(), "detqel-runtime-a");
+    const second = path.resolve(tmpdir(), "detqel-runtime-b");
+    const filter = infrastructureOwnershipFilter(first);
+    assert.match(filter, /^label=com\.detqel\.desktop\.runtime=[a-f0-9]{64}$/);
+    assert.equal(filter, `label=com.detqel.desktop.runtime=${infrastructureRuntimeId(infrastructureDirectory(first))}`);
+    assert.equal(filter, infrastructureOwnershipFilter(first), "the filter is stable for one runtime directory");
+    assert.notEqual(filter, infrastructureOwnershipFilter(second), "another installation's containers are not matched");
+    assert.ok(!filter.startsWith("name="));
 });

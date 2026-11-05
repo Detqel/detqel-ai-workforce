@@ -62,6 +62,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     });
     if (options.desktopToken) registerDesktopTransport(app, options.desktopToken);
     app.decorate("services", options.services ?? createServices(new UnitOfWork(connection!.db), connection!.check, config));
+    app.decorateRequest("userId", undefined);
     app.addHook("onClose", async () => {
         await app.services.connections.close();
         await connection?.close();
@@ -69,7 +70,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     });
     try {
         // Read-only startup validation: deployment owns schema changes.
-        if (connection && options.verifyDatabase) await verifyMigrationState(connection.db);
+        if (connection && options.verifyDatabase) {
+            await verifyMigrationState(connection.db);
+            // Idempotent: encrypts any provider key that was saved as plain text before encryption existed.
+            const protectedCredentials = await app.services.settings.protectStoredCredentials();
+            if (protectedCredentials.providers || protectedCredentials.vyraSettings) app.log.info(protectedCredentials, "Encrypted stored AI provider credentials");
+        }
         // Plugins
         const allowedOrigins = config.CORS_ORIGIN.split(",").map((o) => o.trim());
         await app.register(cors, {
@@ -141,6 +147,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         // Register Modules
         await app.register(healthRoutes);
         await app.register(async (apiRouter) => {
+            // Every API route requires a valid session unless it opts out with `config: { public: true }`.
+            // Running on "onRequest" rejects anonymous callers before their request body is read.
+            apiRouter.addHook("onRequest", async (request) => {
+                if (request.routeOptions.config?.public) return;
+                request.userId = await app.services.workspaceAccess.authenticate(request.headers.authorization);
+            });
             await apiRouter.register(authRoutes);
             await apiRouter.register(workspaceRoutes);
             await apiRouter.register(userRoutes);

@@ -84,4 +84,7 @@ export interface IWorkforceRepository extends IRepository<Agent, NewAgent> {
     deleteTeam(id: string, workspaceId: string): Promise<boolean>;
     addTeamMember(teamId: string, agentId: string, memberRole?: string, isLead?: boolean, assignedBy?: string): Promise<void>;
     removeTeamMember(teamId: string, agentId: string): Promise<void>;
+    getTeamWorkspaceId(teamId: string): Promise<string | null>;
+    /** How many of the given recruited agents belong to the workspace. Unknown or foreign ids are not counted. */
+    countOrganizationAgentsInWorkspace(agentIds: string[], workspaceId: string): Promise<number>;
 }

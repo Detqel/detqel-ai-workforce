@@ -1,6 +1,7 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { idParamsSchema } from "../../../shared/validation/http.schemas.js";
+import { actingUser } from "../../../shared/security/request-context.js";
 import type { ApprovalService } from "../services/approval.service.js";
 import { createApprovalSchema, reviewApprovalSchema } from "../validation/approval.schemas.js";
 export class ApprovalController {
@@ -18,7 +19,7 @@ export class ApprovalController {
     async review(request: FastifyRequest, reply: FastifyReply) {
         const { id } = idParamsSchema.parse(request.params);
         const { userId, status } = reviewApprovalSchema.parse(request.body);
-        const reviewed = await this.service.reviewWithEvent(id, userId, status);
+        const reviewed = await this.service.reviewWithEvent(id, actingUser(request, userId), status);
         if (!reviewed)
             return reply.status(404).send({ message: "Approval request not found" });
         return reply.send(reviewed);

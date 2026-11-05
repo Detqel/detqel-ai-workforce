@@ -2,13 +2,14 @@ import { API_TAG_NAMES } from "../../../constants/apiConstants.js";
 import type { FastifyPluginAsync } from "fastify";
 import { LookupController } from "../controllers/lookup.controller.js";
 import { workspaceQuerySchema } from "../../../shared/validation/http.schemas.js";
+import { requireUserId } from "../../../shared/security/request-context.js";
 
 export const lookupRoutes: FastifyPluginAsync = async (app) => {
+    // Reading shared reference data needs only a session (checked for every API route). Changing it needs workspace admin access.
     app.addHook("preHandler", async request => {
-        app.services.sessions.verify(request.headers.authorization);
         if (request.method !== "GET") {
             const { workspaceId } = workspaceQuerySchema.parse(request.query);
-            await app.services.connectionAccess.authorize(request.headers.authorization, workspaceId, true);
+            await app.services.workspaceAccess.authorize(requireUserId(request), workspaceId, "manage");
         }
     });
     const controller = new LookupController(app.services.lookups);

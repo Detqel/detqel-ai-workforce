@@ -2,19 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { testConfig as config } from "./fixtures/config.js";
+import { bearer, memberRow, mockUnit, userId, workspaceId, workspaceRow } from "./fixtures/unit.js";
 import { buildApp } from "../src/app.js";
 import { createServices } from "../src/bootstrap/services.js";
-import type { IUnitOfWork } from "../src/shared/contracts/unit-of-work.js";
 import { UnitOfWork } from "../src/infrastructure/database/unit-of-work.js";
 import type { DatabaseSession } from "../src/infrastructure/database/connection.js";
 
-const userId = "b7bc2723-5cdd-4c33-b8b7-260825d65030";
-function mockUnit(overrides: Record<string, Record<string, unknown>> = {}): IUnitOfWork {
-  const strictRepository = (name: string) => new Proxy(overrides[name] ?? {}, { get: (object, key: string) => object[key] ?? (() => { throw new Error(`Unexpected repository access: ${name}.${key}`); }) });
-  const unit = Object.fromEntries(["users", "workspaces", "business", "connections", "workforce", "missions", "analytics", "automations", "activities", "notifications", "domains"].map(name => [name, strictRepository(name)])) as unknown as IUnitOfWork;
-  unit.transaction = async operation => operation(unit);
-  return unit;
-}
+// The signed-in user owns the workspace used by these tests.
+const ownedWorkspace = { findById: async () => workspaceRow(workspaceId, userId), getMembers: async () => [memberRow(userId, "owner")] };
 
 test("all original API routes and documentation register with injected dependencies", async () => {
   let closed = 0;
@@ -43,13 +38,14 @@ test("database outages fail readiness but preserve process liveness", async () =
 });
 
 test("invalid identifiers and unbounded analytics requests fail before repository access", async () => {
-  const app = await buildApp({ config, services: createServices(mockUnit(), async () => {}, config), logger: false });
+  const app = await buildApp({ config, services: createServices(mockUnit({ workspaces: ownedWorkspace }), async () => {}, config), logger: false });
+  const headers = bearer();
   try {
-    for (const url of ["/api/users/not-a-uuid", `/api/analytics/activity-heatmap?workspaceId=${userId}&days=1000000`, `/api/analytics/activities?workspaceId=${userId}&limit=-1`, "/api/missions"]) {
-      const response = await app.inject(url);
+    for (const url of ["/api/users/not-a-uuid", `/api/analytics/activity-heatmap?workspaceId=${workspaceId}&days=1000000`, `/api/analytics/activities?workspaceId=${workspaceId}&limit=-1`, "/api/missions"]) {
+      const response = await app.inject({ url, headers });
       assert.equal(response.statusCode, 400, url);
     }
-    const response = await app.inject({ method: "POST", url: "/api/workspaces", payload: { name: "  ", createdBy: userId } });
+    const response = await app.inject({ method: "POST", url: "/api/workspaces", headers, payload: { name: "  ", createdBy: userId } });
     assert.equal(response.statusCode, 400);
   } finally { await app.close(); }
 });
@@ -61,22 +57,23 @@ test("notification and auth response envelopes remain compatible", async () => {
   }), async () => {}, config);
   const app = await buildApp({ config, services, logger: false });
   try {
-    assert.deepEqual((await app.inject(`/api/notifications?userId=${userId}`)).json(), { notifications: [], unreadCount: 3 });
+    assert.deepEqual((await app.inject({ url: `/api/notifications?userId=${userId}`, headers: bearer() })).json(), { notifications: [], unreadCount: 3 });
     assert.deepEqual((await app.inject("/api/auth/check-user?email=nobody@example.com")).json(), { exists: false, hasWorkspace: false, workspaceCount: 0 });
   } finally { await app.close(); }
 });
 
 test("internal database errors are concealed and unique conflicts map to 409", async () => {
-  const unit = mockUnit({ users: { findMany: async () => { throw new Error("postgres://secret:password@internal"); } } });
+  const administrator = { listAuthWorkspaces: async () => [{ id: workspaceId, role: "owner", status: "active" }] };
+  const unit = mockUnit({ workspaces: { ...administrator, getMembers: async () => { throw new Error("postgres://secret:password@internal"); } } });
   const app = await buildApp({ config, services: createServices(unit, async () => {}, config), logger: false });
   try {
-    const response = await app.inject("/api/users");
+    const response = await app.inject({ url: "/api/users", headers: bearer() });
     assert.equal(response.statusCode, 500);
     assert.doesNotMatch(response.body, /secret|password|internal/);
   } finally { await app.close(); }
-  const conflict = mockUnit({ users: { findByEmail: async () => null, create: async () => { throw Object.assign(new Error("duplicate"), { code: "23505" }); } } });
+  const conflict = mockUnit({ workspaces: administrator, users: { findByEmail: async () => null, create: async () => { throw Object.assign(new Error("duplicate"), { code: "23505" }); } } });
   const second = await buildApp({ config, services: createServices(conflict, async () => {}, config), logger: false });
-  try { assert.equal((await second.inject({ method: "POST", url: "/api/users", payload: { name: "User", email: "user@example.com" } })).statusCode, 409); }
+  try { assert.equal((await second.inject({ method: "POST", url: "/api/users", headers: bearer(), payload: { name: "User", email: "user@example.com" } })).statusCode, 409); }
   finally { await second.close(); }
 });
 

@@ -8,7 +8,7 @@ export class NotificationService {
         limit?: number;
     }): Promise<UserNotification[]> { return this.repository.listByUser(userId, options); }
     countUnread(userId: string, workspaceId?: string): Promise<number> { return this.repository.countUnread(userId, workspaceId); }
-    markAsRead(id: string): Promise<UserNotification | null> { return this.repository.markAsRead(id); }
+    markAsRead(id: string, userId: string): Promise<UserNotification | null> { return this.repository.markAsRead(id, userId); }
     markAllAsRead(userId: string, workspaceId?: string): Promise<number> { return this.repository.markAllAsRead(userId, workspaceId); }
     create(data: NewUserNotification): Promise<UserNotification> { return this.repository.create(data); }
 }

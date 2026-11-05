@@ -1,7 +1,8 @@
 import { PAGINATION_LIMITS } from "../../../constants/httpConstants.js";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { idParamsSchema } from "../../../shared/validation/http.schemas.js";
+import { idParamsSchema, workspaceQuerySchema } from "../../../shared/validation/http.schemas.js";
+import { actingUser } from "../../../shared/security/request-context.js";
 import type { WorkforceService } from "../services/agent.service.js";
 import {
     addTeamMemberBodySchema,
@@ -23,19 +24,17 @@ export class WorkforceController {
     constructor(private readonly service: WorkforceService) { }
 
     async list(request: FastifyRequest, reply: FastifyReply) {
-        const { workspaceId } = z.object({ workspaceId: z.string().uuid().optional() }).parse(request.query);
-        if (workspaceId) {
-            const agents = await this.service.listAgentsForWorkspace(workspaceId);
-            return reply.send(agents);
-        }
-        const all = await this.service.findMany({ limit: PAGINATION_LIMITS.maximum });
-        return reply.send(all);
+        // Agents are always listed for one workspace the caller belongs to, never across workspaces.
+        const { workspaceId } = workspaceQuerySchema.parse(request.query);
+        const agents = await this.service.listAgentsForWorkspace(workspaceId);
+        return reply.send(agents);
     }
 
     async create(request: FastifyRequest, reply: FastifyReply) {
         const body = createAgentSchema.parse(request.body);
         const agent = await this.service.create({
             ...body,
+            createdBy: actingUser(request, body.createdBy),
             status: "active",
         });
         return reply.status(201).send(agent);
@@ -106,13 +105,13 @@ export class WorkforceController {
 
     async recruitTemplate(request: FastifyRequest, reply: FastifyReply) {
         const body = recruitTemplateBodySchema.parse(request.body);
-        const recruited = await this.service.recruitTemplate(body);
+        const recruited = await this.service.recruitTemplate({ ...body, userId: actingUser(request, body.userId) });
         return reply.status(201).send(recruited);
     }
 
     async createCustomAgent(request: FastifyRequest, reply: FastifyReply) {
         const body = createCustomAgentBodySchema.parse(request.body);
-        const recruited = await this.service.createCustomAgent(body);
+        const recruited = await this.service.createCustomAgent({ ...body, userId: actingUser(request, body.userId) });
         return reply.status(201).send(recruited);
     }
 
@@ -140,7 +139,7 @@ export class WorkforceController {
 
     async createTeam(request: FastifyRequest, reply: FastifyReply) {
         const body = createTeamBodySchema.parse(request.body);
-        const team = await this.service.createTeam(body);
+        const team = await this.service.createTeam({ ...body, userId: actingUser(request, body.userId) });
         return reply.status(201).send(team);
     }
 
@@ -168,7 +167,7 @@ export class WorkforceController {
     async addTeamMember(request: FastifyRequest, reply: FastifyReply) {
         const { id } = teamIdParamsSchema.parse(request.params);
         const body = addTeamMemberBodySchema.parse(request.body);
-        await this.service.addTeamMember(id, body.agentId, body.memberRole, body.isLead, body.userId);
+        await this.service.addTeamMember(id, body.agentId, body.memberRole, body.isLead, actingUser(request, body.userId));
         return reply.status(201).send({ success: true });
     }
 

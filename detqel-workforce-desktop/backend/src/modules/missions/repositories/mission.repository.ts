@@ -13,8 +13,11 @@ export interface IMissionRepository {
     listEvents(missionId: string): Promise<MissionEvent[]>;
     addSource(data: NewMissionSource): Promise<MissionSource>;
     listApprovals(workspaceId: string, status?: string): Promise<Approval[]>;
+    findApprovalById(approvalId: string): Promise<Approval | null>;
     createApproval(data: NewApproval): Promise<Approval>;
     reviewApproval(approvalId: string, userId: string, status: "approved" | "rejected"): Promise<Approval | null>;
+    /** An execution belongs to a workspace through its mission. */
+    findExecutionWorkspaceId(executionId: string): Promise<string | null>;
     recordExecution(data: NewExecution): Promise<Execution>;
     updateExecutionStatus(executionId: string, status: string, result?: Record<string, unknown>, error?: string): Promise<Execution | null>;
 }

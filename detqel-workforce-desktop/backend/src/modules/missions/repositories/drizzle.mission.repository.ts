@@ -109,6 +109,14 @@ export class MissionRepository implements IMissionRepository {
             .where(and(...conditions))
             .orderBy(desc(approvals.createdAt));
     }
+    async findApprovalById(approvalId: string): Promise<Approval | null> {
+        const [approval] = await this.database
+            .select()
+            .from(approvals)
+            .where(eq(approvals.id, approvalId))
+            .limit(1);
+        return approval || null;
+    }
     async createApproval(data: NewApproval): Promise<Approval> {
         const [approval] = await this.database
             .insert(approvals)
@@ -129,6 +137,15 @@ export class MissionRepository implements IMissionRepository {
         return reviewed || null;
     }
     // Executions
+    async findExecutionWorkspaceId(executionId: string): Promise<string | null> {
+        const [row] = await this.database
+            .select({ workspaceId: missions.workspaceId })
+            .from(executions)
+            .innerJoin(missions, eq(executions.missionId, missions.id))
+            .where(eq(executions.id, executionId))
+            .limit(1);
+        return row?.workspaceId ?? null;
+    }
     async recordExecution(data: NewExecution): Promise<Execution> {
         const [execution] = await this.database
             .insert(executions)

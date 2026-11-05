@@ -39,7 +39,8 @@ async function shutdown(): Promise<void> {
     stopping = true;
     startup.abort();
     try { await app?.close(); } catch {}
-    try { await stopDesktopInfrastructure(); } catch {}
+    const runtimeDirectory = process.env[DESKTOP_ENVIRONMENT_KEYS.runtimeDirectory];
+    try { if (runtimeDirectory) await stopDesktopInfrastructure({ runtimeDirectory }); } catch {}
     finally { input.close(); }
 }
 

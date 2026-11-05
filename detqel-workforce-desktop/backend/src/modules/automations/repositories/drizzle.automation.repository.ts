@@ -27,6 +27,14 @@ export class AutomationRepository implements IAutomationRepository {
             .returning();
         return updated || null;
     }
+    async findAutomationWorkspaceId(automationId: string): Promise<string | null> {
+        const [row] = await this.database
+            .select({ workspaceId: automations.workspaceId })
+            .from(automations)
+            .where(eq(automations.id, automationId))
+            .limit(1);
+        return row?.workspaceId ?? null;
+    }
     // Automation Runs
     async listRuns(automationId: string): Promise<AutomationRun[]> {
         return this.database

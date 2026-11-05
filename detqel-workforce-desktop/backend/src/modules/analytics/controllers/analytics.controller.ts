@@ -1,5 +1,6 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { activityQuerySchema, heatmapQuerySchema, workspaceQuerySchema } from "../../../shared/validation/http.schemas.js";
+import { actingUser } from "../../../shared/security/request-context.js";
 import type { AnalyticsService } from "../services/analytics.service.js";
 import { createPredictionSchema, createSimulationSchema, recordActivitySchema } from "../validation/analytics.schemas.js";
 export class AnalyticsController {
@@ -23,6 +24,7 @@ export class AnalyticsController {
         const body = createSimulationSchema.parse(request.body);
         const simulation = await this.service.createSimulation({
             ...body,
+            createdBy: actingUser(request, body.createdBy),
             status: "draft",
         });
         return reply.status(201).send(simulation);
@@ -46,7 +48,7 @@ export class AnalyticsController {
     }
     async recordActivity(request: FastifyRequest, reply: FastifyReply) {
         const body = recordActivitySchema.parse(request.body);
-        const activity = await this.service.recordActivity(body);
+        const activity = await this.service.recordActivity({ ...body, userId: actingUser(request, body.userId) });
         return reply.status(201).send(activity);
     }
 }

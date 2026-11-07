@@ -3,7 +3,7 @@ import { APPLICATION_NAMESPACE } from "../../constants/commonConstants.js";
 import { DESKTOP_PLATFORM } from "../../constants/desktopConstants.js";
 import {
     DOCKER_CONTAINER_PATHS,
-    DOCKER_EXECUTABLE,
+    DOCKER_ENDPOINT_DEFINITIONS,
     DOCKER_INSPECT_FORMATS,
     DOCKER_LABELS,
     DOCKER_LEGACY,
@@ -20,7 +20,9 @@ import {
     DOCKER_VALIDATION,
     DOCKER_VOLUME_NAMES,
 } from "../../constants/dockerConstants.js";
+import { LOOPBACK_HOST } from "../../constants/networkConstants.js";
 import { infrastructureRuntimeId, legacyInfrastructureStackName } from "./infrastructure-configuration.js";
+import type { InfrastructurePorts } from "./infrastructure-ports.js";
 import { DesktopInfrastructureError } from "./infrastructure-error.js";
 import { runInfrastructureProcess } from "./infrastructure-process.js";
 
@@ -34,7 +36,21 @@ interface ContainerDescription {
 
 export interface InfrastructureDeployment {
     litellmDatabaseVolume: string;
-    containerIds: string[];
+    /**
+     * Containers from a previous project name or the legacy stack. Their names or ownership no longer match the
+     * current compose project, so they are replaced. This installation's current containers are never listed here;
+     * compose starts them as they are and recreates one only when its configuration has changed.
+     */
+    replacedContainerIds: string[];
+    /** Host ports currently published by this installation's running containers, so they are kept as-is. */
+    publishedPorts: Partial<InfrastructurePorts>;
+}
+
+/** Reads the loopback host port a running container publishes for its service port, if any. */
+function publishedHostPort(container: ContainerDescription, containerPort: number): number | undefined {
+    const binding = container.ports?.[`${containerPort}/tcp`]?.find(entry => entry.HostIp === LOOPBACK_HOST);
+    const port = Number(binding?.HostPort);
+    return Number.isInteger(port) && port > 0 ? port : undefined;
 }
 
 function canonicalPath(value: string): string {
@@ -46,11 +62,12 @@ function canonicalPath(value: string): string {
 export async function prepareInfrastructureDeployment(options: {
     directory: string;
     runtimeDirectory: string;
+    executable: string;
     signal: AbortSignal;
 }): Promise<InfrastructureDeployment> {
-    const docker = (args: string[]) => runInfrastructureProcess(DOCKER_EXECUTABLE, args, {
+    const docker = (args: string[]) => runInfrastructureProcess(options.executable, args, {
         signal: options.signal, timeoutMs: DOCKER_TIMEOUTS_MS.ownershipCli,
-        failureMessage: "Managed Docker ownership could not be checked safely. Check Docker Desktop and retry.",
+        failureMessage: "Managed container ownership could not be checked safely. Check your container runtime and retry.",
     });
     const runtimeId = infrastructureRuntimeId(options.directory);
     const legacyStack = legacyInfrastructureStackName(options.runtimeDirectory);
@@ -64,6 +81,8 @@ export async function prepareInfrastructureDeployment(options: {
         return JSON.parse(await docker(["inspect", "--format", DOCKER_INSPECT_FORMATS.container, id])) as ContainerDescription;
     };
     let litellmDatabaseVolume: string | undefined;
+    const replacedContainerIds: string[] = [];
+    const publishedPorts: Partial<InfrastructurePorts> = {};
     const ownContainers = new Set([
         ...await ids(`label=${DOCKER_LABELS.project}=${DOCKER_PROJECT_NAME}`),
         ...await ids(`name=^/${APPLICATION_NAMESPACE}-`),
@@ -78,13 +97,22 @@ export async function prepareInfrastructureDeployment(options: {
             || !([DOCKER_PROJECT_NAME, ...DOCKER_PREVIOUS_PROJECT_NAMES] as readonly string[]).includes(container.labels[DOCKER_LABELS.project])) {
             throw new DesktopInfrastructureError(`The ${DOCKER_PROJECT_NAME} Docker names are already owned by another installation. Stop that installation before starting this workspace.`);
         }
+        if (previousProject) {
+            replacedContainerIds.push(id);
+        } else {
+            // A current container is kept. If it is still running, keep its published port so the saved
+            // configuration does not change and compose has no reason to recreate it.
+            const endpoint = DOCKER_ENDPOINT_DEFINITIONS[name];
+            const hostPort = endpoint ? publishedHostPort(container, endpoint.containerPort) : undefined;
+            if (endpoint && hostPort !== undefined) publishedPorts[endpoint.portKey] = hostPort;
+        }
         if (name === DOCKER_SERVICE_NAMES.litellmDatabase
             || (previousProject && name === DOCKER_PREVIOUS_SERVICE_NAMES.litellmDatabase)
             || container.labels[DOCKER_LABELS.service] === DOCKER_SERVICE_NAMES.litellmDatabase) {
             litellmDatabaseVolume = container.mounts.find(mount => mount.Type === "volume" && mount.Destination === DOCKER_CONTAINER_PATHS.postgresqlData)?.Name;
         }
     }
-    for (const name of [DOCKER_VOLUME_NAMES.applicationDatabase, DOCKER_VOLUME_NAMES.milvus]) {
+    for (const name of [DOCKER_VOLUME_NAMES.applicationDatabase, DOCKER_VOLUME_NAMES.milvus, DOCKER_VOLUME_NAMES.ollama]) {
         const names = (await docker(["volume", "ls", "--filter", `name=^${name}$`, "--format", DOCKER_INSPECT_FORMATS.names])).split(/\r?\n/).filter(Boolean);
         if (names.length === 0) {
             await docker(["volume", "create", "--label", `${DOCKER_LABELS.runtime}=${runtimeId}`, name]);
@@ -146,17 +174,20 @@ export async function prepareInfrastructureDeployment(options: {
             throw new DesktopInfrastructureError("The LiteLLM database volume belongs to another installation. Existing data has been preserved.");
         }
     }
-    return { litellmDatabaseVolume, containerIds: [...new Set([...ownContainers, ...legacyContainerIds])] };
+    return { litellmDatabaseVolume, replacedContainerIds: [...new Set([...replacedContainerIds, ...legacyContainerIds])], publishedPorts };
 }
 
-/** Recreate only this installation's verified containers; persistent volumes and networks survive. */
-export async function removeOwnedInfrastructureContainers(deployment: InfrastructureDeployment, signal: AbortSignal): Promise<void> {
-    if (!deployment.containerIds.length) return;
-    await runInfrastructureProcess(DOCKER_EXECUTABLE, ["stop", "--time", String(DOCKER_LIMITS.legacyStopSeconds), ...deployment.containerIds], {
+/**
+ * Removes only containers left by a previous project name or the legacy stack, so their names cannot clash
+ * with the current compose project. Persistent volumes and networks survive, and current containers are untouched.
+ */
+export async function removeReplacedInfrastructureContainers(deployment: InfrastructureDeployment, executable: string, signal: AbortSignal): Promise<void> {
+    if (!deployment.replacedContainerIds.length) return;
+    await runInfrastructureProcess(executable, ["stop", "--time", String(DOCKER_LIMITS.legacyStopSeconds), ...deployment.replacedContainerIds], {
         signal, timeoutMs: DOCKER_TIMEOUTS_MS.legacyReplacement,
         failureMessage: "The previous desktop containers could not be stopped safely. Close the previous desktop instance and retry.",
     });
-    await runInfrastructureProcess(DOCKER_EXECUTABLE, ["rm", ...deployment.containerIds], {
+    await runInfrastructureProcess(executable, ["rm", ...deployment.replacedContainerIds], {
         signal, timeoutMs: DOCKER_TIMEOUTS_MS.legacyReplacement,
         failureMessage: "The previous desktop containers could not be replaced. Their data volumes have been preserved; close the previous desktop instance and retry.",
     });

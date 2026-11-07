@@ -20,6 +20,7 @@ import { DesktopInfrastructureError } from "./infrastructure-error.js";
 export interface InfrastructurePorts {
     litellm: number;
     milvus: number;
+    ollama: number;
     applicationDatabase: number;
 }
 
@@ -38,7 +39,7 @@ function validPort(value: unknown): value is number {
     return typeof value === "number" && Number.isInteger(value) && value >= PRIVATE_PORT_RANGE.minimum && value <= PRIVATE_PORT_RANGE.maximum;
 }
 
-async function readSavedPorts(directory: string): Promise<InfrastructurePorts | null> {
+async function readSavedPorts(directory: string): Promise<Partial<InfrastructurePorts> | null> {
     let data: string;
     try { data = await readFile(join(directory, DOCKER_ASSET_FILES.ports), "utf8"); }
     catch (error) {
@@ -52,11 +53,15 @@ async function readSavedPorts(directory: string): Promise<InfrastructurePorts | 
         throw new DesktopInfrastructureError("Saved private service port assignments are invalid.");
     }
     const saved = value as Record<string, unknown>;
-    const ports = DOCKER_PORT_KEYS.map(key => saved[key]);
-    if (saved.version !== DOCKER_PORT_FILE_VERSION || ports.some(port => !validPort(port)) || new Set(ports).size !== DOCKER_PORT_KEYS.length) {
+    // A file saved before a service existed lacks that service's port; absent ports are allocated and saved
+    // by the caller. Every port that is present must still be valid and distinct.
+    const present = DOCKER_PORT_KEYS.map(key => saved[key]).filter(port => port !== undefined);
+    if (saved.version !== DOCKER_PORT_FILE_VERSION || present.some(port => !validPort(port)) || new Set(present).size !== present.length) {
         throw new DesktopInfrastructureError("Saved private service ports must be distinct TCP ports within the permitted private range.");
     }
-    return { litellm: saved.litellm as number, milvus: saved.milvus as number, applicationDatabase: saved.applicationDatabase as number };
+    const ports: Partial<InfrastructurePorts> = {};
+    for (const key of DOCKER_PORT_KEYS) if (saved[key] !== undefined) ports[key] = saved[key] as number;
+    return ports;
 }
 
 function portIsAvailable(port: number, signal: AbortSignal): Promise<boolean> {

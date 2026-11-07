@@ -15,6 +15,8 @@ export const envSchema = z.object({
     LITELLM_API_KEY: z.string().min(1).optional(),
     MILVUS_ADDRESS: z.string().url().optional(),
     MILVUS_TOKEN: z.string().min(1).optional(),
+    OLLAMA_BASE_URL: z.string().url().optional(),
+    OLLAMA_EMBEDDING_MODEL: z.string().min(1).optional(),
     AUTH_SESSION_SECRET: z.string().min(ENCODED_SECRET_MINIMUM_LENGTH),
     AUTH_SESSION_TTL_SECONDS: z.coerce.number().int().positive(),
     CONNECTOR_ENCRYPTION_KEY: z.string().min(ENCODED_SECRET_MINIMUM_LENGTH),

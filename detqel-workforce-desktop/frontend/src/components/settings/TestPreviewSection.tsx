@@ -2,6 +2,7 @@ import { PREVIEW_MODES } from "@/constants/settingsConstants";
 import React, { useState } from "react";
 import { User, Send, Loader2, X } from "lucide-react";
 import { IconOnlyButton } from "@/components/ui/icon-only-button";
+import { MarkdownContent } from "@/components/ui/markdown-content";
 
 interface TestPreviewSectionProps {
   previewMode: "chat" | "structured";
@@ -167,9 +168,10 @@ export const TestPreviewSection: React.FC<TestPreviewSectionProps> = ({
               {testResponse.output}
             </pre>
           ) : (
-            <div className="text-xs sm:text-[13px] leading-relaxed text-slate-800 dark:text-slate-200 whitespace-pre-wrap font-sans">
-              {testResponse.output}
-            </div>
+            <MarkdownContent
+              content={testResponse.output}
+              className="text-xs sm:text-[13px] leading-relaxed text-slate-800 dark:text-slate-200 font-sans"
+            />
           )}
         </div>
       )}

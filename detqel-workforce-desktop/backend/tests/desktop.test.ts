@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:net";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { testConfig } from "./fixtures/config.js";
@@ -74,4 +74,21 @@ test("Docker shutdown selects containers by this installation's ownership label,
     assert.equal(filter, infrastructureOwnershipFilter(first), "the filter is stable for one runtime directory");
     assert.notEqual(filter, infrastructureOwnershipFilter(second), "another installation's containers are not matched");
     assert.ok(!filter.startsWith("name="));
+});
+
+test("prepareInfrastructurePorts keeps saved ports and allocates a service added after the file was written", async () => {
+    const tempDir = await mkdtemp(path.join(tmpdir(), "detqel-ports-upgrade-"));
+    try {
+        const signal = new AbortController().signal;
+        const base = PRIVATE_PORT_RANGE.minimum;
+        // A file written before Ollama existed has no "ollama" entry.
+        await writeFile(path.join(tempDir, "ports.json"), JSON.stringify({ version: 1, litellm: base + 11, milvus: base + 12, applicationDatabase: base + 13 }));
+        const ports = await prepareInfrastructurePorts({ directory: tempDir, signal });
+        assert.equal(ports.litellm, base + 11);
+        assert.equal(ports.milvus, base + 12);
+        assert.equal(ports.applicationDatabase, base + 13);
+        assert.ok(ports.ollama >= PRIVATE_PORT_RANGE.minimum && ports.ollama <= PRIVATE_PORT_RANGE.maximum);
+        assert.equal(new Set(Object.values(ports)).size, 4, "all four service ports are distinct");
+        assert.equal(JSON.parse(await readFile(path.join(tempDir, "ports.json"), "utf8")).ollama, ports.ollama, "the new port is saved");
+    } finally { await rm(tempDir, { recursive: true, force: true }); }
 });

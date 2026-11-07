@@ -296,6 +296,19 @@ describe("isolated PostgreSQL integration", { skip: !adminUrl }, () => {
     await services.settings.updateVyraSettings(second, { selectedModelId: "model-b" });
     assert.equal((await unit.settings.getVyraSettings(first))!.selectedModelId, "model-a");
     assert.equal((await unit.settings.getVyraSettings(first))!.workspaceId, first);
+
+    // The Tavily key is stored encrypted in its own column, read back only server-side, and kept per workspace.
+    await assert.rejects(services.settings.resolveWebSearchKey(first), /Add a Tavily API key in Settings/);
+    const withSearch = await services.settings.updateVyraSettings(first, { tavilyApiKey: "  tvly-first-workspace-4321  " });
+    assert.deepEqual([withSearch.hasTavilyApiKey, withSearch.tavilyApiKeyHint, "tavilyApiKey" in withSearch], [true, "4321", false]);
+    const storedSearchKey = (await unit.settings.getVyraSettings(first))!.tavilyApiKey;
+    assert.match(storedSearchKey, /^secret:v1:/);
+    assert.equal(cipher.decrypt(storedSearchKey, `vyra_settings:tavily:${first}`), "tvly-first-workspace-4321");
+    assert.equal(await services.settings.resolveWebSearchKey(first), "tvly-first-workspace-4321");
+    assert.equal(cipher.decrypt((await unit.settings.getVyraSettings(first))!.apiKey!, `vyra_settings:${first}`), "sk-first-workspace-key-0001", "the model key is unaffected");
+    await assert.rejects(services.settings.resolveWebSearchKey(second), /Add a Tavily API key in Settings/);
+    assert.equal((await services.settings.updateVyraSettings(first, { tavilyApiKey: "" })).hasTavilyApiKey, false);
+    await assert.rejects(services.settings.resolveWebSearchKey(first), /Add a Tavily API key in Settings/);
   });
 
   test("migration failure leaves no partial DDL and checksum mismatches are rejected", async () => {

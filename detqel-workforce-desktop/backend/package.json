@@ -13,7 +13,7 @@
     "db:studio": "node --import tsx scripts/drizzle.mjs studio --config drizzle.config.ts",
     "db:seed": "tsx src/infrastructure/database/cli.ts seed",
     "typecheck": "tsc -p tsconfig.check.json",
-    "test": "node --import tsx --test tests/architecture.test.ts tests/application.test.ts tests/security.test.ts tests/logger.test.ts tests/desktop.test.ts",
+    "test": "node --import tsx --test tests/architecture.test.ts tests/application.test.ts tests/security.test.ts tests/logger.test.ts tests/desktop.test.ts tests/agents/litellm-client.test.ts tests/agents/virtual-key-registry.test.ts tests/agents/agents-config.test.ts tests/agents/poml.test.ts tests/connections/operation-dispatcher.test.ts tests/connections/data-operations.test.ts tests/rag/file-server.test.ts tests/rag/rag-pipeline.test.ts tests/agents/tavily.test.ts tests/agents/discussion-runtime.test.ts tests/discussions/discussion-service.test.ts tests/discussions/discussion-participants.test.ts tests/agents/agent-model-provisioner.test.ts",
     "test:integration": "node --import tsx --test tests/integration/database.test.ts",
     "db:init": "tsx src/infrastructure/database/cli.ts init",
     "db:seed:demo": "tsx src/infrastructure/database/cli.ts seed-demo",

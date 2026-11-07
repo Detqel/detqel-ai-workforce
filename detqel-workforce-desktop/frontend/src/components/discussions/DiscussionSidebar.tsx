@@ -6,6 +6,7 @@ import {
   Search,
   Plus,
   MessageSquare,
+  Trash2,
 } from "lucide-react";
 
 export interface DiscussionSession {
@@ -24,6 +25,7 @@ interface DiscussionSidebarProps {
   activeSessionId: string | null;
   onSelectSession: (session: DiscussionSession) => void;
   onOpenNewChatModal: () => void;
+  onDeleteSession?: (session: DiscussionSession) => void;
 }
 
 export const DiscussionSidebar: React.FC<DiscussionSidebarProps> = ({
@@ -31,6 +33,7 @@ export const DiscussionSidebar: React.FC<DiscussionSidebarProps> = ({
   activeSessionId,
   onSelectSession,
   onOpenNewChatModal,
+  onDeleteSession,
 }) => {
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -95,7 +98,7 @@ export const DiscussionSidebar: React.FC<DiscussionSidebarProps> = ({
             <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
               No Chat Sessions
             </p>
-            <p className="text-[11px] text-slate-400 mt-1 max-w-[200px]">
+            <p className="text-[11px] text-slate-400 mt-1 max-w-50">
               Click New Chat or initiate a discussion from Teams or Recruit.
             </p>
           </div>
@@ -138,11 +141,21 @@ export const DiscussionSidebar: React.FC<DiscussionSidebarProps> = ({
                       </div>
                     </div>
 
-                    {session.timestamp && (
-                      <span className="text-[9px] text-slate-400 shrink-0">
-                        {session.timestamp}
-                      </span>
-                    )}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {session.timestamp && (
+                        <span className="text-[9px] text-slate-400">{session.timestamp}</span>
+                      )}
+                      {onDeleteSession && (
+                        <button
+                          type="button"
+                          onClick={(event) => { event.stopPropagation(); onDeleteSession(session); }}
+                          title="Delete discussion"
+                          className="p-1 rounded-lg text-slate-400 hover:text-red-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {session.lastMessage && (

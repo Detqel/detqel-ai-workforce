@@ -17,6 +17,7 @@ export const DOCKER_SERVICE_NAMES = {
     litellm: `${APPLICATION_NAMESPACE}-litellm`,
     litellmDatabase: `${APPLICATION_NAMESPACE}-litellm-db`,
     milvus: `${APPLICATION_NAMESPACE}-milvus`,
+    ollama: `${APPLICATION_NAMESPACE}-ollama`,
     applicationDatabase: `${APPLICATION_NAMESPACE}-app-db`,
 } as const;
 // PostgreSQL is shared by both database services and only needs one successful pull.
@@ -24,17 +25,23 @@ export const DOCKER_IMAGES = {
     litellm: "ghcr.io/berriai/litellm:latest",
     postgresql: "postgres:16",
     milvus: "milvusdb/milvus:v2.5.5",
+    ollama: "ollama/ollama:latest",
 } as const;
 export const DOCKER_IMAGE_PULLS = [
     { image: DOCKER_IMAGES.postgresql, service: DOCKER_SERVICE_NAMES.litellmDatabase, step: DESKTOP_STARTUP_STEP_IDS.litellmDatabase },
     { image: DOCKER_IMAGES.milvus, service: DOCKER_SERVICE_NAMES.milvus, step: DESKTOP_STARTUP_STEP_IDS.milvus },
     { image: DOCKER_IMAGES.litellm, service: DOCKER_SERVICE_NAMES.litellm, step: DESKTOP_STARTUP_STEP_IDS.litellm },
+    { image: DOCKER_IMAGES.ollama, service: DOCKER_SERVICE_NAMES.ollama, step: DESKTOP_STARTUP_STEP_IDS.ollama },
 ] as const;
 export const DOCKER_VOLUME_NAMES = {
     litellmDatabase: `${APPLICATION_NAMESPACE}-litellm-db-data`,
     milvus: `${APPLICATION_NAMESPACE}-milvus-embedded-data`,
+    ollama: `${APPLICATION_NAMESPACE}-ollama-data`,
     applicationDatabase: `${APPLICATION_NAMESPACE}-app-db-data`,
 } as const;
+export const OLLAMA_EMBEDDING_MODEL = "nomic-embed-text";
+/** Ollama as reached by the LiteLLM container over their shared private network (not the host port). */
+export const OLLAMA_GATEWAY_BASE_URL = `http://${DOCKER_SERVICE_NAMES.ollama}:${SERVICE_PORTS.ollama}`;
 export const DOCKER_NETWORK_NAMES = {
     litellmPrivate: `${APPLICATION_NAMESPACE}-litellm-private`,
     gateway: `${APPLICATION_NAMESPACE}-gateway`,
@@ -51,6 +58,7 @@ export const DOCKER_LABELS = {
 export const DOCKER_CONTAINER_PATHS = {
     postgresqlData: "/var/lib/postgresql/data",
     milvusData: "/var/lib/milvus",
+    ollamaData: "/root/.ollama",
 } as const;
 export const DOCKER_ASSET_FILES = {
     directory: "infrastructure",
@@ -71,6 +79,7 @@ export const DOCKER_ENVIRONMENT_KEYS = {
     litellmImage: "LITELLM_IMAGE",
     postgresqlImage: "POSTGRESQL_IMAGE",
     milvusImage: "MILVUS_IMAGE",
+    ollamaImage: "OLLAMA_IMAGE",
     litellmMasterKey: "LITELLM_MASTER_KEY",
     litellmSaltKey: "LITELLM_SALT_KEY",
     postgresUsername: "POSTGRES_USER",
@@ -81,17 +90,19 @@ export const DOCKER_ENVIRONMENT_KEYS = {
     litellmDatabaseVolume: "LITELLM_DATABASE_VOLUME",
     litellmPort: "LITELLM_PORT",
     milvusPort: "MILVUS_PORT",
+    ollamaPort: "OLLAMA_PORT",
     applicationDatabasePort: "APP_DATABASE_PORT",
     runtimeId: "DETQEL_RUNTIME_ID",
     composeAnsi: "COMPOSE_ANSI",
     composeProgress: "COMPOSE_PROGRESS",
 } as const;
 export const DOCKER_COMPOSE_OUTPUT = { ansi: "never", progress: "plain" } as const;
-export const DOCKER_PORT_KEYS = ["litellm", "milvus", "applicationDatabase"] as const;
+export const DOCKER_PORT_KEYS = ["litellm", "milvus", "ollama", "applicationDatabase"] as const;
 export type InfrastructurePortKey = typeof DOCKER_PORT_KEYS[number];
 export const DOCKER_ENDPOINT_DEFINITIONS: Readonly<Record<string, { portKey: InfrastructurePortKey; containerPort: number }>> = {
     [DOCKER_SERVICE_NAMES.litellm]: { portKey: "litellm", containerPort: SERVICE_PORTS.litellm },
     [DOCKER_SERVICE_NAMES.milvus]: { portKey: "milvus", containerPort: SERVICE_PORTS.milvus },
+    [DOCKER_SERVICE_NAMES.ollama]: { portKey: "ollama", containerPort: SERVICE_PORTS.ollama },
     [DOCKER_SERVICE_NAMES.applicationDatabase]: { portKey: "applicationDatabase", containerPort: SERVICE_PORTS.postgresql },
 };
 export const DOCKER_LEGACY = {
@@ -111,7 +122,7 @@ export const DOCKER_TIMEOUTS_MS = {
     cli: 20_000, ownershipCli: 30_000, desktopStart: 180_000, imagePull: 30 * 60_000,
     stackStart: 15 * 60_000, serviceReady: 10 * 60_000, http: 10_000,
     permissions: 15_000, pollInterval: 2_000, progressInterval: 5_000,
-    legacyReplacement: 120_000, portAvailability: 2_500,
+    legacyReplacement: 120_000, portAvailability: 2_500, modelPull: 30 * 60_000,
 } as const;
 export const DOCKER_LIMITS = {
     captureBytes: 512 * 1024, readinessResponseBytes: 1024 * 1024, portAllocationAttempts: 64,
@@ -137,10 +148,10 @@ export const DOCKER_VALIDATION = {
     legacyVolumeName: /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/,
 } as const;
 export const DOCKER_PROTOCOLS = { http: "http:", postgresql: POSTGRESQL_PROTOCOLS[1], database: POSTGRESQL_PROTOCOLS } as const;
-export const DOCKER_HEALTH_ENDPOINTS = { litellmReadiness: "/health/readiness", litellmModels: "/v1/models", milvusCollections: "/v2/vectordb/collections/list" } as const;
+export const DOCKER_HEALTH_ENDPOINTS = { litellmReadiness: "/health/readiness", litellmModels: "/v1/models", milvusCollections: "/v2/vectordb/collections/list", ollamaTags: "/api/tags" } as const;
 export const DOCKER_HEALTH_VALUES = { healthy: "healthy", databaseConnected: "connected", milvusSuccess: 0 } as const;
 export const DOCKER_INSPECT_FORMATS = {
-    names: "{{.Name}}", ids: "{{.ID}}", labels: "{{json .Labels}}", ports: "{{json .NetworkSettings.Ports}}",
+    names: "{{.Name}}", ids: "{{.ID}}", imageId: "{{.Id}}", labels: "{{json .Labels}}", ports: "{{json .NetworkSettings.Ports}}",
     state: "{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}",
     contextHost: "{{json .Endpoints.docker.Host}}", operatingSystem: "{{.OSType}}",
     container: '{"name":{{json .Name}},"labels":{{json .Config.Labels}},"mounts":{{json .Mounts}},"ports":{{json .NetworkSettings.Ports}},"status":{{json .State.Status}}}',

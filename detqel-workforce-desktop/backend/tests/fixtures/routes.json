@@ -312,6 +312,14 @@
         "url":  "/api/settings/test-connection"
     },
     {
+        "method":  "POST",
+        "url":  "/api/settings/web-search/test-connection"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/discussions/workspaces/:workspaceId/sessions/:sessionId/turns/continue"
+    },
+    {
         "method":  "GET",
         "url":  "/api/settings/vyra"
     },

@@ -14,6 +14,19 @@ import {
   type DiscussionTarget,
 } from "@/lib/discussionStore";
 import {
+  apiCreateDiscussionSession,
+  apiListDiscussionSessions,
+  apiListDiscussionMessages,
+  apiDeleteDiscussionSession,
+  apiGetDiscussionSession,
+  type ChatSession,
+  type SessionUsage,
+} from "@/lib/api/discussions";
+import { EMPTY_USAGE, toViewMessage } from "@/components/discussions/discussionView";
+import { markdownToPlainText } from "@/lib/markdown";
+import { useToast } from "@/context/ToastContext";
+import { useConfirm } from "@/context/ConfirmContext";
+import {
   DiscussionSidebar,
   type DiscussionSession,
 } from "@/components/discussions/DiscussionSidebar";
@@ -28,6 +41,8 @@ import { Loader2 } from "lucide-react";
 export default function DiscussionsPage() {
   const { currentWorkspace } = useWorkspace();
   const workspaceId = currentWorkspace?.id;
+  const toast = useToast();
+  const confirm = useConfirm();
 
   const [teams, setTeams] = useState<AgentTeam[]>([]);
   const [agents, setAgents] = useState<RecruitedAgent[]>([]);
@@ -40,6 +55,78 @@ export default function DiscussionsPage() {
   const [isRightPaneOpen, setIsRightPaneOpen] = useState(true);
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
   const [currentMessages, setCurrentMessages] = useState<ChatMessage[]>([]);
+  const [initialMessages, setInitialMessages] = useState<ChatMessage[]>([]);
+  const [historyVersion, setHistoryVersion] = useState(0);
+  const [initialUsage, setInitialUsage] = useState<SessionUsage>(EMPTY_USAGE);
+  const [resumePending, setResumePending] = useState(false);
+
+  /** Maps a backend session to the sidebar's session shape, keyed by the real backend id. */
+  const toSidebarSession = useCallback((session: ChatSession, target: { name: string; subtitle?: string; avatarLetter?: string; targetId: string; targetType: "team" | "agent" }): DiscussionSession => ({
+    id: session.id,
+    targetId: target.targetId,
+    targetType: target.targetType,
+    name: target.name,
+    subtitle: target.subtitle,
+    avatarLetter: target.avatarLetter ?? target.name[0],
+  }), []);
+
+  /**
+   * Shows a session's history, usage, and any teammates still due to reply in the chat window. The window is
+   * keyed by this version, so new history remounts it with fresh state instead of copying props into state.
+   */
+  const showHistory = useCallback((messages: ChatMessage[], session?: ChatSession) => {
+    setInitialMessages(messages);
+    setInitialUsage(session ? { inputTokens: session.inputTokens, outputTokens: session.outputTokens, cachedTokens: session.cachedTokens, costUsd: session.costUsd } : EMPTY_USAGE);
+    setResumePending(Boolean(session?.pendingTurn?.queue.length));
+    setHistoryVersion((version) => version + 1);
+  }, []);
+
+  const loadSessionMessages = useCallback(async (sessionId: string, target: DiscussionTarget | null) => {
+    if (!workspaceId) return;
+    try {
+      const [messages, session] = await Promise.all([
+        apiListDiscussionMessages(workspaceId, sessionId),
+        apiGetDiscussionSession(workspaceId, sessionId),
+      ]);
+      showHistory(messages.map((message) => toViewMessage(message, target)), session);
+    } catch (error) {
+      showHistory([]);
+      toast.error(error instanceof Error ? error.message : "Could not load the conversation.");
+    }
+  }, [workspaceId, toast, showHistory]);
+
+  /** Opens the session for a target if one exists in `known`, otherwise creates it on the server. */
+  const openOrCreateSession = useCallback(async (target: DiscussionTarget, known: DiscussionSession[]) => {
+    if (!workspaceId) return;
+    const existing = known.find((s) => s.targetId === target.id);
+    if (existing) {
+      setActiveTarget(target);
+      setActiveSessionId(existing.id);
+      await loadSessionMessages(existing.id, target);
+      return;
+    }
+    try {
+      const session = await apiCreateDiscussionSession({
+        workspaceId,
+        agentId: target.type === "agent" ? target.id : undefined,
+        teamId: target.type === "team" ? target.id : undefined,
+        title: target.name,
+      });
+      const sidebar = toSidebarSession(session, {
+        targetId: target.id,
+        targetType: target.type,
+        name: target.name,
+        subtitle: target.role || target.focus,
+        avatarLetter: target.avatarLetter || target.name[0],
+      });
+      setSessions((prev) => [sidebar, ...prev]);
+      setActiveTarget(target);
+      setActiveSessionId(session.id);
+      showHistory([]);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not start the discussion.");
+    }
+  }, [workspaceId, toSidebarSession, loadSessionMessages, showHistory, toast]);
 
   // Load workspace teams and recruited agents
   const loadData = useCallback(async () => {
@@ -53,61 +140,70 @@ export default function DiscussionsPage() {
       setTeams(fetchedTeams);
       setAgents(fetchedAgents);
 
-      // Check if there is an incoming discussion target set via navigation
+      // Load persisted sessions for the sidebar. Their id is the real backend session id.
+      const persisted = await apiListDiscussionSessions(workspaceId);
+      const resolveTarget = (session: ChatSession) => {
+        if (session.teamId) {
+          const team = fetchedTeams.find((t) => t.id === session.teamId);
+          const name = team?.name ?? session.title;
+          return { targetId: session.teamId, targetType: "team" as const, name, subtitle: team?.focus, avatarLetter: name[0] };
+        }
+        const agent = fetchedAgents.find((a) => a.id === session.agentId);
+        const name = agent ? agent.customName || agent.template?.name || session.title : session.title;
+        return {
+          // A session whose agent was removed keeps its own id, so it can still be opened and deleted.
+          targetId: session.agentId ?? session.id,
+          targetType: "agent" as const,
+          name,
+          subtitle: agent?.customRole || agent?.template?.role,
+          avatarLetter: name[0],
+        };
+      };
+      const sidebarSessions = persisted.map((session) => toSidebarSession(session, resolveTarget(session)));
+      setSessions(sidebarSessions);
+
+      // A navigation target opens its existing session, or creates one for that agent/team.
       const incoming = getDiscussionTarget();
       if (incoming) {
-        const newSession: DiscussionSession = {
-          id: `session-${incoming.id}-${Date.now()}`,
-          targetId: incoming.id,
-          targetType: incoming.type,
-          name: incoming.name,
-          subtitle: incoming.role || incoming.focus,
-          avatarLetter: incoming.avatarLetter || incoming.name[0],
-        };
-        setSessions([newSession]);
-        setActiveTarget(incoming);
-        setActiveSessionId(newSession.id);
         clearDiscussionTarget();
+        await openOrCreateSession(incoming, sidebarSessions);
       }
-      // Strictly no default session or fallback target selection
-    } catch {
+    } catch (error) {
       setTeams([]);
       setAgents([]);
+      toast.error(error instanceof Error ? error.message : "Could not load discussions.");
     } finally {
       setIsLoading(false);
     }
-  }, [workspaceId]);
+  }, [workspaceId, toast, toSidebarSession, openOrCreateSession]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
-  const handleSelectTarget = (target: DiscussionTarget) => {
-    const existing = sessions.find((s) => s.targetId === target.id);
-    if (existing) {
-      setActiveTarget(target);
-      setActiveSessionId(existing.id);
-    } else {
-      const newSession: DiscussionSession = {
-        id: `session-${target.id}-${Date.now()}`,
-        targetId: target.id,
-        targetType: target.type,
-        name: target.name,
-        subtitle: target.role || target.focus,
-        avatarLetter: target.avatarLetter || target.name[0],
-      };
-      setSessions((prev) => [newSession, ...prev]);
-      setActiveTarget(target);
-      setActiveSessionId(newSession.id);
+  const handleSelectTarget = (target: DiscussionTarget) => { void openOrCreateSession(target, sessions); };
+
+  const handleDeleteSession = useCallback(async (session: DiscussionSession) => {
+    if (!workspaceId) return;
+    const confirmed = await confirm({ title: "Delete discussion", message: `Delete "${session.name}" and all of its messages and knowledge? This cannot be undone.`, variant: "danger", confirmText: "Delete" });
+    if (!confirmed) return;
+    try {
+      await apiDeleteDiscussionSession(workspaceId, session.id);
+      setSessions((prev) => prev.filter((s) => s.id !== session.id));
+      if (activeSessionId === session.id) { setActiveSessionId(""); setActiveTarget(null); showHistory([]); }
+      toast.success("Discussion deleted.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not delete the discussion.");
     }
-  };
+  }, [workspaceId, confirm, activeSessionId, toast, showHistory]);
 
   const handleSelectSession = (session: DiscussionSession) => {
     setActiveSessionId(session.id);
+    const applyTarget = (target: DiscussionTarget) => { setActiveTarget(target); void loadSessionMessages(session.id, target); };
     if (session.targetType === "team") {
       const team = teams.find((t) => t.id === session.targetId);
       if (team) {
-        setActiveTarget({
+        applyTarget({
           type: "team",
           id: team.id,
           name: team.name,
@@ -121,7 +217,7 @@ export default function DiscussionsPage() {
       const agent = agents.find((a) => a.id === session.targetId);
       if (agent) {
         const name = agent.customName || agent.template?.name || "Specialist";
-        setActiveTarget({
+        applyTarget({
           type: "agent",
           id: agent.id,
           name,
@@ -131,7 +227,7 @@ export default function DiscussionsPage() {
         return;
       }
     }
-    setActiveTarget({
+    applyTarget({
       type: session.targetType,
       id: session.targetId,
       name: session.name,
@@ -140,23 +236,21 @@ export default function DiscussionsPage() {
     });
   };
 
-  const handleMessagesUpdate = (messages: ChatMessage[]) => {
+  // Stable identity: the chat window reports messages from an effect that depends on this callback, so a new
+  // function on every render would re-run that effect and loop.
+  const handleMessagesUpdate = useCallback((messages: ChatMessage[]) => {
     setCurrentMessages(messages);
-    if (messages.length > 0 && activeSessionId) {
-      const last = messages[messages.length - 1];
-      setSessions((prev) =>
-        prev.map((s) =>
-          s.id === activeSessionId
-            ? {
-                ...s,
-                lastMessage: last.content,
-                timestamp: last.timestamp,
-              }
-            : s
-        )
-      );
-    }
-  };
+    if (messages.length === 0 || !activeSessionId) return;
+    const last = messages[messages.length - 1];
+    setSessions((prev) => {
+      const current = prev.find((s) => s.id === activeSessionId);
+      // Returning the same array when nothing changed lets React skip the re-render.
+      // The preview is one line of plain text, so Markdown and math markup are stripped from it.
+      const preview = markdownToPlainText(last.content);
+      if (!current || (current.lastMessage === preview && current.timestamp === last.timestamp)) return prev;
+      return prev.map((s) => (s.id === activeSessionId ? { ...s, lastMessage: preview, timestamp: last.timestamp } : s));
+    });
+  }, [activeSessionId]);
 
   if (!workspaceId) {
     return (
@@ -182,12 +276,18 @@ export default function DiscussionsPage() {
         activeSessionId={activeSessionId}
         onSelectSession={handleSelectSession}
         onOpenNewChatModal={() => setIsNewChatModalOpen(true)}
+        onDeleteSession={handleDeleteSession}
       />
 
       {/* Center modernized chat window */}
       <DiscussionChatWindow
+        key={`${activeSessionId}:${historyVersion}`}
         activeTarget={activeTarget}
         activeSessionId={activeSessionId}
+        workspaceId={workspaceId ?? null}
+        initialMessages={initialMessages}
+        initialUsage={initialUsage}
+        resumePending={resumePending}
         teams={teams}
         agents={agents}
         isRightPaneOpen={isRightPaneOpen}
@@ -200,6 +300,7 @@ export default function DiscussionsPage() {
         <DiscussionRightPane
           activeTarget={activeTarget}
           workspaceId={workspaceId}
+          activeSessionId={activeSessionId}
           messages={currentMessages}
           onClose={() => setIsRightPaneOpen(false)}
         />

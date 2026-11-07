@@ -1,36 +1,55 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   Send,
   Mic,
   MicOff,
-  Bot,
   Users,
-  Sparkles,
   Crown,
-  ChevronRight,
   PanelRight,
-  Volume2,
   MessageSquare,
+  Zap,
+  Brain,
+  Globe,
+  ExternalLink,
+  Loader2,
+  ArrowUpRight,
+  ArrowDownLeft,
 } from "lucide-react";
 import type { DiscussionTarget } from "@/lib/discussionStore";
 import type { AgentTeam, RecruitedAgent } from "@/lib/api";
+import {
+  apiContinueDiscussionTurn,
+  apiPostDiscussionMessage,
+  type AgentReply,
+  type PendingSpeaker,
+  type ResponseMode,
+  type CapabilityMode,
+  type SessionUsage,
+} from "@/lib/api/discussions";
+import { useToast } from "@/context/ToastContext";
+import { MarkdownContent } from "@/components/ui/markdown-content";
+import {
+  formatCost,
+  formatTime,
+  formatTokens,
+  formatTokensExact,
+  toViewMessage,
+  type ChatMessage,
+} from "./discussionView";
 
-export interface ChatMessage {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  sender?: string;
-  senderRole?: string;
-  senderAvatarLetter?: string;
-  isLead?: boolean;
-  timestamp: string;
-}
+export type { ChatMessage, ChatMessageSource } from "./discussionView";
 
 interface DiscussionChatWindowProps {
   activeTarget: DiscussionTarget | null;
   activeSessionId: string;
+  workspaceId: string | null;
+  initialMessages?: ChatMessage[];
+  /** The session's gateway usage so far. */
+  initialUsage: SessionUsage;
+  /** True when teammates were still due to reply when the session was opened. */
+  resumePending: boolean;
   teams: AgentTeam[];
   agents: RecruitedAgent[];
   isRightPaneOpen: boolean;
@@ -46,9 +65,18 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
   isRightPaneOpen,
   onToggleRightPane,
   onMessagesUpdate,
+  workspaceId,
+  initialMessages,
+  initialUsage,
+  resumePending,
 }) => {
+  const toast = useToast();
   const [inputText, setInputText] = useState("");
   const [isRecording, setIsRecording] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const [responseMode, setResponseMode] = useState<ResponseMode>("detailed");
+  const [capabilityMode, setCapabilityMode] = useState<CapabilityMode>("fast");
+  const [webEnabled, setWebEnabled] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
 
@@ -64,8 +92,64 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
       ? agents.find((a) => a.id === activeTarget.id)
       : null;
 
-  // Session message stream state - initialized empty strictly with no default/mock messages
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Session message stream, seeded from the session's persisted history. The parent remounts this component
+  // (via its key) whenever a different session's history loads, so no prop-to-state syncing is needed.
+  const [messages, setMessages] = useState<ChatMessage[]>(initialMessages ?? []);
+  const [usage, setUsage] = useState<SessionUsage>(initialUsage);
+  // The teammate replying right now in a team turn; "next" when resuming before the server names them.
+  const [responding, setResponding] = useState<PendingSpeaker | "next" | null>(null);
+
+  // Each turn gets a generation; a newer message, or leaving the session, stops an older turn's reply queue.
+  const turnGeneration = useRef(0);
+  const mounted = useRef(false);
+  const resumed = useRef(false);
+  // The running queue loop. A new loop waits for the previous one, so the server never gets two replies at once.
+  const currentDrain = useRef<Promise<void>>(Promise.resolve());
+
+  const appendReplies = useCallback((replies: AgentReply[]) => {
+    setMessages((prev) => [...prev, ...replies.map((reply) => toViewMessage(reply.message, activeTarget, reply.sources))]);
+  }, [activeTarget]);
+
+  /**
+   * Lets each queued teammate reply in turn, showing every reply as soon as it arrives. The loop stops when the
+   * queue is empty, when the user sends a newer message, or when the session is closed. A reply already on its
+   * way is still shown, because the server has saved it.
+   */
+  const drainQueue = useCallback((first: PendingSpeaker | "next", generation: number) => {
+    if (!workspaceId || !activeSessionId) return;
+    const previous = currentDrain.current;
+    const isCurrent = () => mounted.current && turnGeneration.current === generation;
+    currentDrain.current = (async () => {
+      await previous;
+      let next: PendingSpeaker | "next" | undefined = first;
+      try {
+        while (next && isCurrent()) {
+          setResponding(next);
+          const result = await apiContinueDiscussionTurn(workspaceId, activeSessionId);
+          if (!mounted.current) return;
+          if (result.reply) appendReplies([result.reply]);
+          setUsage(result.usage);
+          next = result.pending[0];
+        }
+      } catch (error) {
+        if (isCurrent()) toast.error(error instanceof Error ? error.message : "The next teammate could not respond.");
+      } finally {
+        if (isCurrent()) setResponding(null);
+      }
+    })();
+  }, [workspaceId, activeSessionId, appendReplies, toast]);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+
+  // Teammates still due to reply when the session was opened pick up where the turn left off, once.
+  useEffect(() => {
+    if (!resumePending || resumed.current) return;
+    resumed.current = true;
+    drainQueue("next", turnGeneration.current);
+  }, [resumePending, drainQueue]);
 
   // Sync messages with parent for export
   useEffect(() => {
@@ -141,69 +225,55 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
     }
   };
 
-  const handleSendMessage = (e?: React.FormEvent) => {
+  const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const text = inputText.trim();
-    if (!text) return;
+    if (!text || isSending) return;
+    if (!workspaceId) {
+      toast.error("Select a workspace before starting a discussion.");
+      return;
+    }
+    if (!activeSessionId) {
+      toast.error("This discussion session is not ready yet.");
+      return;
+    }
 
-    const userMsg: ChatMessage = {
-      id: `usr-${Date.now()}`,
+    const optimisticUser: ChatMessage = {
+      id: `pending-${Date.now()}`,
       role: "user",
       content: text,
-      timestamp: "Just now",
+      timestamp: formatTime(new Date()),
     };
-
-    setMessages((prev) => [...prev, userMsg]);
+    // A new message starts a new turn: teammates still queued from the previous one no longer reply.
+    const generation = ++turnGeneration.current;
+    setResponding(null);
+    setMessages((prev) => [...prev, optimisticUser]);
     setInputText("");
+    setIsSending(true);
 
-    // Simulate Agent / Squad Collaboration Response
-    setTimeout(() => {
-      if (activeTarget?.type === "team" && activeTeam && activeTeam.members.length > 0) {
-        // Respond with Squad Collaboration
-        const lead = activeTeam.lead || activeTeam.members[0];
-        const secondary = activeTeam.members.find((m) => m.id !== lead.id) || lead;
-
-        const leadMsg: ChatMessage = {
-          id: `ast-${Date.now()}`,
-          role: "assistant",
-          sender: lead.agent.customName || lead.agent.template?.name || "Squad Lead",
-          senderRole: lead.agent.customRole || lead.agent.template?.role || "Squad Lead",
-          senderAvatarLetter: (lead.agent.customName || lead.agent.template?.name || "L")[0],
-          isLead: true,
-          content: `Directives parsed for "${text}". Coordinating pod members for collaborative synthesis.`,
-          timestamp: "Just now",
-        };
-
-        setMessages((prev) => [...prev, leadMsg]);
-
-        // Second specialist follow-up response
-        setTimeout(() => {
-          const specialistMsg: ChatMessage = {
-            id: `spec-${Date.now()}`,
-            role: "assistant",
-            sender: secondary.agent.customName || secondary.agent.template?.name || "Specialist",
-            senderRole: secondary.agent.customRole || secondary.agent.template?.role || "Domain Engineer",
-            senderAvatarLetter: (secondary.agent.customName || secondary.agent.template?.name || "S")[0],
-            isLead: false,
-            content: `Execution pipeline completed. All verified parameters align with squad standards.`,
-            timestamp: "Just now",
-          };
-          setMessages((prev) => [...prev, specialistMsg]);
-        }, 1200);
-      } else {
-        // Single Agent Direct Response
-        const replyMsg: ChatMessage = {
-          id: `ast-${Date.now()}`,
-          role: "assistant",
-          sender: activeTarget?.name || "Specialist",
-          senderRole: activeTarget?.role || "Autonomous Specialist",
-          senderAvatarLetter: (activeTarget?.name || "A")[0],
-          content: `Understood. I have evaluated your request regarding "${text}". Execution directives have been verified against active workspace parameters.`,
-          timestamp: "Just now",
-        };
-        setMessages((prev) => [...prev, replyMsg]);
-      }
-    }, 800);
+    try {
+      const turn = await apiPostDiscussionMessage(workspaceId, activeSessionId, {
+        message: text,
+        responseMode,
+        capabilityMode,
+        // Web search is only meaningful on the expert path.
+        webEnabled: capabilityMode === "expert" && webEnabled,
+      });
+      // Replace the optimistic user message with the persisted one, followed by the first reply.
+      setMessages((prev) => [
+        ...prev.filter((message) => message.id !== optimisticUser.id),
+        toViewMessage(turn.userMessage, activeTarget),
+        ...turn.replies.map((reply) => toViewMessage(reply.message, activeTarget, reply.sources)),
+      ]);
+      setUsage(turn.usage);
+      if (turn.pending.length > 0) drainQueue(turn.pending[0], generation);
+    } catch (error) {
+      setMessages((prev) => prev.filter((message) => message.id !== optimisticUser.id));
+      setInputText(text);
+      toast.error(error instanceof Error ? error.message : "The agent could not respond.");
+    } finally {
+      setIsSending(false);
+    }
   };
 
   if (!activeTarget) {
@@ -227,6 +297,19 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
       {/* Modern Chat Header */}
       <header className="px-6 py-3.5 border-b border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md flex items-center justify-between shrink-0 select-none z-10">
         <div className="flex items-center gap-3 min-w-0">
+          {/* Session usage from the gateway, refreshed after every reply */}
+          <div
+            role="status"
+            aria-live="polite"
+            aria-label={`Session usage: ${formatTokensExact(usage.inputTokens)} input tokens sent, ${formatTokensExact(usage.outputTokens)} output tokens received, total cost ${formatCost(usage.costUsd)}`}
+            title={`Input sent: ${formatTokensExact(usage.inputTokens)} tokens (${formatTokensExact(usage.cachedTokens)} served from cache)\nOutput received: ${formatTokensExact(usage.outputTokens)} tokens\nTotal cost: ${formatCost(usage.costUsd)}`}
+            className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-slate-200/80 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 text-[10px] font-semibold text-slate-600 dark:text-slate-300 tabular-nums shrink-0"
+          >
+            <span className="inline-flex items-center gap-0.5"><ArrowUpRight className="h-3 w-3 text-sky-500" aria-hidden="true" />{formatTokens(usage.inputTokens)}</span>
+            <span className="inline-flex items-center gap-0.5"><ArrowDownLeft className="h-3 w-3 text-emerald-500" aria-hidden="true" />{formatTokens(usage.outputTokens)}</span>
+            <span className="pl-2 border-l border-slate-200 dark:border-slate-700">{formatCost(usage.costUsd)}</span>
+          </div>
+
           <div className="relative">
             {activeTarget.type === "team" ? (
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-fg font-bold text-sm shadow-sm">
@@ -351,7 +434,31 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
                 </div>
               )}
 
-              <p className="leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+              {msg.role === "assistant" ? (
+                <MarkdownContent content={msg.content} />
+              ) : (
+                <p className="leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+              )}
+
+              {msg.role === "assistant" && msg.sources && msg.sources.length > 0 && (
+                <div className="pt-1.5 mt-1 border-t border-slate-100 dark:border-slate-800/80 space-y-1">
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Sources</span>
+                  <ul className="space-y-0.5">
+                    {msg.sources.map((source, index) => (
+                      <li key={`${msg.id}-src-${index}`} className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                        {source.url ? (
+                          <a href={source.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline truncate">
+                            <ExternalLink className="h-3 w-3 shrink-0" />
+                            <span className="truncate">{source.title || source.url}</span>
+                          </a>
+                        ) : (
+                          <span className="truncate">{source.title || source.reference}</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               <div
                 className={`text-[9px] pt-1 text-right ${
@@ -363,6 +470,16 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
             </div>
           </div>
         ))
+      )}
+      {(isSending || responding) && (
+        <div className="flex items-center gap-2 text-xs text-slate-400 pl-11" role="status" aria-live="polite">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          <span>
+            {isSending
+              ? `${activeTarget.type === "team" ? "The team" : activeTarget.name} is thinking${capabilityMode === "expert" ? " and researching" : ""}...`
+              : `${responding === "next" ? "The next teammate" : responding?.name} is responding...`}
+          </span>
+        </div>
       )}
       <div ref={messagesEndRef} />
     </div>
@@ -423,17 +540,57 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
           {/* Send Button */}
           <button
             type="submit"
-            disabled={!inputText.trim()}
+            disabled={!inputText.trim() || isSending}
             title="Send directive"
             className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary hover:bg-primary-hover disabled:opacity-40 text-primary-fg shadow-xs transition-all cursor-pointer"
           >
-            <Send className="h-3.5 w-3.5" />
+            {isSending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
           </button>
         </form>
 
-        <div className="flex items-center justify-between text-[10px] text-slate-400 mt-2 px-1">
-          <span>Press Enter to send directive</span>
-          <span>Voice text recognition & collaborative autonomous synthesis active</span>
+        {/* Response and capability mode controls */}
+        <div className="flex flex-wrap items-center gap-2 mt-2.5 px-1">
+          <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+            {(["brief", "detailed"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setResponseMode(mode)}
+                className={`px-2.5 py-1 text-[10px] font-semibold capitalize transition-colors cursor-pointer ${responseMode === mode ? "bg-primary text-primary-fg" : "text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"}`}
+              >
+                {mode}
+              </button>
+            ))}
+          </div>
+
+          <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setCapabilityMode("fast")}
+              className={`inline-flex items-center gap-1 px-2.5 py-1 text-[10px] font-semibold transition-colors cursor-pointer ${capabilityMode === "fast" ? "bg-primary text-primary-fg" : "text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"}`}
+            >
+              <Zap className="h-3 w-3" /> Fast
+            </button>
+            <button
+              type="button"
+              onClick={() => setCapabilityMode("expert")}
+              className={`inline-flex items-center gap-1 px-2.5 py-1 text-[10px] font-semibold transition-colors cursor-pointer ${capabilityMode === "expert" ? "bg-primary text-primary-fg" : "text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"}`}
+            >
+              <Brain className="h-3 w-3" /> Expert
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setWebEnabled((value) => !value)}
+            disabled={capabilityMode !== "expert"}
+            title={capabilityMode === "expert" ? "Toggle web search" : "Web search is available in Expert mode"}
+            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[10px] font-semibold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${webEnabled && capabilityMode === "expert" ? "bg-primary-muted border-primary text-primary" : "border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"}`}
+          >
+            <Globe className="h-3 w-3" /> Web
+          </button>
+
+          <span className="ml-auto text-[10px] text-slate-400">Press Enter to send</span>
         </div>
       </div>
     </div>

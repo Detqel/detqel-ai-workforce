@@ -35,5 +35,8 @@
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",
     "drizzle-orm": "0.45.4"
+  },
+  "allowScripts": {
+    "unrs-resolver@1.12.2": true
   }
 }

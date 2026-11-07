@@ -16,7 +16,7 @@ import {
     DESKTOP_VALIDATION,
     type DesktopReportedStartupStatus,
 } from "./constants/desktopConstants.js";
-import { DOCKER_HEALTH_VALUES } from "./constants/dockerConstants.js";
+import { DOCKER_HEALTH_VALUES, OLLAMA_EMBEDDING_MODEL } from "./constants/dockerConstants.js";
 import { LOOPBACK_HOST } from "./constants/networkConstants.js";
 import {
     DesktopInfrastructureError,
@@ -111,6 +111,8 @@ async function main(): Promise<void> {
     process.env[DESKTOP_ENVIRONMENT_KEYS.litellmApiKey] = infrastructure.litellmMasterKey;
     process.env[DESKTOP_ENVIRONMENT_KEYS.milvusAddress] = infrastructure.milvusUrl;
     process.env[DESKTOP_ENVIRONMENT_KEYS.milvusToken] = infrastructure.milvusToken;
+    process.env[DESKTOP_ENVIRONMENT_KEYS.ollamaBaseUrl] = infrastructure.ollamaUrl;
+    process.env[DESKTOP_ENVIRONMENT_KEYS.ollamaEmbeddingModel] = OLLAMA_EMBEDDING_MODEL;
 
     report(DESKTOP_STARTUP_STEP_IDS.applicationDatabase, DESKTOP_STARTUP_STATUS.running, null);
     await prepareApplicationDatabase({

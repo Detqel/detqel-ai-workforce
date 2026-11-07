@@ -4,7 +4,7 @@ export type DesktopReportedStartupStatus = Exclude<DesktopStartupStatus, typeof 
 export const DESKTOP_STARTUP_STEP_IDS = {
     frontend: "frontend-startup", backendRuntime: "backend-startup",
     docker: "docker", litellmDatabase: "litellm-database", milvus: "milvus", litellm: "litellm",
-    applicationDatabase: "application-database", backendApi: "backend-api",
+    ollama: "ollama", applicationDatabase: "application-database", backendApi: "backend-api",
 } as const;
 export const DESKTOP_STARTUP_STEPS = [
     { id: DESKTOP_STARTUP_STEP_IDS.frontend, label: "Frontend startup" },
@@ -14,13 +14,15 @@ export const DESKTOP_STARTUP_STEPS = [
     { id: DESKTOP_STARTUP_STEP_IDS.milvus, label: "Milvus vector store" },
     { id: DESKTOP_STARTUP_STEP_IDS.litellm, label: "LiteLLM gateway" },
     { id: DESKTOP_STARTUP_STEP_IDS.applicationDatabase, label: "Application database" },
+    { id: DESKTOP_STARTUP_STEP_IDS.ollama, label: "Ollama embeddings" },
     { id: DESKTOP_STARTUP_STEP_IDS.backendApi, label: "Backend API" },
 ] as const;
 export const DESKTOP_INFRASTRUCTURE_LABELS = {
-    [DESKTOP_STARTUP_STEP_IDS.docker]: "Docker Desktop",
+    [DESKTOP_STARTUP_STEP_IDS.docker]: "Container runtime",
     [DESKTOP_STARTUP_STEP_IDS.litellmDatabase]: "LiteLLM database",
     [DESKTOP_STARTUP_STEP_IDS.milvus]: "Milvus vector database",
     [DESKTOP_STARTUP_STEP_IDS.litellm]: "LiteLLM gateway",
+    [DESKTOP_STARTUP_STEP_IDS.ollama]: "Ollama embeddings",
     [DESKTOP_STARTUP_STEP_IDS.applicationDatabase]: "Application database",
 } as const;
 export type DesktopInfrastructureStepId = keyof typeof DESKTOP_INFRASTRUCTURE_LABELS;
@@ -33,6 +35,7 @@ export const DESKTOP_ENVIRONMENT_KEYS = {
     host: "HOST", port: "PORT", nodeEnvironment: "NODE_ENV", nodeOptions: "NODE_OPTIONS", nodePath: "NODE_PATH",
     windowsSystemRoot: "SystemRoot", litellmBaseUrl: "LITELLM_BASE_URL", litellmApiKey: "LITELLM_API_KEY",
     milvusAddress: "MILVUS_ADDRESS", milvusToken: "MILVUS_TOKEN", databaseUrl: "DATABASE_URL",
+    ollamaBaseUrl: "OLLAMA_BASE_URL", ollamaEmbeddingModel: "OLLAMA_EMBEDDING_MODEL",
 } as const;
 export const DESKTOP_PROTECTED_ENVIRONMENT_KEYS: readonly string[] = [
     DESKTOP_ENVIRONMENT_KEYS.host, DESKTOP_ENVIRONMENT_KEYS.port, DESKTOP_ENVIRONMENT_KEYS.nodeEnvironment,

@@ -6,6 +6,7 @@ import {
   providerModelsQuerySchema,
   testConnectionSchema,
   testPromptSchema,
+  testWebSearchSchema,
   updateProviderSchema,
   updateVyraSettingsSchema,
   workspaceScopeQuerySchema,
@@ -65,6 +66,12 @@ export class SettingsController {
     const { workspaceId } = workspaceScopeQuerySchema.parse(req.query);
     const updated = await this.service.updateVyraSettings(workspaceId, updateVyraSettingsSchema.parse(req.body));
     return reply.send({ settings: updated });
+  }
+
+  /** Tests a Tavily key sent in the body (never the URL), or the workspace's saved key. */
+  async testWebSearch(req: FastifyRequest, reply: FastifyReply) {
+    const { workspaceId, apiKey } = testWebSearchSchema.parse(req.body);
+    return reply.send(await this.service.testWebSearch(workspaceId, apiKey));
   }
 
   async testPrompt(req: FastifyRequest, reply: FastifyReply) {

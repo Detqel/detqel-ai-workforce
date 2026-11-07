@@ -18,8 +18,13 @@ import {
 import { DATABASE_ERROR_CODES } from "./constants/databaseConstants.js";
 import { LOCALHOST_HOST } from "./constants/networkConstants.js";
 import { LOG_LEVELS } from "./constants/loggingConstants.js";
+import { fileURLToPath } from "node:url";
+import { isAbsolute, join } from "node:path";
 import { createDatabase } from "./infrastructure/database/connection.js";
 import { UnitOfWork } from "./infrastructure/database/unit-of-work.js";
+import { createPomlLoader } from "./shared/agents/poml/poml-loader.factory.js";
+import { DESKTOP_ENVIRONMENT_KEYS, DESKTOP_FILES } from "./constants/desktopConstants.js";
+import { POML_RUNTIME_DIRECTORY } from "./constants/pomlConstants.js";
 import { verifyMigrationState } from "./infrastructure/database/migrations/verify.js";
 import { analyticsRoutes } from "./modules/analytics/routes/analytics.routes.js";
 import { approvalRoutes } from "./modules/approvals/routes/approval.routes.js";
@@ -36,6 +41,7 @@ import { userRoutes } from "./modules/users/routes/user.routes.js";
 import { agentRoutes } from "./modules/workforce/routes/agent.routes.js";
 import { workspaceRoutes } from "./modules/workspaces/routes/workspace.routes.js";
 import { settingsRoutes } from "./modules/settings/routes/settings.routes.js";
+import { discussionRoutes } from "./modules/discussions/routes/discussion.routes.js";
 import { lookupRoutes } from "./modules/lookups/routes/lookup.routes.js";
 import { AppError } from "./shared/errors/app-error.js";
 import { createLogStream } from "./shared/logging/logger.js";
@@ -61,7 +67,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         },
     });
     if (options.desktopToken) registerDesktopTransport(app, options.desktopToken);
-    app.decorate("services", options.services ?? createServices(new UnitOfWork(connection!.db), connection!.check, config));
+    const pomlLoader = createPomlLoader();
+    app.decorate("services", options.services ?? createServices(new UnitOfWork(connection!.db, pomlLoader), connection!.check, config, pomlLoader));
     app.decorateRequest("userId", undefined);
     app.addHook("onClose", async () => {
         await app.services.connections.close();
@@ -168,6 +175,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
             await apiRouter.register(notificationRoutes);
             await apiRouter.register(domainRoutes);
             await apiRouter.register(settingsRoutes);
+            await apiRouter.register(discussionRoutes);
         }, { prefix: API_PREFIX });
         return app;
     }

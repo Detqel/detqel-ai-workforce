@@ -21,8 +21,21 @@ import { SecretCipher } from "../shared/security/secret-cipher.js";
 import { WorkspaceAccessService } from "../modules/workspaces/services/workspace-access.service.js";
 import { ConnectionCredentialsService } from "../modules/connections/services/connection-credentials.service.js";
 import { ConnectorAdapterRegistry } from "../modules/connections/adapters/connector-adapter.registry.js";
+import { DiscussionService } from "../modules/discussions/services/discussion.service.js";
+import { DiscussionParticipants } from "../modules/discussions/services/discussion-participants.js";
+import { LiteLlmClient } from "../shared/agents/litellm.client.js";
+import { VirtualKeyRegistry } from "../shared/agents/virtual-key.registry.js";
+import { DiscussionRuntime } from "../shared/agents/graphs/discussion-runtime.js";
+import { PomlLoader } from "../shared/agents/poml/loader.js";
+import { FileServer } from "../shared/rag/file-server.js";
+import { MilvusClient } from "../shared/rag/milvus.client.js";
+import { RagService } from "../shared/rag/rag.service.js";
+import { AGENT_RUNTIME_SECRET_PURPOSE } from "../constants/agentRuntimeConstants.js";
+import { OLLAMA_EMBEDDING_MODEL, OLLAMA_GATEWAY_BASE_URL } from "../constants/dockerConstants.js";
+import { AgentModelProvisioner } from "../shared/agents/agent-model.provisioner.js";
+import { WorkspaceWebSearch } from "../shared/agents/tools/workspace-web-search.js";
 import type { IUnitOfWork } from "../shared/contracts/unit-of-work.js";
-export function createServices(unit: IUnitOfWork, checkDatabase: () => Promise<void>, config: Environment) {
+export function createServices(unit: IUnitOfWork, checkDatabase: () => Promise<void>, config: Environment, pomlLoader: PomlLoader = new PomlLoader({ bundledDirectory: process.cwd(), runtimeDirectory: process.cwd() })) {
     const sessions = new SessionService(config.AUTH_SESSION_SECRET, config.AUTH_SESSION_TTL_SECONDS);
     const credentials = new ConnectionCredentialsService(config.CONNECTOR_ENCRYPTION_KEY);
     const providerSecrets = new SecretCipher(config.CONNECTOR_ENCRYPTION_KEY, SECRET_PURPOSES.aiProviderCredentials);
@@ -31,6 +44,8 @@ export function createServices(unit: IUnitOfWork, checkDatabase: () => Promise<v
         allowedCommandPaths: config.CONNECTOR_ALLOWED_COMMANDS,
         allowedFilesystemRoots: config.CONNECTOR_ALLOWED_ROOTS,
     });
+    const settings = new SettingsService(unit.settings, providerSecrets);
+    const discussions = createDiscussionService(unit, config, settings, pomlLoader);
     return {
         auth: new AuthService(unit.users, unit.workspaces, sessions),
         workspaces: new WorkspaceService(unit),
@@ -48,9 +63,37 @@ export function createServices(unit: IUnitOfWork, checkDatabase: () => Promise<v
         automations: new AutomationService(unit.automations, unit.missions),
         notifications: new NotificationService(unit.notifications),
         health: new HealthService(checkDatabase),
-        settings: new SettingsService(unit.settings, providerSecrets),
+        settings,
         lookups: new LookupService(unit.lookups),
+        discussions,
     };
+}
+
+/**
+ * Builds the discussion stack: the LiteLLM gateway client, the per-process virtual-key registry, the agent
+ * runtime, the file server, and the RAG service. The gateway and vector store are addressed from the managed
+ * infrastructure environment; the discussion service is still constructed when they are absent so the module
+ * registers, and its endpoints fail fast with a clear message if the gateway or vector store is unconfigured.
+ */
+function createDiscussionService(unit: IUnitOfWork, config: Environment, settings: SettingsService, pomlLoader: PomlLoader): DiscussionService {
+    const gateway = new LiteLlmClient({ baseUrl: config.LITELLM_BASE_URL ?? "", masterKey: config.LITELLM_API_KEY ?? "" });
+    const virtualKeyCipher = new SecretCipher(config.CONNECTOR_ENCRYPTION_KEY, AGENT_RUNTIME_SECRET_PURPOSE);
+    const keys = new VirtualKeyRegistry(gateway, unit.virtualKeys, virtualKeyCipher);
+    // Registers the workspace's Configuration model and the managed embedding model on the gateway on demand.
+    const models = new AgentModelProvisioner(
+        keys,
+        workspaceId => settings.resolveAgentModelConfiguration(workspaceId),
+        { model: OLLAMA_EMBEDDING_MODEL, apiBase: OLLAMA_GATEWAY_BASE_URL },
+        config.CONNECTOR_ENCRYPTION_KEY,
+    );
+    const runtime = new DiscussionRuntime(gateway, keys, pomlLoader);
+    const milvus = new MilvusClient({ address: config.MILVUS_ADDRESS ?? "", token: config.MILVUS_TOKEN });
+    const rag = new RagService(gateway, keys, milvus);
+    const fileServer = new FileServer();
+    const participants = new DiscussionParticipants(unit.workforce, pomlLoader);
+    // Each workspace searches the web with the Tavily key it saved in Settings.
+    const webSearch = new WorkspaceWebSearch(workspaceId => settings.resolveWebSearchKey(workspaceId));
+    return new DiscussionService(unit, runtime, fileServer, rag, models, participants, webSearch);
 }
 export type ApplicationServices = ReturnType<typeof createServices>;
 declare module "fastify" {

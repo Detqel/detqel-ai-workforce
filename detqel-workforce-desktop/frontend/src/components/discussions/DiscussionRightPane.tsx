@@ -22,6 +22,13 @@ import { pageIds } from "@/lib/navigation";
 import { useNavigation } from "@/context/NavigationContext";
 import type { DiscussionTarget } from "@/lib/discussionStore";
 import { connectorsApi, type ConnectorRecord } from "@/lib/api/connectors";
+import {
+  apiAttachSessionConnector,
+  apiDetachSessionConnector,
+  apiListSessionConnectors,
+  apiUploadSessionKnowledge,
+} from "@/lib/api/discussions";
+import { useToast } from "@/context/ToastContext";
 
 interface UploadedArtifact {
   id: string;
@@ -34,6 +41,7 @@ interface UploadedArtifact {
 interface DiscussionRightPaneProps {
   activeTarget: DiscussionTarget | null;
   workspaceId?: string;
+  activeSessionId?: string;
   messages: Array<{ role: string; content: string; sender?: string; timestamp: string }>;
   onClose?: () => void;
 }
@@ -41,15 +49,69 @@ interface DiscussionRightPaneProps {
 export const DiscussionRightPane: React.FC<DiscussionRightPaneProps> = ({
   activeTarget,
   workspaceId,
+  activeSessionId,
   messages,
 }) => {
   const { navigate } = useNavigation();
+  const toast = useToast();
   const [activeTab, setActiveTab] = useState<"artifacts" | "knowledge" | "connectors">("artifacts");
   const [isCopied, setIsCopied] = useState(false);
   const [uploadedArtifacts, setUploadedArtifacts] = useState<UploadedArtifact[]>([]);
-  const [knowledgeDocs, setKnowledgeDocs] = useState<any[]>([]);
+  const [knowledgeDocs, setKnowledgeDocs] = useState<string[]>([]);
   const [connectors, setConnectors] = useState<ConnectorRecord[]>([]);
+  const [attachedConnectorIds, setAttachedConnectorIds] = useState<Set<string>>(new Set());
   const [isLoadingConnectors, setIsLoadingConnectors] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+
+  // Load which connectors are attached to the current session.
+  useEffect(() => {
+    let active = true;
+    if (!workspaceId || !activeSessionId) {
+      // Clear asynchronously so this is not a synchronous setState in the effect body.
+      Promise.resolve().then(() => { if (active) setAttachedConnectorIds(new Set()); });
+      return () => { active = false; };
+    }
+    apiListSessionConnectors(workspaceId, activeSessionId)
+      .then((ids) => { if (active) setAttachedConnectorIds(new Set(ids)); })
+      .catch(() => { if (active) setAttachedConnectorIds(new Set()); });
+    return () => { active = false; };
+  }, [workspaceId, activeSessionId]);
+
+  const handleUploadKnowledge = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!workspaceId || !activeSessionId) { toast.error("Open a discussion before adding knowledge."); return; }
+    setIsUploading(true);
+    try {
+      const content = await file.text();
+      const result = await apiUploadSessionKnowledge(workspaceId, activeSessionId, { fileName: file.name, mimeType: file.type || "text/plain", content, encoding: "utf8" });
+      setKnowledgeDocs((prev) => [...prev, file.name]);
+      toast.success(`Added "${file.name}" (${result.chunks} chunk${result.chunks === 1 ? "" : "s"} indexed).`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not add the knowledge file.");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const toggleConnector = async (connectionId: string) => {
+    if (!workspaceId || !activeSessionId) { toast.error("Open a discussion before attaching connectors."); return; }
+    const attached = attachedConnectorIds.has(connectionId);
+    try {
+      if (attached) {
+        await apiDetachSessionConnector(workspaceId, activeSessionId, connectionId);
+        setAttachedConnectorIds((prev) => { const next = new Set(prev); next.delete(connectionId); return next; });
+        toast.info("Connector detached from this discussion.");
+      } else {
+        await apiAttachSessionConnector(workspaceId, activeSessionId, connectionId);
+        setAttachedConnectorIds((prev) => new Set(prev).add(connectionId));
+        toast.success("Connector attached to this discussion.");
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not update the connector.");
+    }
+  };
 
   // Fetch real connectors for this workspace
   useEffect(() => {
@@ -312,36 +374,37 @@ export const DiscussionRightPane: React.FC<DiscussionRightPaneProps> = ({
           </div>
         ) : activeTab === "knowledge" ? (
           <div className="space-y-4">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-              Workspace Knowledge Base ({knowledgeDocs.length})
-            </span>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Session Knowledge Base ({knowledgeDocs.length})
+              </span>
+              <label className={`inline-flex items-center gap-1 text-[11px] font-bold text-primary cursor-pointer ${isUploading || !activeSessionId ? "opacity-40 pointer-events-none" : "hover:underline"}`}>
+                {isUploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <UploadCloud className="h-3 w-3" />}
+                <span>Upload</span>
+                <input type="file" className="hidden" onChange={handleUploadKnowledge} disabled={isUploading || !activeSessionId} />
+              </label>
+            </div>
 
             {knowledgeDocs.length === 0 ? (
               <div className="text-center p-6 text-xs text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
                 <BookOpen className="h-6 w-6 mx-auto mb-2 text-slate-300 dark:text-slate-600" />
-                <p className="font-semibold text-slate-600 dark:text-slate-400">No knowledge base documents indexed</p>
-                <p className="text-[11px] text-slate-400 mt-1">Knowledge context will be populated once documents are added to the workspace.</p>
+                <p className="font-semibold text-slate-600 dark:text-slate-400">No knowledge indexed for this discussion</p>
+                <p className="text-[11px] text-slate-400 mt-1">Upload a document to ground this discussion. Executable and script files are rejected for safety.</p>
               </div>
             ) : (
               <div className="space-y-2">
-                {knowledgeDocs.map((doc) => (
+                {knowledgeDocs.map((name, index) => (
                   <div
-                    key={doc.id}
-                    className="p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-slate-900 shadow-xs"
+                    key={`${name}-${index}`}
+                    className="p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-slate-900 shadow-xs flex items-center justify-between gap-2"
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <h4 className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">
-                          {doc.title}
-                        </h4>
-                        <span className="text-[10px] text-slate-400 block">
-                          {doc.type}
-                        </span>
-                      </div>
-                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 shrink-0">
-                        Indexed
-                      </span>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <FileText className="h-3.5 w-3.5 text-primary shrink-0" />
+                      <h4 className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">{name}</h4>
                     </div>
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 shrink-0">
+                      Indexed
+                    </span>
                   </div>
                 ))}
               </div>
@@ -403,10 +466,16 @@ export const DiscussionRightPane: React.FC<DiscussionRightPaneProps> = ({
                       </div>
                     </div>
 
-                    <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600 dark:text-emerald-400 shrink-0">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                      {conn.status}
-                    </span>
+                    <button
+                      type="button"
+                      onClick={() => toggleConnector(conn.id)}
+                      disabled={!activeSessionId}
+                      title={attachedConnectorIds.has(conn.id) ? "Detach from this discussion" : "Attach to this discussion"}
+                      className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold shrink-0 border transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${attachedConnectorIds.has(conn.id) ? "bg-primary-muted border-primary text-primary" : "border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"}`}
+                    >
+                      <LinkIcon className="h-3 w-3" />
+                      {attachedConnectorIds.has(conn.id) ? "Attached" : "Attach"}
+                    </button>
                   </div>
                 ))}
               </div>

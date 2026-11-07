@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { useWorkspace } from "@/context/WorkspaceContext";
 import { useNavigation } from "@/context/NavigationContext";
+import { useConfirm } from "@/context/ConfirmContext";
 import {
   apiGetTeams,
   apiGetRecruitedAgents,
@@ -45,6 +46,7 @@ import {
 export default function TeamsPage() {
   const { user, currentWorkspace } = useWorkspace();
   const { navigate } = useNavigation();
+  const confirm = useConfirm();
 
   const [teams, setTeams] = useState<AgentTeam[]>([]);
   const [recruitedAgents, setRecruitedAgents] = useState<RecruitedAgent[]>([]);
@@ -111,7 +113,12 @@ export default function TeamsPage() {
   // Handle Team Deletion
   const handleDeleteTeam = async (team: AgentTeam) => {
     if (!currentWorkspace?.id) return;
-    const confirmDelete = window.confirm(`Disband and delete the squad "${team.name}"?`);
+    const confirmDelete = await confirm({
+      title: "Delete team",
+      message: `Disband and delete the squad "${team.name}"?`,
+      variant: "danger",
+      confirmText: "Delete",
+    });
     if (!confirmDelete) return;
 
     try {

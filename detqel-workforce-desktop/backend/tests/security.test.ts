@@ -1,4 +1,4 @@
-import test, { describe } from "node:test";
+import test, { afterEach, describe } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { testConfig as config } from "./fixtures/config.js";
@@ -305,6 +305,74 @@ describe("AI provider credentials", () => {
     await withApp(asRole("manager"), async app => {
       assert.equal((await app.inject({ url: "/api/settings/vyra", headers: bearer() })).statusCode, 400);
       assert.equal((await app.inject({ method: "PUT", url: `/api/settings/vyra?workspaceId=${workspaceId}`, headers: bearer(), payload: { previewMode: "chat" } })).statusCode, 403);
+    });
+  });
+
+  describe("Tavily web-search key", () => {
+    const tavilyContext = `vyra_settings:tavily:${workspaceId}`;
+    const row = (tavilyApiKey: string) => ({ id: "s1", workspaceId, agentName: "VYRA", slogan: "", quote: "", selectedProviderId: "openai", selectedModelId: "m", apiKey: "", keyStatus: "", isValidKey: false, tavilyApiKey, tavilyKeyStatus: "", isValidTavilyKey: false, instructions: {}, templates: [], samplePrompts: [], traits: [], previewMode: "chat", createdAt: new Date(), updatedAt: new Date() });
+    const originalFetch = globalThis.fetch;
+    afterEach(() => { globalThis.fetch = originalFetch; });
+
+    test("is never returned, and a value bound to another column or workspace reads as absent", async () => {
+      const cases = [
+        [cipher.encrypt("tvly-workspace-key-1234", tavilyContext), true],
+        [cipher.encrypt("tvly-workspace-key-1234", `vyra_settings:${workspaceId}`), false],
+        [cipher.encrypt("tvly-workspace-key-1234", "vyra_settings:tavily:another"), false],
+        ["", false],
+      ] as const;
+      for (const [stored, hasKey] of cases) {
+        await withApp({ ...asRole("manager"), settings: { getVyraSettings: async () => row(stored) } }, async app => {
+          const response = await app.inject({ url: `/api/settings/vyra?workspaceId=${workspaceId}`, headers: bearer() });
+          assert.equal(response.statusCode, 200);
+          assert.doesNotMatch(response.body, /tvly-workspace-key|"tavilyApiKey"|secret:v1/);
+          assert.equal(response.json().settings.hasTavilyApiKey, hasKey);
+          assert.equal(response.json().settings.tavilyApiKeyHint, hasKey ? "1234" : null);
+        });
+      }
+    });
+
+    test("is encrypted and bound to its own column before it reaches the database, and resets its connection state", async () => {
+      let written: Record<string, unknown> | undefined;
+      await withApp({ ...asRole("admin"), settings: { upsertVyraSettings: async (settings: Record<string, unknown>) => { written = settings; return row(settings.tavilyApiKey as string); } } }, async app => {
+        const response = await app.inject({ method: "PUT", url: `/api/settings/vyra?workspaceId=${workspaceId}`, headers: bearer(), payload: { tavilyApiKey: "  tvly-new-key-0987  " } });
+        assert.equal(response.statusCode, 200);
+        assert.equal(cipher.decrypt(written!.tavilyApiKey as string, tavilyContext), "tvly-new-key-0987");
+        assert.throws(() => cipher.decrypt(written!.tavilyApiKey as string, `vyra_settings:${workspaceId}`), "the model key's context cannot read it");
+        assert.equal("apiKey" in written!, false, "the model key is left untouched");
+        assert.equal(written!.tavilyKeyStatus, "");
+        assert.equal(written!.isValidTavilyKey, false);
+        assert.equal(response.json().settings.tavilyApiKeyHint, "0987");
+      });
+    });
+
+    test("testing it needs workspace manage access, takes the key only in the body, and reports Tavily's verdict", async () => {
+      const path = "/api/settings/web-search/test-connection";
+      await withApp({ ...asRole("employee") }, async app => {
+        assert.equal((await app.inject({ method: "POST", url: path, headers: bearer(), payload: { workspaceId, apiKey: "tvly-x" } })).statusCode, 403);
+      });
+      await withApp({ ...asRole("admin"), settings: { getVyraSettings: async () => row("") } }, async app => {
+        const missing = await app.inject({ method: "POST", url: path, headers: bearer(), payload: { workspaceId } });
+        assert.equal(missing.statusCode, 409);
+        assert.match(missing.json().message, /Add a Tavily API key in Settings/);
+        assert.equal((await app.inject({ method: "POST", url: path, headers: bearer(), payload: { workspaceId, providerId: "openai" } })).statusCode, 400, "only known fields are accepted");
+
+        let authorization: string | null = null;
+        globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+          authorization = new Headers(init?.headers).get("Authorization");
+          return new Response(JSON.stringify({ results: [] }), { status: 200 });
+        }) as typeof fetch;
+        const ok = await app.inject({ method: "POST", url: path, headers: bearer(), payload: { workspaceId, apiKey: " tvly-typed " } });
+        assert.equal(ok.json().status, "success");
+        assert.equal(authorization, "Bearer tvly-typed");
+
+        globalThis.fetch = (async () => new Response("bad key", { status: 401 })) as typeof fetch;
+        const rejected = await app.inject({ method: "POST", url: path, headers: bearer(), payload: { workspaceId, apiKey: "tvly-wrong" } });
+        assert.equal(rejected.statusCode, 200);
+        assert.equal(rejected.json().status, "error");
+        assert.match(rejected.json().message, /rejected the API key/);
+        assert.doesNotMatch(rejected.body, /tvly-wrong/);
+      });
     });
   });
 

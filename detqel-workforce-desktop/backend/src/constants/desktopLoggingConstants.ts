@@ -37,10 +37,10 @@ export const DESKTOP_PROCESS_OPERATION = {
     docker: "docker.command",
     compose: "docker.compose",
     composeArgument: "compose",
-    dockerCommands: new Set(["info", "version", "inspect", "ps", "pull", "stop", "rm", "volume", "network", "context", "desktop"]),
+    dockerCommands: new Set(["info", "version", "inspect", "ps", "pull", "stop", "rm", "exec", "volume", "network", "context", "desktop"]),
     dockerSubcommands: new Set(["ls", "inspect", "create", "show", "start", "version"]),
     composeCommands: new Set(["version", "pull", "up", "ps"]),
-    dockerExecutable: /^docker(?:\.exe)?$/i,
+    dockerExecutable: /^(?:docker|podman|nerdctl)(?:\.exe)?$/i,
 } as const;
 
 export const DESKTOP_LOG_REDACTION = {

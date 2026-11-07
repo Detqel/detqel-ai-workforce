@@ -372,6 +372,9 @@ export interface AIProvider {
   badge?: string | null;
   models: AIProviderModel[];
   apiKey?: string | null;
+  /** Whether a key is saved on the server. The key itself is never returned. */
+  hasApiKey?: boolean;
+  apiKeyHint?: string | null;
   status: string;
   isConnected: boolean;
   sortOrder: number;
@@ -413,8 +416,18 @@ export interface VyraSettings {
   selectedProviderId: string;
   selectedModelId: string;
   apiKey?: string | null;
+  /** Whether a key is saved on the server. The key itself is never returned. */
+  hasApiKey?: boolean;
+  apiKeyHint?: string | null;
   keyStatus: string;
   isValidKey: boolean;
+  /** Write-only: a Tavily key to save for the workspace's web search. It is never returned. */
+  tavilyApiKey?: string;
+  /** Whether a Tavily key is saved on the server. */
+  hasTavilyApiKey?: boolean;
+  tavilyApiKeyHint?: string | null;
+  tavilyKeyStatus: string;
+  isValidTavilyKey: boolean;
   instructions: VyraInstructions;
   templates: VyraTemplate[];
   samplePrompts: SamplePrompt[];
@@ -435,14 +448,22 @@ export async function apiGetAIProviders(): Promise<AIProvider[]> {
 
 export async function apiGetProviderModels(
   providerId: string,
-  apiKey?: string
+  apiKey?: string,
+  workspaceId?: string
 ): Promise<AIProviderModel[]> {
   if (!providerId) return [];
   try {
-    const query = apiKey?.trim() ? `?apiKey=${encodeURIComponent(apiKey.trim())}` : "";
-    const res = await authorizedFetch(
-      `${API_BASE_URL}${API_PATHS.aiProviders}/${encodeURIComponent(providerId)}/${API_ACTIONS.providerModels}${query}`
-    );
+    const url = `${API_BASE_URL}${API_PATHS.aiProviders}/${encodeURIComponent(providerId)}/${API_ACTIONS.providerModels}`;
+    const typedKey = apiKey?.trim();
+    // A key the user just typed travels in the request body; otherwise the server uses the key it has saved.
+    // Keys are never placed in a URL.
+    const res = typedKey
+      ? await authorizedFetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ apiKey: typedKey, ...(workspaceId ? { workspaceId } : {}) }),
+        })
+      : await authorizedFetch(workspaceId ? `${url}?workspaceId=${encodeURIComponent(workspaceId)}` : url);
     if (!res.ok) {
       return [];
     }
@@ -506,6 +527,31 @@ export async function apiTestConnection(params: {
       message: "Connection test request failed",
       latencyMs: 0,
     };
+  }
+}
+
+/**
+ * Tests a Tavily key with a one-result search. A typed key travels in the body; without one, the server tests
+ * the workspace's saved key.
+ */
+export async function apiTestWebSearch(params: { workspaceId: string; apiKey?: string }): Promise<{
+  status: "success" | "error";
+  message: string;
+  latencyMs: number;
+}> {
+  try {
+    const res = await authorizedFetch(`${API_BASE_URL}${API_PATHS.testWebSearch}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      return { status: "error", message: body.message || "Web search connection test failed", latencyMs: 0 };
+    }
+    return res.json();
+  } catch {
+    return { status: "error", message: "Web search connection test request failed", latencyMs: 0 };
   }
 }
 

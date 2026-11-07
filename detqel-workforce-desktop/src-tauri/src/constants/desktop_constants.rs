@@ -18,6 +18,10 @@ pub const CREATE_NO_WINDOW: u32 = 0x08000000;
 /// containers with this label so unrelated containers are never touched.
 pub const DOCKER_OWNERSHIP_LABEL: &str = "com.detqel.desktop.runtime";
 pub const DOCKER_STOP_TIMEOUT_SECONDS: &str = "5";
+/// Environment override forcing a specific container runtime executable during shutdown.
+pub const CONTAINER_RUNTIME_ENV: &str = "CONTAINER_RUNTIME";
+/// Runtime executables probed in order when stopping owned containers. Rancher Desktop ships nerdctl.
+pub const CONTAINER_RUNTIME_EXECUTABLES: &[&str] = &["docker", "podman", "nerdctl"];
 pub const FRONTEND_TIMEOUT_SECONDS: u64 = 180;
 pub const STARTUP_POLL_INTERVAL_MS: u64 = 1_000;
 pub const STARTUP_READY_TIMEOUT_SECONDS: u64 = 30;
@@ -37,6 +41,7 @@ pub const STARTUP_STEPS: &[(&str, &str)] = &[
     ("litellm-database", "LiteLLM database"),
     ("milvus", "Milvus vector store"),
     ("litellm", "LiteLLM gateway"),
+    ("ollama", "Ollama embeddings"),
     ("application-database", "Application database"),
     (BACKEND_API_STEP, "Backend API"),
 ];

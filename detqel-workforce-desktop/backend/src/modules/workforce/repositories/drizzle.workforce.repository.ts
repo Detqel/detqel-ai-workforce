@@ -1,6 +1,8 @@
 import { and, asc, desc, eq, ilike, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import type { DatabaseSession } from "../../../infrastructure/database/connection.js";
 import { BaseRepository } from "../../../infrastructure/database/repositories/base.repository.js";
+import type { PomlLoader } from "../../../shared/agents/poml/loader.js";
+import { buildAgentPoml } from "../../../shared/agents/poml/poml-builder.js";
 import {
     agentConnections,
     agentMemory,
@@ -45,8 +47,18 @@ import type {
 } from "../../../shared/types/graphs.js";
 
 export class WorkforceRepository extends BaseRepository<typeof agents, Agent, NewAgent> implements IWorkforceRepository {
-    constructor(database: DatabaseSession) {
+    constructor(database: DatabaseSession, private readonly poml?: PomlLoader) {
         super(agents, database);
+    }
+
+    /**
+     * Writes the POML prompt for a freshly inserted `agents` row and points its promptRef at the file.
+     * The agent's own uuid is used as the POML id. No-op when no PomlLoader is injected.
+     */
+    private async persistAgentPrompt(agentId: string, role: string, purpose: string, instructions: string): Promise<void> {
+        if (!this.poml) return;
+        await this.poml.writeUserAgentPrompt(agentId, buildAgentPoml({ role, purpose, instructions }));
+        await this.database.update(agents).set({ promptRef: agentId }).where(eq(agents.id, agentId));
     }
 
     async listAgentsForWorkspace(workspaceId: string): Promise<Agent[]> {
@@ -276,7 +288,7 @@ export class WorkforceRepository extends BaseRepository<typeof agents, Agent, Ne
         if (existingAgents.length === 0) {
             const configRecord = configuration as Record<string, unknown>;
             const capabilities = Array.isArray(configRecord.capabilities) ? configRecord.capabilities : [template.role];
-            await this.database.insert(agents).values({
+            const [insertedAgent] = await this.database.insert(agents).values({
                 workspaceId: data.workspaceId,
                 name: customName,
                 description: template.description || template.summary || customRole,
@@ -287,7 +299,8 @@ export class WorkforceRepository extends BaseRepository<typeof agents, Agent, Ne
                 scope: { section: template.section?.slug || "general", level: template.level?.code || "specialist" },
                 status: "active",
                 createdBy: data.userId,
-            });
+            }).returning();
+            await this.persistAgentPrompt(insertedAgent.id, customRole, template.summary || "", customInstructions);
         }
 
         return recruited;
@@ -408,7 +421,7 @@ export class WorkforceRepository extends BaseRepository<typeof agents, Agent, Ne
             })
             .returning();
 
-        await this.database.insert(agents).values({
+        const [insertedAgent] = await this.database.insert(agents).values({
             workspaceId: data.workspaceId,
             name: data.name.trim(),
             description,
@@ -419,7 +432,8 @@ export class WorkforceRepository extends BaseRepository<typeof agents, Agent, Ne
             scope: { section: section.slug, isUserCreated: true },
             status: "active",
             createdBy: data.userId,
-        });
+        }).returning();
+        await this.persistAgentPrompt(insertedAgent.id, data.role.trim(), summary, systemPrompt);
 
         return {
             ...recruited,

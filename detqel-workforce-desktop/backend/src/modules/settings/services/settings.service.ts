@@ -9,11 +9,17 @@ import type {
 import { env } from "../../../config/env.js";
 import { LEGACY_PLACEHOLDER_KEY_MARKER } from "../../../constants/settingsConstants.js";
 import { SecretCipher, secretHint } from "../../../shared/security/secret-cipher.js";
-import type { CredentialSummary, PublicAIProvider, PublicVyraSettings } from "./settings.types.js";
+import type { CredentialSummary, PublicAIProvider, PublicVyraSettings, WebSearchConnectionResult } from "./settings.types.js";
+import { AppError } from "../../../shared/errors/app-error.js";
+import { AGENT_RUNTIME_ERRORS } from "../../../constants/agentRuntimeConstants.js";
+import { TAVILY_CONNECTION_TEST, TAVILY_ERRORS } from "../../../constants/tavilyConstants.js";
+import { TavilyWebSearchTool } from "../../../shared/agents/tools/tavily.tool.js";
 import type { TestPromptInput, UpdateProviderInput, UpdateVyraSettingsInput } from "../validation/settings.schemas.js";
 
 const providerContext = (providerId: string) => `ai_providers:${providerId}`;
 const vyraContext = (workspaceId: string | null) => `vyra_settings:${workspaceId ?? "global"}`;
+// A separate context binds the Tavily key to its own column, so it cannot be swapped with the model key.
+const tavilyContext = (workspaceId: string | null) => `vyra_settings:tavily:${workspaceId ?? "global"}`;
 
 export class SettingsService {
   constructor(private readonly repository: ISettingsRepository, private readonly cipher: SecretCipher) {}
@@ -49,8 +55,38 @@ export class SettingsService {
     return { ...provider, ...this.summarize(apiKey, providerContext(provider.id)) };
   }
 
-  private publicVyra({ apiKey, ...settings }: VyraSettings): PublicVyraSettings {
-    return { ...settings, ...this.summarize(apiKey, vyraContext(settings.workspaceId)) };
+  private publicVyra({ apiKey, tavilyApiKey, ...settings }: VyraSettings): PublicVyraSettings {
+    const webSearch = this.summarize(tavilyApiKey, tavilyContext(settings.workspaceId));
+    return {
+      ...settings,
+      ...this.summarize(apiKey, vyraContext(settings.workspaceId)),
+      hasTavilyApiKey: webSearch.hasApiKey,
+      tavilyApiKeyHint: webSearch.apiKeyHint,
+    };
+  }
+
+  /**
+   * The workspace's saved Tavily key, for the agents' web search. Fails with a message the user can act on when
+   * none is saved. The key is returned only to the server-side search client; it is never sent to a client.
+   */
+  async resolveWebSearchKey(workspaceId: string): Promise<string> {
+    const settings = await this.repository.getVyraSettings(workspaceId);
+    const key = settings ? this.reveal(settings.tavilyApiKey, tavilyContext(workspaceId)) : null;
+    if (!key) throw new AppError(409, TAVILY_ERRORS.unconfigured);
+    return key;
+  }
+
+  /** Runs a one-result search with a typed key, or the saved key, so the user can confirm it works. */
+  async testWebSearch(workspaceId: string, typed: string | undefined): Promise<WebSearchConnectionResult> {
+    const apiKey = typed?.trim() || await this.resolveWebSearchKey(workspaceId);
+    const startedAt = Date.now();
+    try {
+      await new TavilyWebSearchTool({ apiKey }).search(TAVILY_CONNECTION_TEST.query, { maxResults: TAVILY_CONNECTION_TEST.maxResults });
+      return { status: "success", message: TAVILY_CONNECTION_TEST.successMessage, latencyMs: Date.now() - startedAt };
+    } catch (error) {
+      const message = error instanceof AppError ? error.message : TAVILY_ERRORS.requestFailed;
+      return { status: "error", message, latencyMs: Date.now() - startedAt };
+    }
   }
 
   /**
@@ -69,6 +105,21 @@ export class SettingsService {
     }
     const provider = await this.repository.getProviderById(providerId);
     return provider ? this.reveal(provider.apiKey, providerContext(provider.id)) : null;
+  }
+
+  /**
+   * The provider, model and key the workspace's agents use, taken from its saved Configuration. Fails with a
+   * message the user can act on when no model is selected or no key is saved. The key is returned only to the
+   * caller that registers it on the AI gateway; it is never sent to a client.
+   */
+  async resolveAgentModelConfiguration(workspaceId: string): Promise<{ providerId: string; modelId: string; apiKey: string }> {
+    const settings = await this.repository.getVyraSettings(workspaceId);
+    const providerId = settings?.selectedProviderId?.trim();
+    const modelId = settings?.selectedModelId?.trim();
+    if (!providerId || !modelId) throw new AppError(409, AGENT_RUNTIME_ERRORS.noConfiguredModel);
+    const apiKey = await this.resolveApiKey(providerId, undefined, workspaceId);
+    if (!apiKey) throw new AppError(409, AGENT_RUNTIME_ERRORS.noProviderKey);
+    return { providerId, modelId, apiKey };
   }
 
   /**
@@ -354,13 +405,18 @@ export class SettingsService {
   }
 
   async updateVyraSettings(workspaceId: string, updates: UpdateVyraSettingsInput): Promise<PublicVyraSettings> {
-    const { apiKey, ...rest } = updates;
+    const { apiKey, tavilyApiKey, ...rest } = updates;
     const changes: Partial<VyraSettings> = { ...rest };
     if (apiKey !== undefined) {
       changes.apiKey = this.protect(apiKey.trim(), vyraContext(workspaceId));
       // Connection state describes the previous key, so a new or removed key cannot inherit it.
       changes.keyStatus ??= "";
       changes.isValidKey ??= false;
+    }
+    if (tavilyApiKey !== undefined) {
+      changes.tavilyApiKey = this.protect(tavilyApiKey.trim(), tavilyContext(workspaceId));
+      changes.tavilyKeyStatus ??= "";
+      changes.isValidTavilyKey ??= false;
     }
     return this.publicVyra(await this.repository.upsertVyraSettings({ ...changes, workspaceId }));
   }

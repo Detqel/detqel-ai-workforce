@@ -62,6 +62,9 @@ export const updateVyraSettingsSchema = z.object({
   apiKey: apiKey.optional(),
   keyStatus: z.string().max(SETTINGS_FIELD_LIMITS.keyStatus).optional(),
   isValidKey: z.boolean().optional(),
+  tavilyApiKey: apiKey.optional(),
+  tavilyKeyStatus: z.string().max(SETTINGS_FIELD_LIMITS.keyStatus).optional(),
+  isValidTavilyKey: z.boolean().optional(),
   instructions: instructions.optional(),
   templates: z.array(z.object({
     id: z.string(), name: z.string(), description: z.string().optional(), instructions,
@@ -70,6 +73,12 @@ export const updateVyraSettingsSchema = z.object({
   traits: z.array(z.object({ title: z.string(), description: z.string(), icon: z.string() })).max(SETTINGS_FIELD_LIMITS.collection).optional(),
   previewMode: previewMode.optional(),
 }).strip();
+
+/** Tests a Tavily key: one the user just typed, or the workspace's saved key when none is supplied. */
+export const testWebSearchSchema = z.object({
+  workspaceId,
+  apiKey: apiKey.optional(),
+}).strict();
 
 export type UpdateProviderInput = z.infer<typeof updateProviderSchema>;
 export type UpdateVyraSettingsInput = z.infer<typeof updateVyraSettingsSchema>;

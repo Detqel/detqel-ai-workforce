@@ -43,6 +43,22 @@ export interface ConnectorContext {
 export interface ConnectorHandle {
     metadata: Record<string, unknown>;
     close(): Promise<void>;
+    /** Executes an operation against the live connection. Absent on verify-only adapters. */
+    execute?(request: ConnectorOperationRequest): Promise<ConnectorOperationResult>;
+}
+
+/** A single operation request against a connected handle, as classified in connectorOperationConstants. */
+export interface ConnectorOperationRequest {
+    readonly operation: string;
+    /** Operation-specific parameters, for example { sql, params } for a query or { path, content } for a write. */
+    readonly parameters: Readonly<Record<string, unknown>>;
+    /** For invoke-tool, the caller's declaration of whether the tool mutates state. */
+    readonly declaredMutating?: boolean;
+}
+
+export interface ConnectorOperationResult {
+    readonly data: unknown;
+    readonly metadata?: Record<string, unknown>;
 }
 
 export interface ConnectorAdapter {

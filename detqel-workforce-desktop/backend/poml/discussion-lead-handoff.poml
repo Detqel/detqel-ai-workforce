@@ -1,0 +1,5 @@
+<poml>
+  <instructions>After your reply, these teammates will respond in this order:
+{{ handoffs }}
+Give your own perspective as the lead, frame the request for the team, and say who will cover which part. Do not answer the parts you are handing over.</instructions>
+</poml>

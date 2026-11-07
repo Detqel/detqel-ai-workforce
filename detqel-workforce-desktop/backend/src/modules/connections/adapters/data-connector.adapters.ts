@@ -5,6 +5,7 @@ import { AppError } from "../../../shared/errors/app-error.js";
 import type { ConnectorAdapter, ConnectorContext, ConnectorHandle, ConnectorRuntimeOptions } from "../../../shared/types/connector-catalog.js";
 import { allowedFilesystemPath, authenticationHeaders, bounded, httpEndpoint, requiredBoolean, requiredPort, requiredString } from "./adapter-configuration.js";
 import { responseHasProperty, verifiedHttpResponse } from "./http-verification.js";
+import { filesystemOperations, httpOperations, postgresOperations } from "../operations/data-operations.js";
 
 function verifiedHandle(metadata: Record<string, unknown>): ConnectorHandle {
     return { metadata, close: async () => {} };
@@ -30,10 +31,14 @@ export class PostgresConnectorAdapter implements ConnectorAdapter {
             onnotice: () => {},
             connection: { statement_timeout: this.options.requestTimeoutMs },
         });
-        try {
-            await bounded(sql`SELECT 1 AS connection_verified`, this.options.requestTimeoutMs, () => { void sql.end({ timeout: 0 }); });
-            return verifiedHandle({ verification: "database-query", database: requiredString(configuration, "database") });
-        } finally { await sql.end({ timeout: this.options.requestTimeoutMs / CONNECTOR_MILLISECONDS_PER_SECOND }); }
+        await bounded(sql`SELECT 1 AS connection_verified`, this.options.requestTimeoutMs, () => { void sql.end({ timeout: 0 }); });
+        // The pool is kept open so the session can run operations; close() ends it when the session detaches.
+        const execute = postgresOperations(sql);
+        return {
+            metadata: { verification: "database-query", database: requiredString(configuration, "database") },
+            execute,
+            close: async () => { await sql.end({ timeout: this.options.requestTimeoutMs / CONNECTOR_MILLISECONDS_PER_SECOND }); },
+        };
     }
 }
 
@@ -51,7 +56,11 @@ export class HttpConnectorAdapter implements ConnectorAdapter {
         if (typeof expectedProperty === "string" && !responseHasProperty(response, expectedProperty)) {
             throw new AppError(422, "The endpoint response does not contain the required provider verification property.");
         }
-        return verifiedHandle({ verification: "http-response", origin: endpoint.origin });
+        return {
+            metadata: { verification: "http-response", origin: endpoint.origin },
+            execute: httpOperations(endpoint, authenticationHeaders(configuration), this.options.requestTimeoutMs),
+            close: async () => {},
+        };
     }
 }
 
@@ -63,7 +72,11 @@ export class FilesystemConnectorAdapter implements ConnectorAdapter {
 
     async connect(configuration: Record<string, unknown>, _context: ConnectorContext): Promise<ConnectorHandle> {
         await allowedFilesystemPath(requiredString(configuration, "path"), this.options.allowedFilesystemRoots, this.kind);
-        return verifiedHandle({ verification: "filesystem-access", kind: this.kind });
+        return {
+            metadata: { verification: "filesystem-access", kind: this.kind },
+            execute: filesystemOperations(this.options.allowedFilesystemRoots, this.kind),
+            close: async () => {},
+        };
     }
 }
 

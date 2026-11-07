@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { DESKTOP_PLATFORM } from "../../constants/desktopConstants.js";
 import {
     DESKTOP_INFRASTRUCTURE_LABELS,
     DESKTOP_STARTUP_STATUS,
@@ -13,7 +14,6 @@ import {
     DOCKER_CONTAINER_STATUS,
     DOCKER_CREDENTIAL_SETTINGS,
     DOCKER_ENVIRONMENT_KEYS,
-    DOCKER_EXECUTABLE,
     DOCKER_HEALTH_ENDPOINTS,
     DOCKER_HEALTH_VALUES,
     DOCKER_INSPECT_FORMATS,
@@ -28,8 +28,10 @@ import {
     DOCKER_SERVICE_NAMES,
     DOCKER_TIMEOUTS_MS,
     DOCKER_VALIDATION,
+    OLLAMA_EMBEDDING_MODEL,
 } from "../../constants/dockerConstants.js";
 import { LOOPBACK_HOST, PRIVATE_PORT_RANGE, SERVICE_PORTS } from "../../constants/networkConstants.js";
+import { resolveContainerRuntime } from "./container-runtime.js";
 import {
     createInfrastructureCredentials,
     infrastructureOwnershipFilter,
@@ -42,13 +44,41 @@ import {
 } from "./infrastructure-configuration.js";
 import {
     prepareInfrastructureDeployment,
-    removeOwnedInfrastructureContainers,
+    removeReplacedInfrastructureContainers,
 } from "./infrastructure-deployment.js";
 import { DesktopInfrastructureError } from "./infrastructure-error.js";
 import { prepareInfrastructurePorts } from "./infrastructure-ports.js";
 import { runInfrastructureProcess, startupDelay } from "./infrastructure-process.js";
+import { writeDesktopLog } from "../../shared/logging/desktop-logs.js";
 
 export { DesktopInfrastructureError } from "./infrastructure-error.js";
+
+/**
+ * Ensures the embedding model is installed in the managed Ollama container without blocking startup. Runs in
+ * the background: it skips the pull when the model is already present, and logs success or failure rather than
+ * throwing, so a slow download or transient network issue degrades retrieval gracefully instead of wedging the
+ * whole service sequence. The container itself is health-gated separately before this is invoked.
+ */
+async function ensureEmbeddingModel(executable: string, ollamaId: string, env: NodeJS.ProcessEnv, signal: AbortSignal): Promise<void> {
+    try {
+        const installed = await runInfrastructureProcess(executable, ["exec", ollamaId, "ollama", "list"], {
+            signal, env, timeoutMs: DOCKER_TIMEOUTS_MS.cli,
+            failureMessage: "The installed Ollama models could not be listed.",
+        }).catch(() => "");
+        if (installed.includes(OLLAMA_EMBEDDING_MODEL)) {
+            await writeDesktopLog("desktop.ollama.model.present", { model: OLLAMA_EMBEDDING_MODEL });
+            return;
+        }
+        await runInfrastructureProcess(executable, ["exec", ollamaId, "ollama", "pull", OLLAMA_EMBEDDING_MODEL], {
+            signal, env, timeoutMs: DOCKER_TIMEOUTS_MS.modelPull,
+            failureMessage: `The ${OLLAMA_EMBEDDING_MODEL} embedding model could not be pulled into Ollama.`,
+        });
+        await writeDesktopLog("desktop.ollama.model.ready", { model: OLLAMA_EMBEDDING_MODEL });
+    } catch (error) {
+        // Never surface this as a startup failure; embeddings become available once the model finishes.
+        await writeDesktopLog("desktop.ollama.model.deferred", { model: OLLAMA_EMBEDDING_MODEL, reason: error instanceof Error ? error.message : "unknown" });
+    }
+}
 
 export interface DesktopInfrastructureStep {
     id: string;
@@ -70,86 +100,101 @@ export interface DesktopInfrastructure {
     litellmMasterKey: string;
     milvusUrl: string;
     milvusToken: string;
+    ollamaUrl: string;
     applicationDatabaseUrl: string;
 }
 
-function launchDockerDesktopWindows(): void {
-    if (process.platform !== "win32") return;
-    const candidates = [
-        "C:\\Program Files\\Docker\\Docker\\Docker Desktop.exe",
-        process.env.ProgramFiles ? join(process.env.ProgramFiles, "Docker", "Docker", "Docker Desktop.exe") : null,
-        process.env["ProgramFiles(x86)"] ? join(process.env["ProgramFiles(x86)"], "Docker", "Docker", "Docker Desktop.exe") : null,
-    ].filter(Boolean) as string[];
-
-    for (const exe of candidates) {
-        if (existsSync(exe)) {
-            try {
-                const child = spawn(exe, [], { detached: true, stdio: "ignore" });
-                child.unref();
-                return;
-            } catch {}
+/** Best-effort engine launch for the auto-launchable docker runtime. Never throws; podman and nerdctl users start their own engine. */
+function launchContainerEngine(platform: NodeJS.Platform): void {
+    try {
+        if (platform === DESKTOP_PLATFORM.windows) {
+            const candidates = [
+                "C:\\Program Files\\Docker\\Docker\\Docker Desktop.exe",
+                process.env.ProgramFiles ? join(process.env.ProgramFiles, "Docker", "Docker", "Docker Desktop.exe") : null,
+                process.env["ProgramFiles(x86)"] ? join(process.env["ProgramFiles(x86)"], "Docker", "Docker", "Docker Desktop.exe") : null,
+            ].filter(Boolean) as string[];
+            for (const exe of candidates) {
+                if (existsSync(exe)) {
+                    const child = spawn(exe, [], { detached: true, stdio: "ignore" });
+                    child.unref();
+                    return;
+                }
+            }
+            return;
         }
-    }
+        if (platform === "darwin") {
+            const child = spawn("open", ["-a", "Docker"], { detached: true, stdio: "ignore" });
+            child.unref();
+            return;
+        }
+        if (platform === "linux") {
+            const child = spawn("systemctl", ["--user", "start", "docker"], { detached: true, stdio: "ignore" });
+            child.unref();
+        }
+    } catch {}
 }
 
 /** Stops only the running containers created for this installation's runtime directory. */
 export async function stopDesktopInfrastructure(options: { runtimeDirectory: string; signal?: AbortSignal }): Promise<void> {
     try {
         const signal = options.signal ?? new AbortController().signal;
-        const runningIds = (await runInfrastructureProcess(DOCKER_EXECUTABLE, [
+        const runtime = await resolveContainerRuntime(signal);
+        const runningIds = (await runInfrastructureProcess(runtime.executable, [
             "ps", "--filter", infrastructureOwnershipFilter(options.runtimeDirectory), "--format", DOCKER_INSPECT_FORMATS.ids,
-        ], { signal, timeoutMs: DOCKER_TIMEOUTS_MS.ownershipCli, failureMessage: "Unable to query running Docker containers." })).split(/\r?\n/).filter(Boolean);
+        ], { signal, timeoutMs: DOCKER_TIMEOUTS_MS.ownershipCli, failureMessage: "Unable to query running managed containers." })).split(/\r?\n/).filter(Boolean);
         if (runningIds.some(id => !DOCKER_VALIDATION.containerId.test(id))) return;
 
         if (runningIds.length > 0) {
-            await runInfrastructureProcess(DOCKER_EXECUTABLE, [
+            await runInfrastructureProcess(runtime.executable, [
                 "stop", "--time", String(DOCKER_LIMITS.legacyStopSeconds), ...runningIds
-            ], { signal, timeoutMs: DOCKER_TIMEOUTS_MS.legacyReplacement, failureMessage: "Unable to stop running Docker containers." });
+            ], { signal, timeoutMs: DOCKER_TIMEOUTS_MS.legacyReplacement, failureMessage: "Unable to stop running managed containers." });
         }
     } catch {
         // Safe shutdown fallback
     }
 }
 
-async function ensureLocalDocker(signal: AbortSignal, report: (detail: string) => void): Promise<void> {
-    const docker = (args: string[], failureMessage: string, timeoutMs: number = DOCKER_TIMEOUTS_MS.cli) => runInfrastructureProcess(DOCKER_EXECUTABLE, args, { signal, timeoutMs, failureMessage });
-    const version = await docker(["compose", "version", "--short"], "Docker Compose is unavailable. Install the current Docker Desktop release and enable Linux containers.");
+async function ensureLocalDocker(executable: string, autoLaunch: boolean, signal: AbortSignal, report: (detail: string) => void): Promise<void> {
+    const runtime = (args: string[], failureMessage: string, timeoutMs: number = DOCKER_TIMEOUTS_MS.cli) => runInfrastructureProcess(executable, args, { signal, timeoutMs, failureMessage });
+    const version = await runtime(["compose", "version", "--short"], "The container runtime's compose plugin is unavailable. Install a current release of your container runtime and enable Linux containers.");
     const major = /^v?(\d+)\./.exec(version)?.[1];
-    if (!major || Number(major) < DOCKER_MINIMUM_COMPOSE_MAJOR_VERSION) throw new DesktopInfrastructureError(`Docker Compose v${DOCKER_MINIMUM_COMPOSE_MAJOR_VERSION} or newer is required. Update Docker Desktop before starting the application.`);
+    if (!major || Number(major) < DOCKER_MINIMUM_COMPOSE_MAJOR_VERSION) throw new DesktopInfrastructureError(`A compose plugin of v${DOCKER_MINIMUM_COMPOSE_MAJOR_VERSION} or newer is required. Update your container runtime before starting the application.`);
     let dockerHost: string;
     const configuredHost = process.env[DOCKER_ENVIRONMENT_KEYS.host];
     if (configuredHost !== undefined) dockerHost = configuredHost;
     else {
-        const value = await docker(["context", "inspect", "--format", DOCKER_INSPECT_FORMATS.contextHost], "The local Docker context could not be read. Select your Docker Desktop context and retry.");
+        const value = await runtime(["context", "inspect", "--format", DOCKER_INSPECT_FORMATS.contextHost], "The local container runtime context could not be read. Select your local runtime context and retry.");
         try { dockerHost = JSON.parse(value) as string; }
-        catch { throw new DesktopInfrastructureError("The local Docker context is invalid. Select your Docker Desktop context and retry."); }
+        catch { throw new DesktopInfrastructureError("The local container runtime context is invalid. Select your local runtime context and retry."); }
     }
     if (typeof dockerHost !== "string" || !DOCKER_LOCAL_ENDPOINT_PROTOCOLS.some(protocol => dockerHost.startsWith(protocol))) {
-        throw new DesktopInfrastructureError("Desktop infrastructure requires a local Docker Desktop context. Remote Docker endpoints are not supported.");
+        throw new DesktopInfrastructureError("Desktop infrastructure requires a local container runtime context. Remote runtime endpoints are not supported.");
     }
-    const engine = () => docker(["info", "--format", DOCKER_INSPECT_FORMATS.operatingSystem], "Docker Desktop is not ready. Start Docker Desktop with Linux containers and retry.");
+    const engine = () => runtime(["info", "--format", DOCKER_INSPECT_FORMATS.operatingSystem], "The container runtime engine is not ready. Start it with Linux containers and retry.");
     let operatingSystem: string;
     try { operatingSystem = await engine(); }
     catch {
         if (signal.aborted) throw new DesktopInfrastructureError("Desktop infrastructure startup was cancelled.");
-        report("Starting Docker Desktop and waiting for its Linux container engine...");
-        launchDockerDesktopWindows();
-        try {
-            await docker(["desktop", "start", "--detach"], "Docker Desktop could not be started automatically. Open Docker Desktop, wait for its engine, and retry.", DOCKER_TIMEOUTS_MS.desktopStart);
-        } catch {
-            // Native launch was triggered; continue waiting for engine
+        report("Starting the local container engine and waiting for its Linux container runtime...");
+        if (autoLaunch) {
+            launchContainerEngine(process.platform);
+            try {
+                await runtime(["desktop", "start", "--detach"], "The container engine could not be started automatically. Start it, wait for its engine, and retry.", DOCKER_TIMEOUTS_MS.desktopStart);
+            } catch {
+                // Native launch was triggered; continue waiting for engine
+            }
         }
         const deadline = Date.now() + DOCKER_TIMEOUTS_MS.desktopStart;
         for (;;) {
             try { operatingSystem = await engine(); break; }
             catch {
                 if (signal.aborted) throw new DesktopInfrastructureError("Desktop infrastructure startup was cancelled.");
-                if (Date.now() >= deadline) throw new DesktopInfrastructureError("Docker Desktop did not become ready. Open Docker Desktop and confirm its Linux engine is running.");
+                if (Date.now() >= deadline) throw new DesktopInfrastructureError("The container engine did not become ready. Start your container runtime and confirm its Linux engine is running.");
                 await startupDelay(DOCKER_TIMEOUTS_MS.pollInterval, signal);
             }
         }
     }
-    if (operatingSystem !== DOCKER_RUNTIME_PLATFORM) throw new DesktopInfrastructureError("Switch Docker Desktop to Linux containers before starting the application.");
+    if (operatingSystem !== DOCKER_RUNTIME_PLATFORM) throw new DesktopInfrastructureError("Switch your container runtime to Linux containers before starting the application.");
 }
 
 async function infrastructureJson(url: string, options: { signal: AbortSignal; authorization?: string; body?: Record<string, unknown> }): Promise<unknown> {
@@ -190,17 +235,22 @@ function responseObject(value: unknown): Record<string, unknown> | null {
     return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 
-/** Recreates this installation's containers on launch and preserves persistent service data. */
+/**
+ * Brings this installation's services up in order. Existing containers are started as they are, missing ones
+ * are created from the persistent volumes, and a container is recreated only when its configuration changed.
+ */
 export async function ensureDesktopInfrastructure(options: DesktopInfrastructureOptions): Promise<DesktopInfrastructure> {
     let phase: DesktopInfrastructureStepId = DESKTOP_STARTUP_STEP_IDS.docker;
     const report = (id: DesktopInfrastructureStepId, status: DesktopInfrastructureStep["status"], detail: string | null) => {
         options.report({ id, label: DESKTOP_INFRASTRUCTURE_LABELS[id], status, detail });
     };
     try {
-        report(DESKTOP_STARTUP_STEP_IDS.docker, DESKTOP_STARTUP_STATUS.running, "Preparing private infrastructure configuration and checking Docker Desktop...");
+        report(DESKTOP_STARTUP_STEP_IDS.docker, DESKTOP_STARTUP_STATUS.running, "Preparing private infrastructure configuration and detecting the local container runtime...");
         const directory = await preparePrivateInfrastructureDirectory(options.runtimeDirectory, options.signal);
         const stackName = infrastructureStackName(options.runtimeDirectory);
-        await ensureLocalDocker(options.signal, detail => report(DESKTOP_STARTUP_STEP_IDS.docker, DESKTOP_STARTUP_STATUS.running, detail));
+        const runtime = await resolveContainerRuntime(options.signal);
+        const executable = runtime.executable;
+        await ensureLocalDocker(executable, runtime.autoLaunch, options.signal, detail => report(DESKTOP_STARTUP_STEP_IDS.docker, DESKTOP_STARTUP_STATUS.running, detail));
         report(DESKTOP_STARTUP_STEP_IDS.docker, DESKTOP_STARTUP_STATUS.complete, "The local Linux container engine is ready.");
 
         phase = DESKTOP_STARTUP_STEP_IDS.litellmDatabase;
@@ -213,20 +263,26 @@ export async function ensureDesktopInfrastructure(options: DesktopInfrastructure
                 `label=${DOCKER_LABELS.project}=${stackName}`,
                 ...DOCKER_PREVIOUS_PROJECT_NAMES.map(name => `label=${DOCKER_LABELS.project}=${name}`),
             ]) {
-                const existingVolumes = await runInfrastructureProcess(DOCKER_EXECUTABLE, ["volume", "ls", "--filter", filter, "--format", DOCKER_INSPECT_FORMATS.names], {
+                const existingVolumes = await runInfrastructureProcess(executable, ["volume", "ls", "--filter", filter, "--format", DOCKER_INSPECT_FORMATS.names], {
                     signal: options.signal, timeoutMs: DOCKER_TIMEOUTS_MS.cli,
-                    failureMessage: "Existing managed data volumes could not be checked safely. Confirm Docker Desktop is available and retry.",
+                    failureMessage: "Existing managed data volumes could not be checked safely. Confirm your container runtime is available and retry.",
                 });
                 if (existingVolumes) throw new DesktopInfrastructureError("Managed data exists but its credentials are missing. Restore the private infrastructure directory from backup.");
             }
             credentials = await createInfrastructureCredentials(directory);
         }
-        const deployment = await prepareInfrastructureDeployment({ directory, runtimeDirectory: options.runtimeDirectory, signal: options.signal });
-        // Download every required image before removing any working containers.
+        const deployment = await prepareInfrastructureDeployment({ directory, runtimeDirectory: options.runtimeDirectory, executable, signal: options.signal });
+        // Download every missing image before removing any working containers. Images already present locally
+        // are never re-pulled, so a normal launch needs no registry access and cannot stall on the network.
         for (const image of DOCKER_IMAGE_PULLS) {
+            const present = await runInfrastructureProcess(executable, ["image", "inspect", "--format", DOCKER_INSPECT_FORMATS.imageId, image.image], {
+                signal: options.signal, timeoutMs: DOCKER_TIMEOUTS_MS.cli,
+                failureMessage: `The ${image.service} image could not be checked.`,
+            }).then(() => true, () => false);
+            if (present) continue;
             phase = image.step;
-            report(phase, DESKTOP_STARTUP_STATUS.running, null);
-            await runInfrastructureProcess(DOCKER_EXECUTABLE, ["pull", image.image], {
+            report(phase, DESKTOP_STARTUP_STATUS.running, `Downloading the ${image.service} image...`);
+            await runInfrastructureProcess(executable, ["pull", image.image], {
                 signal: options.signal,
                 timeoutMs: DOCKER_TIMEOUTS_MS.imagePull,
                 failureMessage: `The ${image.service} image could not be downloaded. See the backend logs.`,
@@ -234,17 +290,19 @@ export async function ensureDesktopInfrastructure(options: DesktopInfrastructure
             report(phase, DESKTOP_STARTUP_STATUS.pending, null);
         }
         phase = DESKTOP_STARTUP_STEP_IDS.docker;
-        await removeOwnedInfrastructureContainers(deployment, options.signal);
-        const ports = await prepareInfrastructurePorts({ directory, signal: options.signal });
+        await removeReplacedInfrastructureContainers(deployment, executable, options.signal);
+        const ports = await prepareInfrastructurePorts({ directory, signal: options.signal, existingPorts: deployment.publishedPorts });
         const env = await writeInfrastructureConfiguration(directory, options.assetsDirectory, credentials, ports, deployment.litellmDatabaseVolume);
         const composePrefix = ["compose", "--project-name", stackName, "--project-directory", directory, "--file", join(directory, DOCKER_ASSET_FILES.compose), "--env-file", join(directory, DOCKER_ASSET_FILES.environment)];
-        const compose = (args: string[], failureMessage: string, timeoutMs: number = DOCKER_TIMEOUTS_MS.cli, onActivity?: () => void) => runInfrastructureProcess(DOCKER_EXECUTABLE, [...composePrefix, ...args], {
+        const compose = (args: string[], failureMessage: string, timeoutMs: number = DOCKER_TIMEOUTS_MS.cli, onActivity?: () => void) => runInfrastructureProcess(executable, [...composePrefix, ...args], {
             signal: options.signal, cwd: directory, env, timeoutMs, failureMessage, onActivity,
         });
 
+        // Compose creates a missing container, starts an existing one unchanged, and recreates a container only
+        // when its configuration differs from what is running. Data lives in named volumes either way.
         const startService = async (service: string, failureMessage: string) => {
             await compose(
-                ["up", "--detach", "--force-recreate", "--no-deps", "--no-build", "--pull", "never", service],
+                ["up", "--detach", "--no-deps", "--no-build", "--pull", "never", service],
                 failureMessage,
                 DOCKER_TIMEOUTS_MS.stackStart
             );
@@ -255,9 +313,9 @@ export async function ensureDesktopInfrastructure(options: DesktopInfrastructure
             if (ids.length !== 1 || !DOCKER_VALIDATION.containerId.test(ids[0])) throw new DesktopInfrastructureError("A managed service container could not be identified safely. Check this application's Docker project and retry.");
             return ids[0];
         };
-        const inspect = (id: string, format: string) => runInfrastructureProcess(DOCKER_EXECUTABLE, ["inspect", "--format", format, id], {
+        const inspect = (id: string, format: string) => runInfrastructureProcess(executable, ["inspect", "--format", format, id], {
             signal: options.signal, env, timeoutMs: DOCKER_TIMEOUTS_MS.cli,
-            failureMessage: "Managed service health could not be inspected. Confirm Docker Desktop is running and retry.",
+            failureMessage: "Managed service health could not be inspected. Confirm your container runtime is running and retry.",
         });
         const ready = async (service: string): Promise<string> => {
             const readinessDeadline = Date.now() + DOCKER_TIMEOUTS_MS.serviceReady;
@@ -339,7 +397,8 @@ export async function ensureDesktopInfrastructure(options: DesktopInfrastructure
         if (!Array.isArray(models?.data)) throw new DesktopInfrastructureError("LiteLLM did not pass its authenticated startup check. Restore its saved private credentials before retrying.");
         report(phase, DESKTOP_STARTUP_STATUS.complete, "LiteLLM is ready with its private database and verified master key.");
 
-        // 4. Application Database: Run main application PostgreSQL service and wait for it to be healthy
+        // 4. Application Database: Run main application PostgreSQL service and wait for it to be healthy.
+        // This is on the application's critical path, so it is started before the optional embedding service.
         phase = DESKTOP_STARTUP_STEP_IDS.applicationDatabase;
         report(phase, DESKTOP_STARTUP_STATUS.running, "Starting the application PostgreSQL database...");
         await startService(
@@ -353,12 +412,29 @@ export async function ensureDesktopInfrastructure(options: DesktopInfrastructure
         applicationDatabaseAddress.username = credentials.appPostgresUsername;
         applicationDatabaseAddress.password = credentials.appPostgresPassword;
         applicationDatabaseAddress.pathname = `/${credentials.appPostgresDatabase}`;
-        return { stackName, litellmUrl, litellmMasterKey: credentials.litellmMasterKey, milvusUrl, milvusToken,
+
+        // 5. Ollama Embeddings: Start the managed Ollama service and ensure the embedding model is present.
+        // Embeddings power retrieval-augmented discussions but are not required for the application to start,
+        // so a slow or unreachable model pull must never wedge startup: the container is health-gated, and the
+        // model pull runs in the background with its outcome logged. RAG degrades gracefully until it finishes.
+        phase = DESKTOP_STARTUP_STEP_IDS.ollama;
+        report(phase, DESKTOP_STARTUP_STATUS.running, "Starting the Ollama embedding service...");
+        await startService(
+            DOCKER_SERVICE_NAMES.ollama,
+            "The managed Ollama container could not start. Check container runtime memory, disk space, and this application's project, then retry."
+        );
+        report(phase, DESKTOP_STARTUP_STATUS.running, "Waiting for the Ollama embedding service to become healthy...");
+        const ollamaId = await ready(DOCKER_SERVICE_NAMES.ollama);
+        const ollamaUrl = await publishedUrl(ollamaId, SERVICE_PORTS.ollama);
+        void ensureEmbeddingModel(executable, ollamaId, env, options.signal);
+        report(phase, DESKTOP_STARTUP_STATUS.complete, `Ollama is ready; the ${OLLAMA_EMBEDDING_MODEL} embedding model is being prepared in the background.`);
+
+        return { stackName, litellmUrl, litellmMasterKey: credentials.litellmMasterKey, milvusUrl, milvusToken, ollamaUrl,
             applicationDatabaseUrl: applicationDatabaseAddress.toString() };
     } catch (error) {
         const safe = error instanceof DesktopInfrastructureError ? error : new DesktopInfrastructureError(options.signal.aborted
             ? "Desktop infrastructure startup was cancelled."
-            : "Desktop infrastructure could not initialize safely. Check Docker Desktop and the application's private runtime directory, then retry.");
+            : "Desktop infrastructure could not initialize safely. Check your container runtime and the application's private runtime directory, then retry.");
         report(phase, DESKTOP_STARTUP_STATUS.error, safe.message);
         throw safe;
     }

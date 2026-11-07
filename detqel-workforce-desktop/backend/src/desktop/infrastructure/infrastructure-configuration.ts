@@ -155,7 +155,7 @@ export async function writeInfrastructureConfiguration(
     if (!isAbsolute(assetsDirectory)) throw new DesktopInfrastructureError("Desktop infrastructure assets require an absolute application resource directory.");
     if (Object.values(ports).some(port => !Number.isInteger(port) || port < PRIVATE_PORT_RANGE.minimum || port > PRIVATE_PORT_RANGE.maximum)
         || new Set(Object.values(ports)).size !== DOCKER_PORT_KEYS.length) {
-        throw new DesktopInfrastructureError("Three distinct valid infrastructure host ports are required.");
+        throw new DesktopInfrastructureError(`${DOCKER_PORT_KEYS.length} distinct valid infrastructure host ports are required.`);
     }
     if (!DOCKER_VALIDATION.volumeName.test(litellmDatabaseVolume)) throw new DesktopInfrastructureError("A valid persisted LiteLLM database volume name is required.");
     await copyFile(join(assetsDirectory, DOCKER_ASSET_FILES.compose), join(directory, DOCKER_ASSET_FILES.compose));
@@ -173,6 +173,7 @@ export async function writeInfrastructureConfiguration(
         [DOCKER_ENVIRONMENT_KEYS.litellmImage]: DOCKER_IMAGES.litellm,
         [DOCKER_ENVIRONMENT_KEYS.postgresqlImage]: DOCKER_IMAGES.postgresql,
         [DOCKER_ENVIRONMENT_KEYS.milvusImage]: DOCKER_IMAGES.milvus,
+        [DOCKER_ENVIRONMENT_KEYS.ollamaImage]: DOCKER_IMAGES.ollama,
         [DOCKER_ENVIRONMENT_KEYS.litellmMasterKey]: credentials.litellmMasterKey,
         [DOCKER_ENVIRONMENT_KEYS.litellmSaltKey]: credentials.litellmSaltKey,
         [DOCKER_ENVIRONMENT_KEYS.postgresUsername]: credentials.postgresUsername,
@@ -183,6 +184,7 @@ export async function writeInfrastructureConfiguration(
         [DOCKER_ENVIRONMENT_KEYS.litellmDatabaseVolume]: litellmDatabaseVolume,
         [DOCKER_ENVIRONMENT_KEYS.litellmPort]: String(ports.litellm),
         [DOCKER_ENVIRONMENT_KEYS.milvusPort]: String(ports.milvus),
+        [DOCKER_ENVIRONMENT_KEYS.ollamaPort]: String(ports.ollama),
         [DOCKER_ENVIRONMENT_KEYS.applicationDatabasePort]: String(ports.applicationDatabase),
         [DOCKER_ENVIRONMENT_KEYS.runtimeId]: infrastructureRuntimeId(directory),
     };

@@ -7,6 +7,7 @@ import { VyraBannerCard } from "./VyraBannerCard";
 import { IntelligenceSection } from "./IntelligenceSection";
 import { PersonalityInstructionsSection } from "./PersonalityInstructionsSection";
 import { TestPreviewSection } from "./TestPreviewSection";
+import { WebSearchSection } from "./WebSearchSection";
 import { useWorkspace } from "@/context/WorkspaceContext";
 import {
   apiGetAIProviders,
@@ -15,6 +16,7 @@ import {
   apiUpdateVyraSettings,
   apiTestConnection,
   apiTestVyraPrompt,
+  apiTestWebSearch,
   type AIProvider,
   type AIProviderModel,
   type VyraSettings,
@@ -36,10 +38,18 @@ export const VyraSettingsPage: React.FC = () => {
   const [selectedModelId, setSelectedModelId] = useState<string>("");
   const [availableModels, setAvailableModels] = useState<AIProviderModel[]>([]);
   const [isLoadingModels, setIsLoadingModels] = useState<boolean>(false);
+  // Only a key the user types is held here. A saved key stays on the server; hasSavedKey records that it exists.
   const [apiKey, setApiKey] = useState<string>("");
+  const [hasSavedKey, setHasSavedKey] = useState<boolean>(false);
   const [keyStatus, setKeyStatus] = useState<string>("");
   const [isValidKey, setIsValidKey] = useState<boolean>(false);
   const [isTestingConnection, setIsTestingConnection] = useState<boolean>(false);
+  // Tavily web-search key: as with the model key, only a typed key is held in the browser.
+  const [tavilyKey, setTavilyKey] = useState<string>("");
+  const [hasSavedTavilyKey, setHasSavedTavilyKey] = useState<boolean>(false);
+  const [tavilyKeyStatus, setTavilyKeyStatus] = useState<string>("");
+  const [isValidTavilyKey, setIsValidTavilyKey] = useState<boolean>(false);
+  const [isTestingWebSearch, setIsTestingWebSearch] = useState<boolean>(false);
   const [instructions, setInstructions] = useState<VyraInstructions>({
     core: "",
     behaviour: "",
@@ -71,9 +81,14 @@ export const VyraSettingsPage: React.FC = () => {
         const provId = fetchedSettings.selectedProviderId || "";
         setSelectedProviderId(provId);
         setSelectedModelId(fetchedSettings.selectedModelId || "");
-        setApiKey(fetchedSettings.apiKey || "");
+        setApiKey("");
+        setHasSavedKey(Boolean(fetchedSettings.hasApiKey));
         setKeyStatus(fetchedSettings.keyStatus || "");
         setIsValidKey(fetchedSettings.isValidKey ?? false);
+        setTavilyKey("");
+        setHasSavedTavilyKey(Boolean(fetchedSettings.hasTavilyApiKey));
+        setTavilyKeyStatus(fetchedSettings.tavilyKeyStatus);
+        setIsValidTavilyKey(fetchedSettings.isValidTavilyKey);
         if (fetchedSettings.instructions) {
           setInstructions({
             core: fetchedSettings.instructions.core || "",
@@ -87,11 +102,11 @@ export const VyraSettingsPage: React.FC = () => {
           setPreviewMode(fetchedSettings.previewMode as "chat" | "structured");
         }
 
-        // Fetch models for the saved provider if one is set
-        if (provId && fetchedSettings.apiKey) {
+        // Fetch models for the saved provider using the key saved on the server
+        if (provId && fetchedSettings.hasApiKey) {
           setIsLoadingModels(true);
           try {
-            const models = await apiGetProviderModels(provId, fetchedSettings.apiKey);
+            const models = await apiGetProviderModels(provId, undefined, currentWorkspace?.id);
             setAvailableModels(models);
           } finally {
             setIsLoadingModels(false);
@@ -111,16 +126,20 @@ export const VyraSettingsPage: React.FC = () => {
 
   const lastFetchRef = React.useRef<string>("");
 
+  const workspaceId = currentWorkspace?.id;
+
+  /** Loads models with the typed key, or with the server's saved key when nothing has been typed. */
   const fetchModels = useCallback(
     async (providerId: string, key: string, force = false) => {
-      if (!providerId || !key.trim()) return;
-      const cacheKey = `${providerId}:${key.trim()}`;
+      const typedKey = key.trim();
+      if (!providerId) return;
+      const cacheKey = `${providerId}:${typedKey || "saved"}`;
       if (!force && lastFetchRef.current === cacheKey && availableModels.length > 0) return;
       lastFetchRef.current = cacheKey;
 
       setIsLoadingModels(true);
       try {
-        const models = await apiGetProviderModels(providerId, key.trim());
+        const models = await apiGetProviderModels(providerId, typedKey || undefined, workspaceId);
         setAvailableModels(models);
         if (models.length > 0 && selectedModelId && !models.some((m) => m.id === selectedModelId)) {
           setSelectedModelId("");
@@ -132,18 +151,20 @@ export const VyraSettingsPage: React.FC = () => {
         setIsLoadingModels(false);
       }
     },
-    [availableModels.length, selectedModelId]
+    [availableModels.length, selectedModelId, workspaceId]
   );
+
+  const hasUsableKey = apiKey.trim().length > 0 || hasSavedKey;
 
   const handleApiKeyBlur = () => {
     if (selectedProviderId && apiKey.trim()) {
-      fetchModels(selectedProviderId, apiKey.trim());
+      fetchModels(selectedProviderId, apiKey);
     }
   };
 
   const handleOpenModelSelection = () => {
-    if (selectedProviderId && apiKey.trim() && availableModels.length === 0 && !isLoadingModels) {
-      fetchModels(selectedProviderId, apiKey.trim());
+    if (selectedProviderId && hasUsableKey && availableModels.length === 0 && !isLoadingModels) {
+      fetchModels(selectedProviderId, apiKey);
     }
   };
 
@@ -156,14 +177,14 @@ export const VyraSettingsPage: React.FC = () => {
     setAvailableModels([]);
     lastFetchRef.current = "";
 
+    // A typed key is provider-specific, so it is cleared on switch. The server may still hold a saved key for
+    // the new provider, in which case its models load without the key ever reaching the browser.
     const prov = providers.find((p) => p.id === providerId);
-    const keyToUse = prov?.apiKey?.trim() ? prov.apiKey.trim() : apiKey.trim();
-    if (prov?.apiKey) {
-      setApiKey(prov.apiKey);
-    }
-
-    if (keyToUse) {
-      fetchModels(providerId, keyToUse, true);
+    const savedForProvider = Boolean(prov?.hasApiKey);
+    setApiKey("");
+    setHasSavedKey(savedForProvider);
+    if (savedForProvider) {
+      fetchModels(providerId, "", true);
     }
   };
 
@@ -171,17 +192,27 @@ export const VyraSettingsPage: React.FC = () => {
   const handleSaveAll = async () => {
     setIsSaving(true);
     try {
+      // Send a key only when the user typed one; sending an empty value would erase the saved key.
       const updated = await apiUpdateVyraSettings(currentWorkspace?.id, {
         selectedProviderId,
         selectedModelId,
-        apiKey,
+        ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
         keyStatus,
         isValidKey,
+        // A newly typed Tavily key replaces the saved one untested, so the old key's status does not carry over.
+        ...(tavilyKey.trim()
+          ? { tavilyApiKey: tavilyKey.trim(), tavilyKeyStatus: "", isValidTavilyKey: false }
+          : { tavilyKeyStatus, isValidTavilyKey }),
         instructions,
         previewMode,
       });
       if (updated) {
         setVyraSettings(updated);
+        setHasSavedKey(Boolean(updated.hasApiKey));
+        setTavilyKey("");
+        setHasSavedTavilyKey(Boolean(updated.hasTavilyApiKey));
+        setTavilyKeyStatus(updated.tavilyKeyStatus);
+        setIsValidTavilyKey(updated.isValidTavilyKey);
         setSaveSuccess(true);
         setTimeout(() => setSaveSuccess(false), SETTINGS_SAVE_SUCCESS_DURATION_MS);
       }
@@ -196,32 +227,61 @@ export const VyraSettingsPage: React.FC = () => {
   const handleTestConnection = async () => {
     setIsTestingConnection(true);
     try {
+      // With no typed key, the server tests the key it has saved.
       const res = await apiTestConnection({
         providerId: selectedProviderId,
-        apiKey,
+        ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
         modelId: selectedModelId,
       });
       setKeyStatus(res.message);
       setIsValidKey(res.success);
 
-      // Auto-persist updated connection state to DB
-      await apiUpdateVyraSettings(currentWorkspace?.id, {
+      // Auto-persist updated connection state to DB. The key is sent only when typed, so a saved key is kept.
+      const updated = await apiUpdateVyraSettings(currentWorkspace?.id, {
         selectedProviderId,
         selectedModelId,
-        apiKey,
+        ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
         keyStatus: res.message,
         isValidKey: res.success,
       });
+      if (updated) setHasSavedKey(Boolean(updated.hasApiKey));
 
-      // If connection succeeded, refresh models dynamically from provider's live endpoint
-      if (res.success && selectedProviderId && apiKey.trim()) {
-        fetchModels(selectedProviderId, apiKey.trim(), true);
+      // If connection succeeded, refresh models from the provider's live endpoint
+      if (res.success && selectedProviderId) {
+        fetchModels(selectedProviderId, apiKey, true);
       }
     } catch {
       setKeyStatus("Connection test failed");
       setIsValidKey(false);
     } finally {
       setIsTestingConnection(false);
+    }
+  };
+
+  // Test the Tavily key, then persist the result; a typed key is saved with it, a saved key is kept.
+  const handleTestWebSearch = async () => {
+    if (!workspaceId) return;
+    setIsTestingWebSearch(true);
+    try {
+      const typedKey = tavilyKey.trim();
+      const res = await apiTestWebSearch({ workspaceId, ...(typedKey ? { apiKey: typedKey } : {}) });
+      const connected = res.status === "success";
+      setTavilyKeyStatus(res.message);
+      setIsValidTavilyKey(connected);
+      // A typed key is saved only once Tavily accepts it; a rejected key stays in the field to be corrected.
+      if (typedKey && !connected) return;
+      const updated = await apiUpdateVyraSettings(workspaceId, {
+        ...(typedKey ? { tavilyApiKey: typedKey } : {}),
+        tavilyKeyStatus: res.message,
+        isValidTavilyKey: connected,
+      });
+      if (updated) {
+        setTavilyKey("");
+        setHasSavedTavilyKey(Boolean(updated.hasTavilyApiKey));
+        setVyraSettings(updated);
+      }
+    } finally {
+      setIsTestingWebSearch(false);
     }
   };
 
@@ -238,7 +298,7 @@ export const VyraSettingsPage: React.FC = () => {
       prompt,
       providerId: selectedProviderId,
       modelId: selectedModelId,
-      apiKey: apiKey.trim(),
+      ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
       mode,
       systemPrompt: instructions.core,
     });
@@ -321,6 +381,7 @@ export const VyraSettingsPage: React.FC = () => {
             selectedModelId={selectedModelId}
             onSelectModel={setSelectedModelId}
             apiKey={apiKey}
+            hasSavedKey={hasSavedKey}
             onApiKeyChange={setApiKey}
             onApiKeyBlur={handleApiKeyBlur}
             onOpenModelSelection={handleOpenModelSelection}
@@ -343,6 +404,18 @@ export const VyraSettingsPage: React.FC = () => {
             previewMode={previewMode}
             onPreviewModeChange={setPreviewMode}
             onExecutePrompt={handleExecutePrompt}
+          />
+
+          {/* 04: Web Search */}
+          <WebSearchSection
+            apiKey={tavilyKey}
+            hasSavedKey={hasSavedTavilyKey}
+            savedKeyHint={vyraSettings?.tavilyApiKeyHint}
+            onApiKeyChange={setTavilyKey}
+            keyStatus={tavilyKeyStatus}
+            isValidKey={isValidTavilyKey}
+            onTestConnection={handleTestWebSearch}
+            isTestingConnection={isTestingWebSearch}
           />
         </div>
       </div>

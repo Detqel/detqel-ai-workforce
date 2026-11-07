@@ -101,6 +101,32 @@ services:
       retries: 30
       start_period: 120s
 
+  detqel-kin-ollama:
+    container_name: detqel-kin-ollama
+    labels:
+      com.detqel.desktop.runtime: '${DETQEL_RUNTIME_ID:?Private desktop runtime identity is required}'
+    image: ${OLLAMA_IMAGE:?Managed Ollama image is required}
+    restart: unless-stopped
+    volumes:
+      - type: volume
+        source: detqel-kin-ollama-data
+        target: /root/.ollama
+        volume:
+          nocopy: false
+    networks:
+      - detqel-kin-gateway
+    ports:
+      - target: 11434
+        published: '${OLLAMA_PORT:?Allocated Ollama host port is required}'
+        host_ip: 127.0.0.1
+        protocol: tcp
+    healthcheck:
+      test: [CMD-SHELL, 'ollama list >/dev/null 2>&1 || exit 1']
+      interval: 10s
+      timeout: 8s
+      retries: 30
+      start_period: 60s
+
   detqel-kin-app-db:
     container_name: detqel-kin-app-db
     labels:
@@ -147,6 +173,9 @@ volumes:
     external: true
   detqel-kin-milvus-embedded-data:
     name: detqel-kin-milvus-embedded-data
+    external: true
+  detqel-kin-ollama-data:
+    name: detqel-kin-ollama-data
     external: true
   detqel-kin-app-db-data:
     name: detqel-kin-app-db-data

@@ -5,9 +5,12 @@ export const agents = pgTable("agents", {
     id: uuid("id").defaultRandom().primaryKey(),
     workspaceId: uuid("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }), // null if platform wide
     name: varchar("name", { length: 255 }).notNull(),
-    description: text("description").notNull(),
-    purpose: text("purpose").notNull(),
-    instructions: text("instructions").notNull(),
+    // POML file id for this agent's prompt (bundled platform id OR the agent's own uuid for user prompts).
+    promptRef: varchar("prompt_ref", { length: 150 }),
+    // Free-text prompt columns are kept for backward compatibility but POML is now the source of truth.
+    description: text("description"),
+    purpose: text("purpose"),
+    instructions: text("instructions"),
     agentType: varchar("agent_type", { length: 50 }).notNull(), // platform | custom | marketplace
     scope: jsonb("scope").$type<Record<string, unknown>>().notNull().default({}),
     capabilities: jsonb("capabilities").$type<unknown[]>().notNull().default([]),

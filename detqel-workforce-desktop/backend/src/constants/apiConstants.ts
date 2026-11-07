@@ -10,7 +10,7 @@ export const API_TAG_NAMES = {
     business: "Business Brain", workforce: "AI Workforce", connections: "Connections", lookups: "Lookups",
     missions: "Missions & Command Center", approvals: "Approvals", executions: "Executions",
     analytics: "Analytics & Intelligence", automations: "Automations", notifications: "Notifications",
-    domains: "Domains", settings: "Settings",
+    domains: "Domains", settings: "Settings", discussions: "Discussions",
 } as const;
 
 export const OPENAPI_INFO = {
@@ -33,4 +33,5 @@ export const OPENAPI_TAGS = [
     { name: API_TAG_NAMES.executions, description: "Action dispatching and execution status" },
     { name: API_TAG_NAMES.analytics, description: "Predictions and simulations" },
     { name: API_TAG_NAMES.automations, description: "Autonomous workflows and scheduled tasks" },
+    { name: API_TAG_NAMES.discussions, description: "Agentic chat sessions, knowledge, and connector-grounded answers" },
 ];

@@ -15,6 +15,8 @@ interface IntelligenceSectionProps {
   selectedModelId: string;
   onSelectModel: (modelId: string) => void;
   apiKey: string;
+  /** A key is saved on the server; it can be used without being typed again. */
+  hasSavedKey?: boolean;
   onApiKeyChange: (key: string) => void;
   onApiKeyBlur?: () => void;
   onOpenModelSelection?: () => void;
@@ -33,6 +35,7 @@ export const IntelligenceSection: React.FC<IntelligenceSectionProps> = ({
   selectedModelId,
   onSelectModel,
   apiKey,
+  hasSavedKey = false,
   onApiKeyChange,
   onApiKeyBlur,
   onOpenModelSelection,
@@ -42,6 +45,7 @@ export const IntelligenceSection: React.FC<IntelligenceSectionProps> = ({
   isTestingConnection = false,
 }) => {
   const [showKey, setShowKey] = useState<boolean>(false);
+  const hasUsableKey = Boolean(apiKey?.trim()) || hasSavedKey;
   const [modelDropdownOpen, setModelDropdownOpen] = useState<boolean>(false);
 
   // Find currently selected provider
@@ -155,7 +159,7 @@ export const IntelligenceSection: React.FC<IntelligenceSectionProps> = ({
               value={apiKey}
               onChange={(e) => onApiKeyChange(e.target.value)}
               onBlur={() => onApiKeyBlur?.()}
-              placeholder="Enter API key..."
+              placeholder={hasSavedKey ? "Saved key in use · enter a new key to replace it" : "Enter API key..."}
               className="w-full h-11 pl-3.5 pr-10 rounded-xl bg-slate-50 dark:bg-[#101729] border border-slate-200 dark:border-[#202c46] focus:border-[#8a2be2] focus:ring-1 focus:ring-[#8a2be2] text-xs font-mono text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 transition-colors outline-hidden cursor-text"
             />
             <IconOnlyButton
@@ -185,7 +189,7 @@ export const IntelligenceSection: React.FC<IntelligenceSectionProps> = ({
 
             <SecondaryButton
               onClick={onTestConnection}
-              disabled={isTestingConnection || !apiKey?.trim()}
+              disabled={isTestingConnection || !hasUsableKey}
               value="Test Connection"
               icon={isTestingConnection ? <Loader2 className="w-3 h-3 animate-spin text-[#8a2be2]" /> : undefined}
               iconPosition="left"
@@ -217,7 +221,7 @@ export const IntelligenceSection: React.FC<IntelligenceSectionProps> = ({
                     ? "Fetching models from provider..."
                     : currentModel
                     ? currentModel.name
-                    : !apiKey?.trim()
+                    : !hasUsableKey
                     ? "Enter API key to load models"
                     : availableModels.length === 0
                     ? "No models found from provider"
@@ -247,7 +251,7 @@ export const IntelligenceSection: React.FC<IntelligenceSectionProps> = ({
                     <div className="px-3 py-4 text-center text-xs text-slate-400 dark:text-slate-500">
                       {isLoadingModels
                         ? "Fetching models from provider..."
-                        : !apiKey?.trim()
+                        : !hasUsableKey
                         ? "Enter API key to fetch available models."
                         : "No models returned by provider."}
                     </div>

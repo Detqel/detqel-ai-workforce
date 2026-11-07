@@ -1,7 +1,7 @@
 import { API_TAG_NAMES } from "../../../constants/apiConstants.js";
 import type { FastifyPluginAsync } from "fastify";
 import { SettingsController } from "../controllers/settings.controller.js";
-import { createRouteGuards, optionalWorkspaceFromBody, optionalWorkspaceFromQuery, workspaceFromQuery } from "../../../shared/security/workspace-guard.js";
+import { createRouteGuards, optionalWorkspaceFromBody, optionalWorkspaceFromQuery, workspaceFromBody, workspaceFromQuery } from "../../../shared/security/workspace-guard.js";
 
 export const settingsRoutes: FastifyPluginAsync = async (app) => {
   const controller = new SettingsController(app.services.settings);
@@ -50,6 +50,12 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
     preHandler: guards.workspace("manage", workspaceFromQuery()),
     schema: { tags: [API_TAG_NAMES.settings], summary: "Update VYRA agent personality, model, instructions, and configuration" },
   }, controller.updateVyraSettings.bind(controller));
+
+  // Testing spends a search credit and can read the saved key, so it needs the same access as changing the key.
+  app.post("/settings/web-search/test-connection", {
+    preHandler: guards.workspace("manage", workspaceFromBody()),
+    schema: { tags: [API_TAG_NAMES.settings], summary: "Test the workspace's Tavily web-search key" },
+  }, controller.testWebSearch.bind(controller));
 
   app.post("/settings/vyra/test-prompt", {
     preHandler: usesCredentialsFromBody,

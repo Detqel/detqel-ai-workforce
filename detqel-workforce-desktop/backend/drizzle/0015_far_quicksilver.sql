@@ -1,0 +1,1 @@
+ALTER TABLE "litellm_virtual_keys" ADD COLUMN "config_fingerprint" varchar(128);

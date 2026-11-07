@@ -12,6 +12,8 @@ import type { IWorkspaceRepository } from "../../modules/workspaces/repositories
 import type { ISettingsRepository } from "../../modules/settings/repositories/settings.repository.js";
 import type { ILookupRepository } from "../../modules/lookups/repositories/lookup.repository.js";
 import type { IConnectorCatalogRepository } from "../../modules/connections/repositories/connector-catalog.repository.js";
+import type { IVirtualKeyRepository } from "../agents/virtual-key.repository.js";
+import type { IDiscussionRepository } from "../../modules/discussions/repositories/discussion.repository.js";
 export interface IRepositorySet {
     readonly users: IUserRepository;
     readonly workspaces: IWorkspaceRepository;
@@ -27,6 +29,8 @@ export interface IRepositorySet {
     readonly settings: ISettingsRepository;
     readonly lookups: ILookupRepository;
     readonly connectorCatalog: IConnectorCatalogRepository;
+    readonly virtualKeys: IVirtualKeyRepository;
+    readonly discussions: IDiscussionRepository;
 }
 export interface IUnitOfWork extends IRepositorySet {
     transaction<T>(operation: (repositories: IUnitOfWork) => Promise<T>): Promise<T>;

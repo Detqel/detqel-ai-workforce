@@ -5,7 +5,8 @@ mod startup_assets;
 
 use constants::desktop_constants::{
     APPLICATION_NAME, BACKEND_API_STEP, BACKEND_RUNTIME_STEP, BACKEND_STATUS_COMMAND,
-    CREATE_NO_WINDOW, DESKTOP_LOG_DIRECTORY_ENV, DEVELOPMENT_BINARY_DIRECTORY,
+    CONTAINER_RUNTIME_ENV, CONTAINER_RUNTIME_EXECUTABLES, CREATE_NO_WINDOW,
+    DESKTOP_LOG_DIRECTORY_ENV, DEVELOPMENT_BINARY_DIRECTORY,
     DEVELOPMENT_LOG_DIRECTORY, DOCKER_OWNERSHIP_LABEL, DOCKER_STOP_TIMEOUT_SECONDS, FRONTEND_STEP, FRONTEND_TIMEOUT_SECONDS, LOGO_DARK, LOGO_LIGHT,
     MAIN_WINDOW, NAME_LOGO_DARK, NAME_LOGO_LIGHT, NODE_BINARY_NAME, STARTUP_ASSET_HOST,
     STARTUP_ASSET_SCHEME, STARTUP_PAGE, STARTUP_POLL_INTERVAL_MS, STARTUP_READY_COMMAND,
@@ -734,40 +735,74 @@ fn owned_container_query_args() -> [String; 4] {
     ]
 }
 
-fn stop_owned_docker_containers(logs: Option<&Arc<DesktopLogs>>) {
-    let mut ps_cmd = Command::new("docker");
-    ps_cmd.args(owned_container_query_args());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        ps_cmd.creation_flags(CREATE_NO_WINDOW);
+/// Candidate runtime executables in probe order. A CONTAINER_RUNTIME override naming a supported
+/// runtime (by executable or the "rancher" alias for nerdctl) is tried first; docker always leads otherwise.
+fn container_runtime_candidates() -> Vec<String> {
+    let mut candidates: Vec<String> = CONTAINER_RUNTIME_EXECUTABLES
+        .iter()
+        .map(|executable| (*executable).to_owned())
+        .collect();
+    if let Ok(requested) = std::env::var(CONTAINER_RUNTIME_ENV) {
+        let normalized = requested.trim().to_ascii_lowercase();
+        let executable = match normalized.as_str() {
+            "" => None,
+            "rancher" => Some("nerdctl".to_owned()),
+            other => Some(other.to_owned()),
+        };
+        if let Some(executable) = executable {
+            candidates.retain(|candidate| candidate != &executable);
+            candidates.insert(0, executable);
+        }
     }
-    if let Ok(output) = ps_cmd.output() {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let ids: Vec<&str> = stdout
-            .split_whitespace()
-            .filter(|id| !id.is_empty())
-            .collect();
-        if !ids.is_empty() {
-            if let Some(logs) = logs {
-                logs.backend(
-                    "info",
-                    &format!("Stopping {} running Docker containers...", ids.len()),
-                );
-            }
-            let mut stop_cmd = Command::new("docker");
-            stop_cmd
+    candidates
+}
+
+fn run_runtime_command<F>(configure: F) -> Option<std::process::Output>
+where
+    F: Fn(&mut Command),
+{
+    for executable in container_runtime_candidates() {
+        let mut command = Command::new(&executable);
+        configure(&mut command);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(CREATE_NO_WINDOW);
+        }
+        match command.output() {
+            Ok(output) => return Some(output),
+            // A spawn failure means this runtime is absent; fall through to the next candidate.
+            Err(_) => continue,
+        }
+    }
+    None
+}
+
+fn stop_owned_docker_containers(logs: Option<&Arc<DesktopLogs>>) {
+    let Some(output) = run_runtime_command(|command| {
+        command.args(owned_container_query_args());
+    }) else {
+        return;
+    };
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let ids: Vec<&str> = stdout
+        .split_whitespace()
+        .filter(|id| !id.is_empty())
+        .collect();
+    if !ids.is_empty() {
+        if let Some(logs) = logs {
+            logs.backend(
+                "info",
+                &format!("Stopping {} running managed containers...", ids.len()),
+            );
+        }
+        let _ = run_runtime_command(|command| {
+            command
                 .arg("stop")
                 .arg("--time")
-                .arg(DOCKER_STOP_TIMEOUT_SECONDS);
-            stop_cmd.args(&ids);
-            #[cfg(windows)]
-            {
-                use std::os::windows::process::CommandExt;
-                stop_cmd.creation_flags(CREATE_NO_WINDOW);
-            }
-            let _ = stop_cmd.output();
-        }
+                .arg(DOCKER_STOP_TIMEOUT_SECONDS)
+                .args(&ids);
+        });
     }
 }
 
@@ -999,7 +1034,14 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{owned_container_query_args, valid_api_path};
+    use super::{container_runtime_candidates, owned_container_query_args, valid_api_path};
+    #[test]
+    fn container_runtime_candidates_cover_the_supported_runtimes() {
+        let candidates = container_runtime_candidates();
+        assert_eq!(candidates.first().map(String::as_str), Some("docker"), "docker leads the probe order");
+        assert!(candidates.iter().any(|candidate| candidate == "podman"), "podman must be a candidate");
+        assert!(candidates.iter().any(|candidate| candidate == "nerdctl"), "nerdctl (rancher) must be a candidate");
+    }
     #[test]
     fn docker_shutdown_selects_containers_by_ownership_label_only() {
         let args = owned_container_query_args();

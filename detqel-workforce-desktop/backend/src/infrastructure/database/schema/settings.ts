@@ -61,6 +61,10 @@ export const vyraSettings = pgTable("vyra_settings", {
   apiKey: text("api_key").default(""),
   keyStatus: varchar("key_status", { length: 100 }).notNull().default(""),
   isValidKey: boolean("is_valid_key").notNull().default(false),
+  // Tavily web-search key for the workspace's agents, encrypted like the model key, with its connection state.
+  tavilyApiKey: text("tavily_api_key").notNull().default(""),
+  tavilyKeyStatus: varchar("tavily_key_status", { length: 100 }).notNull().default(""),
+  isValidTavilyKey: boolean("is_valid_tavily_key").notNull().default(false),
   instructions: jsonb("instructions").$type<VyraInstructions>().notNull().default({
     core: "",
     behaviour: "",

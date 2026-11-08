@@ -249,7 +249,7 @@ export class DiscussionService {
             ?? (message.turnRole === DISCUSSION_SPEAKER_ROLES.delegate ? `${speaker}'s handoff` : `${speaker}'s reply`);
         const info: DocumentInfo = {
             title,
-            subtitle: [speaker, message.speakerRole, session.title].filter(Boolean).join(" · "),
+            subtitle: [speaker, message.speakerRole, session.title].filter(Boolean).join(" Â· "),
             author: speaker,
             exportedAt: exportTimestamp(),
         };

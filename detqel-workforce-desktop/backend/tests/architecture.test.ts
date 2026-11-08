@@ -35,6 +35,21 @@ test("every feature repository has an explicit implemented contract", async () =
   }
 });
 
+test("every source, prompt, and test file is valid UTF-8", async () => {
+  // A file saved in a legacy code page turns characters such as "·" into bytes that render as "�" in exports.
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  const folders = ["../src/", "../poml/", "../tests/"].map(folder => fileURLToPath(new URL(folder, import.meta.url)));
+  let checked = 0;
+  for (const folder of folders) {
+    for (const file of (await files(folder)).filter(name => /\.(ts|poml|json|mjs)$/.test(name))) {
+      const bytes = await readFile(file);
+      assert.doesNotThrow(() => decoder.decode(bytes), `${file} is not valid UTF-8`);
+      checked++;
+    }
+  }
+  assert.ok(checked > 100, `only ${checked} files were checked`);
+});
+
 test("migration journal is complete, ordered, and backed by committed SQL", async () => {
   const folder = fileURLToPath(new URL("../drizzle/", import.meta.url));
   const journal = JSON.parse(await readFile(path.join(folder, "meta", "_journal.json"), "utf8"));

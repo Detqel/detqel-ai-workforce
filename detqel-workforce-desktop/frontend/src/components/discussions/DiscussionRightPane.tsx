@@ -11,7 +11,6 @@ import {
   BookOpen,
   Plug,
   ExternalLink,
-  Trash2,
   Database,
   Layers,
   Sparkles,
@@ -29,20 +28,15 @@ import {
   apiUploadSessionKnowledge,
 } from "@/lib/api/discussions";
 import { useToast } from "@/context/ToastContext";
-
-interface UploadedArtifact {
-  id: string;
-  name: string;
-  size: string;
-  type: string;
-  uploadedAt: string;
-}
+import { SessionArtifacts } from "./SessionArtifacts";
 
 interface DiscussionRightPaneProps {
   activeTarget: DiscussionTarget | null;
   workspaceId?: string;
   activeSessionId?: string;
   messages: Array<{ role: string; content: string; sender?: string; timestamp: string }>;
+  /** Changes whenever the chat saved a document or an export, so the artifacts list reloads. */
+  artifactsVersion: number;
   onClose?: () => void;
 }
 
@@ -51,12 +45,12 @@ export const DiscussionRightPane: React.FC<DiscussionRightPaneProps> = ({
   workspaceId,
   activeSessionId,
   messages,
+  artifactsVersion,
 }) => {
   const { navigate } = useNavigation();
   const toast = useToast();
   const [activeTab, setActiveTab] = useState<"artifacts" | "knowledge" | "connectors">("artifacts");
   const [isCopied, setIsCopied] = useState(false);
-  const [uploadedArtifacts, setUploadedArtifacts] = useState<UploadedArtifact[]>([]);
   const [knowledgeDocs, setKnowledgeDocs] = useState<string[]>([]);
   const [connectors, setConnectors] = useState<ConnectorRecord[]>([]);
   const [attachedConnectorIds, setAttachedConnectorIds] = useState<Set<string>>(new Set());
@@ -187,25 +181,6 @@ export const DiscussionRightPane: React.FC<DiscussionRightPaneProps> = ({
     setTimeout(() => setIsCopied(false), 2000);
   };
 
-  // File Upload Simulation
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    const file = files[0];
-    const newArt: UploadedArtifact = {
-      id: `art-${Date.now()}`,
-      name: file.name,
-      size: `${(file.size / 1024).toFixed(1)} KB`,
-      type: file.type || "Document",
-      uploadedAt: "Just now",
-    };
-    setUploadedArtifacts((prev) => [newArt, ...prev]);
-  };
-
-  const handleRemoveArtifact = (id: string) => {
-    setUploadedArtifacts((prev) => prev.filter((a) => a.id !== id));
-  };
-
   return (
     <aside className="w-80 shrink-0 border-l border-slate-200/80 dark:border-slate-800 bg-white/70 dark:bg-slate-900/60 backdrop-blur-md flex flex-col h-full overflow-hidden select-none">
       {/* Top Header & Tabs */}
@@ -303,74 +278,7 @@ export const DiscussionRightPane: React.FC<DiscussionRightPaneProps> = ({
               </button>
             </div>
 
-            {/* Upload Artifacts Section */}
-            <div className="space-y-2">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                Upload Workspace Artifact
-              </span>
-              <label className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-slate-200 dark:border-slate-800 hover:border-primary rounded-2xl bg-slate-50/40 dark:bg-slate-800/20 hover:bg-primary-muted transition-all cursor-pointer text-center group">
-                <UploadCloud className="h-7 w-7 text-slate-400 group-hover:text-primary group-hover:scale-110 transition-all mb-1.5" />
-                <span className="text-xs font-bold text-slate-700 dark:text-slate-200 group-hover:text-primary transition-colors">
-                  Upload file or specification
-                </span>
-                <span className="text-[10px] text-slate-400 mt-0.5">
-                  PDF, DOCX, CSV, JSON, MD (up to 25MB)
-                </span>
-                <input
-                  type="file"
-                  onChange={handleFileUpload}
-                  className="hidden"
-                  accept=".pdf,.docx,.doc,.csv,.json,.md,.txt"
-                />
-              </label>
-            </div>
-
-            {/* Uploaded Artifacts List */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  Active Artifacts ({uploadedArtifacts.length})
-                </span>
-              </div>
-
-              {uploadedArtifacts.length === 0 ? (
-                <div className="text-center p-4 text-xs text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
-                  No artifacts attached to this discussion.
-                </div>
-              ) : (
-                <div className="space-y-1.5">
-                  {uploadedArtifacts.map((art) => (
-                    <div
-                      key={art.id}
-                      className="flex items-center justify-between p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs"
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-800 text-primary">
-                          <FileText className="h-3.5 w-3.5" />
-                        </div>
-                        <div className="min-w-0">
-                          <span className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate block">
-                            {art.name}
-                          </span>
-                          <span className="text-[10px] text-slate-400 block">
-                            {art.size} • {art.uploadedAt}
-                          </span>
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveArtifact(art.id)}
-                        className="p-1 text-slate-400 hover:text-red-500 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                        title="Remove artifact"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <SessionArtifacts workspaceId={workspaceId} sessionId={activeSessionId} version={artifactsVersion} />
           </div>
         ) : activeTab === "knowledge" ? (
           <div className="space-y-4">

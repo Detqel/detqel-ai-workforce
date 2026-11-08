@@ -127,6 +127,20 @@
       "when": 1793971649927,
       "tag": "0017_nappy_lyja",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1794071182536,
+      "tag": "0018_slippery_war_machine",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1794113182305,
+      "tag": "0019_giant_mongu",
+      "breakpoints": true
     }
   ]
 }

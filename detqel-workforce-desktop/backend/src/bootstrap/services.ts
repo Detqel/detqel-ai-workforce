@@ -34,6 +34,7 @@ import { AGENT_RUNTIME_SECRET_PURPOSE } from "../constants/agentRuntimeConstants
 import { OLLAMA_EMBEDDING_MODEL, OLLAMA_GATEWAY_BASE_URL } from "../constants/dockerConstants.js";
 import { AgentModelProvisioner } from "../shared/agents/agent-model.provisioner.js";
 import { WorkspaceWebSearch } from "../shared/agents/tools/workspace-web-search.js";
+import { DocumentExporter } from "../shared/documents/document-exporter.js";
 import type { IUnitOfWork } from "../shared/contracts/unit-of-work.js";
 export function createServices(unit: IUnitOfWork, checkDatabase: () => Promise<void>, config: Environment, pomlLoader: PomlLoader = new PomlLoader({ bundledDirectory: process.cwd(), runtimeDirectory: process.cwd() })) {
     const sessions = new SessionService(config.AUTH_SESSION_SECRET, config.AUTH_SESSION_TTL_SECONDS);
@@ -93,7 +94,7 @@ function createDiscussionService(unit: IUnitOfWork, config: Environment, setting
     const participants = new DiscussionParticipants(unit.workforce, pomlLoader);
     // Each workspace searches the web with the Tavily key it saved in Settings.
     const webSearch = new WorkspaceWebSearch(workspaceId => settings.resolveWebSearchKey(workspaceId));
-    return new DiscussionService(unit, runtime, fileServer, rag, models, participants, webSearch);
+    return new DiscussionService(unit, runtime, fileServer, rag, models, participants, webSearch, new DocumentExporter());
 }
 export type ApplicationServices = ReturnType<typeof createServices>;
 declare module "fastify" {

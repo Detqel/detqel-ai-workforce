@@ -23,6 +23,8 @@ export const POML_DISCUSSION_IDS = {
     delegationLead: "discussion-delegation-lead",
     delegationNone: "discussion-delegation-none",
     leadHandoff: "discussion-lead-handoff",
+    leadWrapUp: "discussion-lead-wrap-up",
+    document: "discussion-document",
     assignment: "discussion-assignment",
     addressed: "discussion-addressed",
     selfCheck: "discussion-self-check",

@@ -22,3 +22,7 @@ commands.allow = ["frontend_ready"]
 identifier = "allow-frontend-log"
 description = "Record bounded, redacted frontend diagnostics in local logs."
 commands.allow = ["frontend_log"]
+[[permission]]
+identifier = "allow-api-stream"
+description = "Stream application API responses from the managed local backend, and stop a stream."
+commands.allow = ["api_stream", "api_stream_cancel"]

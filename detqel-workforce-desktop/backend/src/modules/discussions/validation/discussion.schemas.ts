@@ -4,6 +4,7 @@ import {
     DISCUSSION_LIMITS,
     DISCUSSION_RESPONSE_MODES,
 } from "../../../constants/discussionConstants.js";
+import { DOCUMENT_FORMATS, DOCUMENT_LIMITS } from "../../../constants/documentConstants.js";
 
 /** A session is with exactly one recruited agent or one team; the service enforces which. */
 export const createSessionSchema = z.object({
@@ -14,6 +15,25 @@ export const createSessionSchema = z.object({
 }).strict();
 
 export const sessionIdParamsSchema = z.object({ sessionId: z.string().uuid() });
+
+export const renameSessionSchema = z.object({
+    title: z.string().trim().min(1).max(255),
+}).strict();
+
+export const messageParamsSchema = z.object({ sessionId: z.string().uuid(), messageId: z.string().uuid() });
+
+export const artifactParamsSchema = z.object({ sessionId: z.string().uuid(), fileName: z.string().min(1).max(255) });
+
+export const exportSchema = z.object({
+    format: z.enum([DOCUMENT_FORMATS.markdown, DOCUMENT_FORMATS.word, DOCUMENT_FORMATS.pdf]),
+}).strict();
+
+export const uploadArtifactSchema = z.object({
+    fileName: z.string().min(1).max(255),
+    mimeType: z.string().min(1).max(255),
+    // Base64, so any file type survives the JSON request; the decoded size is limited by the service.
+    contentBase64: z.string().min(1).max(Math.ceil(DOCUMENT_LIMITS.maxUploadBytes / 3) * 4 + 4),
+}).strict();
 
 export const postMessageSchema = z.object({
     message: z.string().min(1).max(DISCUSSION_LIMITS.maxMessageCharacters),

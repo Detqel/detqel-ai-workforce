@@ -27,18 +27,3 @@ export function prepareMarkdown(text: string): string {
     .map((segment, index) => (index % 2 === 1 ? segment : prepareProse(segment)))
     .join("");
 }
-
-/** A one-line plain-text preview of a Markdown reply, for lists such as the discussion sidebar. */
-export function markdownToPlainText(text: string): string {
-  return text
-    .replace(/```[\s\S]*?(?:```|$)/g, " ")
-    .replace(/`([^`\n]+)`/g, "$1")
-    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/\\[()[\]]/g, "")
-    .replace(/\${1,2}/g, "")
-    .replace(/^\s{0,3}(?:#{1,6}|>|[-*+]|\d+[.)])\s+/gm, "")
-    .replace(/(\*\*|__|~~|\*|_)(\S(?:[\s\S]*?\S)?)\1/g, "$2")
-    .replace(/\|/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}

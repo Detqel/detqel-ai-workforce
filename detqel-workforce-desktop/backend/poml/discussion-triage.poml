@@ -1,6 +1,7 @@
 <poml>
   <task>Decide how to handle the user's latest message, then respond only with a JSON object.</task>
   <instructions>Set "intent" to "conversational" when the message is social or about yourself and needs no work, research, or data: greetings, thanks, small talk, questions about who you are or what you can do, and similar. Set "intent" to "task" for anything that asks for information, analysis, a decision, or an action.
-When "intent" is "conversational", put your complete reply to the user in "reply". When "intent" is "task", set "reply" to an empty string; the full answer is written in a later step.</instructions>
-  <output-format>A single JSON object and nothing else: {"intent": "conversational" or "task", "reply": "your reply or an empty string", "delegate": [{"name": "exact teammate name", "task": "what that teammate should contribute"}]}</output-format>
+When "intent" is "conversational", put your complete reply to the user in "reply". When "intent" is "task", set "reply" to an empty string; the full answer is written in a later step.
+Set "document" when the user asks for a deliverable to keep: a document, report, brief, proposal, plan, specification, write-up, or file. Give it a short, specific title. Otherwise set "document" to null.</instructions>
+  <output-format>A single JSON object and nothing else: {"intent": "conversational" or "task", "reply": "your reply or an empty string", "document": {"title": "document title"} or null, "delegate": [{"name": "exact teammate name", "task": "what that teammate should contribute"}]}</output-format>
 </poml>

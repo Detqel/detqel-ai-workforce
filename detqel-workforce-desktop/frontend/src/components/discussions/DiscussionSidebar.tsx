@@ -7,16 +7,19 @@ import {
   Plus,
   MessageSquare,
   Trash2,
+  Pencil,
 } from "lucide-react";
+import { DISCUSSION_TITLE_MAX_LENGTH } from "@/constants/discussionConstants";
 
 export interface DiscussionSession {
   id: string;
+  /** The discussion's own title, which the user can edit. */
+  title: string;
   targetId: string;
   targetType: "agent" | "team";
+  /** The agent or team the discussion is with. */
   name: string;
-  subtitle?: string;
   avatarLetter?: string;
-  lastMessage?: string;
   timestamp?: string;
 }
 
@@ -26,6 +29,59 @@ interface DiscussionSidebarProps {
   onSelectSession: (session: DiscussionSession) => void;
   onOpenNewChatModal: () => void;
   onDeleteSession?: (session: DiscussionSession) => void;
+  onRenameSession: (session: DiscussionSession, title: string) => void;
+}
+
+/** The discussion title, edited in place: Enter or leaving the field saves, Escape cancels. */
+function EditableTitle({ session, onRename }: { session: DiscussionSession; onRename: (title: string) => void }) {
+  const [draft, setDraft] = useState<string | null>(null);
+
+  const save = () => {
+    if (draft === null) return;
+    const title = draft.trim();
+    setDraft(null);
+    if (title && title !== session.title) onRename(title);
+  };
+
+  if (draft === null) {
+    return (
+      <div className="flex items-center gap-1 min-w-0 group/title">
+        <h4
+          className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate"
+          title={session.title}
+          onDoubleClick={(event) => { event.stopPropagation(); setDraft(session.title); }}
+        >
+          {session.title}
+        </h4>
+        <button
+          type="button"
+          onClick={(event) => { event.stopPropagation(); setDraft(session.title); }}
+          aria-label={`Rename "${session.title}"`}
+          title="Rename"
+          className="p-0.5 rounded text-slate-400 hover:text-primary opacity-0 group-hover/title:opacity-100 focus-visible:opacity-100 transition-opacity cursor-pointer shrink-0"
+        >
+          <Pencil className="h-3 w-3" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <input
+      autoFocus
+      value={draft}
+      maxLength={DISCUSSION_TITLE_MAX_LENGTH}
+      aria-label="Discussion title"
+      onClick={(event) => event.stopPropagation()}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={save}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") { event.preventDefault(); save(); }
+        else if (event.key === "Escape") { event.preventDefault(); setDraft(null); }
+      }}
+      className="w-full text-xs font-bold px-1.5 py-0.5 -ml-1.5 rounded-md bg-white dark:bg-slate-900 border border-primary text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary-ring"
+    />
+  );
 }
 
 export const DiscussionSidebar: React.FC<DiscussionSidebarProps> = ({
@@ -34,16 +90,13 @@ export const DiscussionSidebar: React.FC<DiscussionSidebarProps> = ({
   onSelectSession,
   onOpenNewChatModal,
   onDeleteSession,
+  onRenameSession,
 }) => {
   const [searchQuery, setSearchQuery] = useState("");
 
   const filteredSessions = sessions.filter((s) => {
     const q = searchQuery.toLowerCase();
-    return (
-      s.name.toLowerCase().includes(q) ||
-      (s.subtitle && s.subtitle.toLowerCase().includes(q)) ||
-      (s.lastMessage && s.lastMessage.toLowerCase().includes(q))
-    );
+    return s.title.toLowerCase().includes(q) || s.name.toLowerCase().includes(q);
   });
 
   return (
@@ -118,7 +171,7 @@ export const DiscussionSidebar: React.FC<DiscussionSidebarProps> = ({
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
                       {session.targetType === "team" ? (
                         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-fg font-bold text-xs shadow-xs">
                           <Users className="h-4 w-4" />
@@ -129,15 +182,11 @@ export const DiscussionSidebar: React.FC<DiscussionSidebarProps> = ({
                         </div>
                       )}
 
-                      <div className="min-w-0">
-                        <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
+                      <div className="min-w-0 flex-1">
+                        <EditableTitle session={session} onRename={(title) => onRenameSession(session, title)} />
+                        <span className="text-[10px] text-slate-400 block truncate" title={session.name}>
                           {session.name}
-                        </h4>
-                        {session.subtitle && (
-                          <span className="text-[10px] text-slate-400 block truncate">
-                            {session.subtitle}
-                          </span>
-                        )}
+                        </span>
                       </div>
                     </div>
 
@@ -157,12 +206,6 @@ export const DiscussionSidebar: React.FC<DiscussionSidebarProps> = ({
                       )}
                     </div>
                   </div>
-
-                  {session.lastMessage && (
-                    <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-2 line-clamp-1">
-                      {session.lastMessage}
-                    </p>
-                  )}
                 </div>
               );
             })}

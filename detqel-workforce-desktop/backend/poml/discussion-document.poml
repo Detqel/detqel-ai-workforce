@@ -1,0 +1,3 @@
+<poml>
+  <instructions>The user asked for a document titled "{{ title }}". Your reply is that document and is saved as a file in this discussion, so write the complete document itself in Markdown: start with the title as a level-one heading, then structured sections with headings, lists, and tables where they help. Do not add any preamble, sign-off, or remarks about writing or saving it.</instructions>
+</poml>

@@ -1,6 +1,6 @@
 import { AUTH_STORAGE_KEYS } from "@/constants/authConstants";
 import { API_BASE_URL, API_PATHS } from "@/constants/apiConstants";
-import { desktopFetch } from "@/lib/desktop";
+import { desktopFetch, desktopStreamFetch } from "@/lib/desktop";
 
 /** Fired when the server rejects the session and it cannot be renewed, so the app can return to sign in. */
 export const SESSION_EXPIRED_EVENT = "detqel:session-expired";
@@ -61,13 +61,15 @@ export async function refreshSession(): Promise<string | null> {
 
 /**
  * fetch for the application API: sends the session token and, if the server says the session is no longer
- * valid, tries to renew it once before giving up and asking the user to sign in again.
+ * valid, tries to renew it once before giving up and asking the user to sign in again. With `stream`, the
+ * response body can be read while it is still arriving.
  */
-export async function authorizedFetch(url: string, init: RequestInit = {}): Promise<Response> {
+export async function authorizedFetch(url: string, init: RequestInit = {}, options: { stream?: boolean } = {}): Promise<Response> {
+  const transport = options.stream ? desktopStreamFetch : desktopFetch;
   const send = (token: string | null) => {
     const headers = new Headers(init.headers);
     if (token) headers.set("Authorization", `Bearer ${token}`);
-    return desktopFetch(url, { ...init, headers });
+    return transport(url, { ...init, headers });
   };
   const token = readAccessToken();
   const response = await send(token);
@@ -77,5 +79,7 @@ export async function authorizedFetch(url: string, init: RequestInit = {}): Prom
     announceSessionExpired();
     return response;
   }
+  // The rejected response is not read, so release it before retrying.
+  await response.body?.cancel().catch(() => undefined);
   return send(renewed);
 }

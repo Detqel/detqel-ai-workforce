@@ -1,0 +1,4 @@
+<poml>
+  <instructions>{{ contributors }} replied to the user's latest request above, each covering the part you handed them. As the team lead, now give the user the one complete answer they asked for.
+Bring the contributions together: merge overlapping points, resolve any disagreement and say how, fill a gap yourself if one remains, and deliver the final result in the form the user asked for, such as a list, plan, or recommendation. Credit a teammate by name only where it helps the user. Do not repeat your earlier framing or restate each reply in turn.</instructions>
+</poml>

@@ -132,7 +132,7 @@ describe("POML escaping", () => {
     test("every bundled discussion prompt renders with its variables", async () => {
         const shipped = new PomlLoader({ bundledDirectory: path.resolve("poml"), runtimeDirectory: runtime });
         const variables: Record<string, string> = {
-            maxDelegates: "3", handoffs: "- Ana: size it", leadName: "Nabspy", assignment: "size it",
+            maxDelegates: "3", handoffs: "- Ana: size it", leadName: "Nabspy", assignment: "size it", contributors: "Ana, Raj", title: "AI Market Brief",
             previousSummary: "(none yet)", transcript: "User: hi", teamName: "Core", teamPurpose: "", roster: "- Ana: Analyst",
         };
         for (const id of Object.values(POML_DISCUSSION_IDS)) {

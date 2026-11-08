@@ -6,17 +6,19 @@ mod startup_assets;
 use constants::desktop_constants::{
     APPLICATION_NAME, BACKEND_API_STEP, BACKEND_RUNTIME_STEP, BACKEND_STATUS_COMMAND,
     CONTAINER_RUNTIME_ENV, CONTAINER_RUNTIME_EXECUTABLES, CREATE_NO_WINDOW,
-    DESKTOP_LOG_DIRECTORY_ENV, DEVELOPMENT_BINARY_DIRECTORY,
-    DEVELOPMENT_LOG_DIRECTORY, DOCKER_OWNERSHIP_LABEL, DOCKER_STOP_TIMEOUT_SECONDS, FRONTEND_STEP, FRONTEND_TIMEOUT_SECONDS, LOGO_DARK, LOGO_LIGHT,
-    MAIN_WINDOW, NAME_LOGO_DARK, NAME_LOGO_LIGHT, NODE_BINARY_NAME, STARTUP_ASSET_HOST,
-    STARTUP_ASSET_SCHEME, STARTUP_PAGE, STARTUP_POLL_INTERVAL_MS, STARTUP_READY_COMMAND,
-    STARTUP_READY_TIMEOUT_SECONDS, STARTUP_STEPS, STARTUP_WINDOW, STARTUP_WINDOW_HEIGHT,
-    STARTUP_WINDOW_MINIMUM_HEIGHT, STARTUP_WINDOW_MINIMUM_WIDTH, STARTUP_WINDOW_WIDTH,
-    THEME_STORAGE_KEY,
+    DESKTOP_LOG_DIRECTORY_ENV, DEVELOPMENT_BINARY_DIRECTORY, DEVELOPMENT_LOG_DIRECTORY,
+    DOCKER_OWNERSHIP_LABEL, DOCKER_STOP_TIMEOUT_SECONDS, FRONTEND_STEP, FRONTEND_TIMEOUT_SECONDS,
+    LOGO_DARK, LOGO_LIGHT, MAIN_WINDOW, NAME_LOGO_DARK, NAME_LOGO_LIGHT, NODE_BINARY_NAME,
+    STARTUP_ASSET_HOST, STARTUP_ASSET_SCHEME, STARTUP_PAGE, STARTUP_POLL_INTERVAL_MS,
+    STARTUP_READY_COMMAND, STARTUP_READY_TIMEOUT_SECONDS, STARTUP_STEPS, STARTUP_WINDOW,
+    STARTUP_WINDOW_HEIGHT, STARTUP_WINDOW_MINIMUM_HEIGHT, STARTUP_WINDOW_MINIMUM_WIDTH,
+    STARTUP_WINDOW_WIDTH, THEME_STORAGE_KEY,
 };
 use constants::frontend_constants::{FRONTEND_DIAGNOSTICS_SCRIPT, FRONTEND_RUNTIME_FAILURE};
 use constants::network_constants::{
-    LOCAL_HTTP_SCHEME, LOOPBACK_HOST, PRIVATE_PORT_MAXIMUM, PRIVATE_PORT_MINIMUM,
+    API_BODY_LIMIT_BYTES, API_STREAM_LINE_LIMIT_BYTES, API_STREAM_MAX_CONCURRENT,
+    API_STREAM_TIMEOUT_SECONDS, LOCAL_HTTP_SCHEME, LOOPBACK_HOST, PRIVATE_PORT_MAXIMUM,
+    PRIVATE_PORT_MINIMUM,
 };
 use desktop_logs::{read_diagnostic_lines, DesktopLogs};
 use frontend_runtime::FrontendRuntime;
@@ -514,22 +516,25 @@ struct ApiResponse {
     content_type: String,
 }
 
-#[tauri::command]
-async fn api_request(
-    state: tauri::State<'_, SharedBackend>,
-    client: tauri::State<'_, reqwest::Client>,
-    path: String,
-    method: String,
+/// Builds a request to the managed backend from webview input, after checking it targets the application API.
+fn build_api_request(
+    state: &SharedBackend,
+    client: &reqwest::Client,
+    path: &str,
+    method: &str,
     body: Option<String>,
     authorization: Option<String>,
-) -> Result<ApiResponse, String> {
-    if !valid_api_path(&path) {
+) -> Result<reqwest::RequestBuilder, String> {
+    if !valid_api_path(path) {
         return Err("Only application API paths are allowed".into());
     }
-    if !matches!(method.as_str(), "GET" | "POST" | "PUT" | "PATCH" | "DELETE") {
+    if !matches!(method, "GET" | "POST" | "PUT" | "PATCH" | "DELETE") {
         return Err("Unsupported API method".into());
     }
-    if body.as_ref().is_some_and(|body| body.len() > 1_048_576) {
+    if body
+        .as_ref()
+        .is_some_and(|body| body.len() > API_BODY_LIMIT_BYTES)
+    {
         return Err("Request exceeds the API body limit".into());
     }
     let (address, token) = {
@@ -554,17 +559,33 @@ async fn api_request(
             .header("Content-Type", "application/json")
             .body(body);
     }
-    let response = request
-        .send()
-        .await
-        .map_err(|_| "The local API request failed")?;
-    let status = response.status().as_u16();
-    let content_type = response
+    Ok(request)
+}
+
+fn response_content_type(response: &reqwest::Response) -> String {
+    response
         .headers()
         .get("content-type")
         .and_then(|value| value.to_str().ok())
         .unwrap_or("application/json")
-        .to_owned();
+        .to_owned()
+}
+
+#[tauri::command]
+async fn api_request(
+    state: tauri::State<'_, SharedBackend>,
+    client: tauri::State<'_, reqwest::Client>,
+    path: String,
+    method: String,
+    body: Option<String>,
+    authorization: Option<String>,
+) -> Result<ApiResponse, String> {
+    let response = build_api_request(&state, &client, &path, &method, body, authorization)?
+        .send()
+        .await
+        .map_err(|_| "The local API request failed")?;
+    let status = response.status().as_u16();
+    let content_type = response_content_type(&response);
     let body = response
         .text()
         .await
@@ -574,6 +595,148 @@ async fn api_request(
         body,
         content_type,
     })
+}
+
+/// A streamed response, passed to the webview piece by piece as the backend writes it.
+#[derive(Clone, Serialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+enum ApiStreamMessage {
+    Start { status: u16, content_type: String },
+    Data { text: String },
+    End,
+    Error { message: String },
+}
+
+/// Streams in progress, so the webview can stop one (for example when the user leaves a discussion).
+#[derive(Default)]
+struct ApiStreams(Mutex<std::collections::HashMap<String, tauri::async_runtime::JoinHandle<()>>>);
+
+/// Takes every complete line from the buffer. Lines end with an ASCII newline, so what is taken is never cut
+/// inside a UTF-8 character.
+fn take_complete_lines(buffer: &mut Vec<u8>) -> Option<String> {
+    let end = buffer.iter().rposition(|byte| *byte == b'\n')? + 1;
+    let rest = buffer.split_off(end);
+    let lines = std::mem::replace(buffer, rest);
+    Some(String::from_utf8_lossy(&lines).into_owned())
+}
+
+fn valid_stream_id(id: &str) -> bool {
+    uuid::Uuid::parse_str(id).is_ok()
+}
+
+async fn forward_stream(
+    request: reqwest::RequestBuilder,
+    channel: tauri::ipc::Channel<ApiStreamMessage>,
+) {
+    let fail = |message: &str| {
+        let _ = channel.send(ApiStreamMessage::Error {
+            message: message.into(),
+        });
+    };
+    let mut response = match request
+        .timeout(Duration::from_secs(API_STREAM_TIMEOUT_SECONDS))
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(_) => return fail("The local API request failed"),
+    };
+    let start = ApiStreamMessage::Start {
+        status: response.status().as_u16(),
+        content_type: response_content_type(&response),
+    };
+    if channel.send(start).is_err() {
+        return;
+    }
+    let mut pending = Vec::new();
+    loop {
+        match response.chunk().await {
+            Ok(Some(bytes)) => {
+                pending.extend_from_slice(&bytes);
+                if let Some(text) = take_complete_lines(&mut pending) {
+                    // The page is gone; dropping the response closes the connection and stops the backend's work.
+                    if channel.send(ApiStreamMessage::Data { text }).is_err() {
+                        return;
+                    }
+                }
+                if pending.len() > API_STREAM_LINE_LIMIT_BYTES {
+                    return fail("The API response exceeded the stream line limit");
+                }
+            }
+            Ok(None) => break,
+            Err(_) => return fail("Unable to read API response"),
+        }
+    }
+    if !pending.is_empty() {
+        let _ = channel.send(ApiStreamMessage::Data {
+            text: String::from_utf8_lossy(&pending).into_owned(),
+        });
+    }
+    let _ = channel.send(ApiStreamMessage::End);
+}
+
+/// Sends an application API request and streams the response to the webview as it arrives.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+fn api_stream(
+    state: tauri::State<'_, SharedBackend>,
+    client: tauri::State<'_, reqwest::Client>,
+    streams: tauri::State<'_, Arc<ApiStreams>>,
+    stream_id: String,
+    path: String,
+    method: String,
+    body: Option<String>,
+    authorization: Option<String>,
+    on_event: tauri::ipc::Channel<ApiStreamMessage>,
+) -> Result<(), String> {
+    if !valid_stream_id(&stream_id) {
+        return Err("Invalid stream identifier".into());
+    }
+    let request = build_api_request(&state, &client, &path, &method, body, authorization)?;
+    let registry = streams.inner().clone();
+    let mut active = registry.0.lock().map_err(|_| "Stream state unavailable")?;
+    active.retain(|_, handle| !handle.inner().is_finished());
+    if active.contains_key(&stream_id) {
+        return Err("The stream identifier is already in use".into());
+    }
+    if active.len() >= API_STREAM_MAX_CONCURRENT {
+        return Err("Too many API streams are open".into());
+    }
+    let finished = registry.clone();
+    let id = stream_id.clone();
+    // Registered while the lock is held, so the task's own removal always runs after its registration.
+    let handle = tauri::async_runtime::spawn(async move {
+        forward_stream(request, on_event).await;
+        if let Ok(mut active) = finished.0.lock() {
+            active.remove(&id);
+        }
+    });
+    active.insert(stream_id, handle);
+    Ok(())
+}
+
+/// Stops a stream: its connection closes, which stops the backend's work for it.
+#[tauri::command]
+fn api_stream_cancel(
+    streams: tauri::State<'_, Arc<ApiStreams>>,
+    stream_id: String,
+) -> Result<(), String> {
+    if !valid_stream_id(&stream_id) {
+        return Err("Invalid stream identifier".into());
+    }
+    let handle = streams
+        .0
+        .lock()
+        .map_err(|_| "Stream state unavailable")?
+        .remove(&stream_id);
+    if let Some(handle) = handle {
+        handle.abort();
+    }
+    Ok(())
 }
 
 fn start_backend(
@@ -975,7 +1138,8 @@ pub fn run() {
                 .build()
                 .expect("HTTP client initialization failed"),
         )
-        .invoke_handler(tauri::generate_handler![startup_ready, backend_status, api_request, frontend_ready, frontend_log])
+        .manage(Arc::new(ApiStreams::default()))
+        .invoke_handler(tauri::generate_handler![startup_ready, backend_status, api_request, api_stream, api_stream_cancel, frontend_ready, frontend_log])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
@@ -1034,13 +1198,159 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{container_runtime_candidates, owned_container_query_args, valid_api_path};
+    use super::{
+        container_runtime_candidates, owned_container_query_args, take_complete_lines,
+        valid_api_path, valid_stream_id,
+    };
+    #[test]
+    fn streamed_responses_are_passed_on_in_whole_lines() {
+        let mut buffer = b"{\"a\":1}\n{\"b\":".to_vec();
+        assert_eq!(
+            take_complete_lines(&mut buffer).as_deref(),
+            Some("{\"a\":1}\n")
+        );
+        assert_eq!(buffer, b"{\"b\":");
+        assert_eq!(
+            take_complete_lines(&mut buffer),
+            None,
+            "a partial line waits for the rest"
+        );
+        buffer.extend_from_slice("\"é\"}\n{\"c\":3}\n".as_bytes());
+        assert_eq!(
+            take_complete_lines(&mut buffer).as_deref(),
+            Some("{\"b\":\"é\"}\n{\"c\":3}\n")
+        );
+        assert!(buffer.is_empty());
+    }
+    #[test]
+    fn a_multibyte_character_split_across_chunks_is_never_cut() {
+        let text = "{\"t\":\"日本\"}\n".as_bytes();
+        let (first, second) = text.split_at(8);
+        let mut buffer = first.to_vec();
+        assert_eq!(take_complete_lines(&mut buffer), None);
+        buffer.extend_from_slice(second);
+        assert_eq!(
+            take_complete_lines(&mut buffer).as_deref(),
+            Some("{\"t\":\"日本\"}\n")
+        );
+    }
+    /// Serves one chunked response whose pieces split a line, with a pause between them like a model writing.
+    fn serve_chunked(pieces: &'static [&'static str]) -> String {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let address = format!("http://{}", listener.local_addr().expect("address"));
+        std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().expect("accept");
+            let mut request = [0u8; 4096];
+            let _ = socket.read(&mut request);
+            let _ = socket.write_all(b"HTTP/1.1 200 OK\r\ncontent-type: application/x-ndjson\r\ntransfer-encoding: chunked\r\n\r\n");
+            for piece in pieces {
+                let _ = socket.write_all(format!("{:x}\r\n{piece}\r\n", piece.len()).as_bytes());
+                let _ = socket.flush();
+                std::thread::sleep(std::time::Duration::from_millis(30));
+            }
+            let _ = socket.write_all(b"0\r\n\r\n");
+        });
+        address
+    }
+
+    #[test]
+    fn a_streamed_response_reaches_the_webview_in_order_and_in_whole_lines() {
+        let address = serve_chunked(&[
+            "{\"type\":\"speaker\"}\n{\"type\":\"tok",
+            "en\",\"text\":\"日本\"}\n",
+            "{\"type\":\"done\"}\n",
+        ]);
+        let received = std::sync::Arc::new(std::sync::Mutex::new(Vec::<serde_json::Value>::new()));
+        let sink = received.clone();
+        let channel = tauri::ipc::Channel::<super::ApiStreamMessage>::new(move |body| {
+            if let tauri::ipc::InvokeResponseBody::Json(json) = body {
+                sink.lock()
+                    .unwrap()
+                    .push(serde_json::from_str(&json).unwrap());
+            }
+            Ok(())
+        });
+        let request = reqwest::Client::new().get(&address);
+        tauri::async_runtime::block_on(super::forward_stream(request, channel));
+        let messages = received.lock().unwrap().clone();
+        let kinds: Vec<&str> = messages
+            .iter()
+            .map(|message| message["kind"].as_str().unwrap())
+            .collect();
+        assert_eq!(kinds.first(), Some(&"start"));
+        assert_eq!(kinds.last(), Some(&"end"));
+        assert_eq!(messages[0]["status"], 200);
+        assert_eq!(messages[0]["contentType"], "application/x-ndjson");
+        let text: String = messages
+            .iter()
+            .filter(|message| message["kind"] == "data")
+            .map(|message| message["text"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            text,
+            "{\"type\":\"speaker\"}\n{\"type\":\"token\",\"text\":\"日本\"}\n{\"type\":\"done\"}\n"
+        );
+        assert!(
+            messages
+                .iter()
+                .filter(|message| message["kind"] == "data")
+                .all(|message| message["text"].as_str().unwrap().ends_with('\n')),
+            "every piece the webview receives is made of whole lines"
+        );
+        assert!(
+            kinds.iter().filter(|kind| **kind == "data").count() >= 2,
+            "pieces are passed on as they arrive, not all at the end"
+        );
+    }
+
+    #[test]
+    fn a_closed_webview_stops_reading_the_stream() {
+        let address = serve_chunked(&["{\"a\":1}\n", "{\"b\":2}\n", "{\"c\":3}\n"]);
+        let delivered = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let count = delivered.clone();
+        // The webview accepts the start message, then is gone.
+        let channel = tauri::ipc::Channel::<super::ApiStreamMessage>::new(move |_| {
+            if count.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                Ok(())
+            } else {
+                Err(tauri::Error::FailedToReceiveMessage)
+            }
+        });
+        tauri::async_runtime::block_on(super::forward_stream(
+            reqwest::Client::new().get(&address),
+            channel,
+        ));
+        assert_eq!(
+            delivered.load(std::sync::atomic::Ordering::SeqCst),
+            2,
+            "nothing more is sent after the webview stops listening"
+        );
+    }
+
+    #[test]
+    fn stream_identifiers_must_be_uuids() {
+        assert!(valid_stream_id("0b6a3a6e-9a8f-4c43-9d0c-6b9f1e5f1d2a"));
+        for id in ["", "../x", "1", "0b6a3a6e-9a8f-4c43-9d0c-6b9f1e5f1d2a\n"] {
+            assert!(!valid_stream_id(id), "{id:?}");
+        }
+    }
     #[test]
     fn container_runtime_candidates_cover_the_supported_runtimes() {
         let candidates = container_runtime_candidates();
-        assert_eq!(candidates.first().map(String::as_str), Some("docker"), "docker leads the probe order");
-        assert!(candidates.iter().any(|candidate| candidate == "podman"), "podman must be a candidate");
-        assert!(candidates.iter().any(|candidate| candidate == "nerdctl"), "nerdctl (rancher) must be a candidate");
+        assert_eq!(
+            candidates.first().map(String::as_str),
+            Some("docker"),
+            "docker leads the probe order"
+        );
+        assert!(
+            candidates.iter().any(|candidate| candidate == "podman"),
+            "podman must be a candidate"
+        );
+        assert!(
+            candidates.iter().any(|candidate| candidate == "nerdctl"),
+            "nerdctl (rancher) must be a candidate"
+        );
     }
     #[test]
     fn docker_shutdown_selects_containers_by_ownership_label_only() {

@@ -42,6 +42,15 @@ export const LITELLM_TIMEOUTS_MS = {
 /** Upper bound on an admin/health response body so a misbehaving gateway cannot exhaust memory. */
 export const LITELLM_RESPONSE_LIMIT_BYTES = 2 * 1024 * 1024;
 
+/**
+ * Server-sent events of a streamed completion. The final chunk carries the usage, including the gateway's
+ * computed cost; the response-cost header is not sent for streams because the cost is known only at the end.
+ */
+export const LITELLM_STREAM = {
+    dataPrefix: "data:",
+    doneMarker: "[DONE]",
+} as const;
+
 export const LITELLM_ERROR_MESSAGES = {
     gatewayUnconfigured: "The local AI gateway is not configured. Restart the application so its managed services start.",
     adminFailed: "The local AI gateway rejected an administrative request.",

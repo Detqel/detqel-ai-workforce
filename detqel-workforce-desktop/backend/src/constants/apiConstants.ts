@@ -4,6 +4,14 @@ import { DESKTOP_TOKEN_HEADER } from "./authConstants.js";
 export const API_PREFIX = "/api";
 export const API_DOCS_PREFIX = "/docs";
 export const CORS_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
+
+/** Responses streamed as newline-delimited JSON events (agent activity and reply text as it is written). */
+export const HTTP_EVENT_STREAM = {
+    contentType: "application/x-ndjson; charset=utf-8",
+    cacheControl: "no-cache, no-transform",
+    errorEvent: "error",
+    genericError: "An unexpected error occurred",
+} as const;
 export const LOG_REDACTION_PATHS = ["req.headers.authorization", "req.headers.cookie", `req.headers["${DESKTOP_TOKEN_HEADER}"]`, "password", "passwordHash"];
 export const API_TAG_NAMES = {
     system: "System", auth: "Auth", workspaces: "Workspaces", users: "Users",

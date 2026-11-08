@@ -2,13 +2,19 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { requireUserId } from "../../../shared/security/request-context.js";
 import { workspaceParamsSchema } from "../../../shared/validation/http.schemas.js";
 import type { DiscussionService } from "../services/discussion.service.js";
+import { sendEventStream } from "../../../shared/http/event-stream.js";
 import {
     addKnowledgeSchema,
+    artifactParamsSchema,
     attachConnectorSchema,
     connectorParamsSchema,
     createSessionSchema,
+    exportSchema,
+    messageParamsSchema,
     postMessageSchema,
+    renameSessionSchema,
     sessionIdParamsSchema,
+    uploadArtifactSchema,
 } from "../validation/discussion.schemas.js";
 
 export class DiscussionController {
@@ -50,18 +56,69 @@ export class DiscussionController {
         return reply.send({ success: true });
     }
 
+    /** Saves the message, then streams the turn: who speaks, each step they take, and their reply as written. */
     async postMessage(request: FastifyRequest, reply: FastifyReply) {
         const { workspaceId } = workspaceParamsSchema.parse(request.params);
         const { sessionId } = sessionIdParamsSchema.parse(request.params);
         const body = postMessageSchema.parse(request.body);
-        const turn = await this.service.postMessage({ workspaceId, sessionId, ...body });
-        return reply.status(201).send(turn);
+        // Problems the user must fix (no model, no web-search key) fail here as an ordinary error response.
+        const turn = await this.service.startMessage({ workspaceId, sessionId, ...body });
+        return sendEventStream(reply, (emit, signal) => turn.run(emit, signal));
     }
 
+    /** Streams the rest of a turn the user left before every speaker replied. */
     async continueTurn(request: FastifyRequest, reply: FastifyReply) {
         const { workspaceId } = workspaceParamsSchema.parse(request.params);
         const { sessionId } = sessionIdParamsSchema.parse(request.params);
-        return reply.send(await this.service.continueTurn(workspaceId, sessionId));
+        const turn = await this.service.startContinue(workspaceId, sessionId);
+        return sendEventStream(reply, (emit, signal) => turn.run(emit, signal));
+    }
+
+    async renameSession(request: FastifyRequest, reply: FastifyReply) {
+        const { workspaceId } = workspaceParamsSchema.parse(request.params);
+        const { sessionId } = sessionIdParamsSchema.parse(request.params);
+        const { title } = renameSessionSchema.parse(request.body);
+        return reply.send(await this.service.renameSession(workspaceId, sessionId, title));
+    }
+
+    async exportMessage(request: FastifyRequest, reply: FastifyReply) {
+        const { workspaceId } = workspaceParamsSchema.parse(request.params);
+        const { sessionId, messageId } = messageParamsSchema.parse(request.params);
+        const { format } = exportSchema.parse(request.body);
+        return reply.status(201).send(await this.service.exportMessage(workspaceId, sessionId, messageId, format));
+    }
+
+    async listArtifacts(request: FastifyRequest, reply: FastifyReply) {
+        const { workspaceId } = workspaceParamsSchema.parse(request.params);
+        const { sessionId } = sessionIdParamsSchema.parse(request.params);
+        return reply.send(await this.service.listArtifacts(workspaceId, sessionId));
+    }
+
+    async uploadArtifact(request: FastifyRequest, reply: FastifyReply) {
+        const { workspaceId } = workspaceParamsSchema.parse(request.params);
+        const { sessionId } = sessionIdParamsSchema.parse(request.params);
+        const body = uploadArtifactSchema.parse(request.body);
+        const artifact = await this.service.uploadArtifact(workspaceId, sessionId, body.fileName, body.mimeType, Buffer.from(body.contentBase64, "base64"));
+        return reply.status(201).send(artifact);
+    }
+
+    async downloadArtifact(request: FastifyRequest, reply: FastifyReply) {
+        const { workspaceId } = workspaceParamsSchema.parse(request.params);
+        const { sessionId, fileName } = artifactParamsSchema.parse(request.params);
+        return reply.send(await this.service.downloadArtifact(workspaceId, sessionId, fileName));
+    }
+
+    async deleteArtifact(request: FastifyRequest, reply: FastifyReply) {
+        const { workspaceId } = workspaceParamsSchema.parse(request.params);
+        const { sessionId, fileName } = artifactParamsSchema.parse(request.params);
+        return reply.send({ success: await this.service.deleteArtifact(workspaceId, sessionId, fileName) });
+    }
+
+    async exportArtifact(request: FastifyRequest, reply: FastifyReply) {
+        const { workspaceId } = workspaceParamsSchema.parse(request.params);
+        const { sessionId, fileName } = artifactParamsSchema.parse(request.params);
+        const { format } = exportSchema.parse(request.body);
+        return reply.status(201).send(await this.service.exportArtifact(workspaceId, sessionId, fileName, format));
     }
 
     async attachConnector(request: FastifyRequest, reply: FastifyReply) {

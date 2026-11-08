@@ -30,6 +30,8 @@ export interface StoredFile {
     readonly name: string;
     readonly path: string;
     readonly size: number;
+    /** Set when listing a folder. */
+    readonly modifiedAt?: Date;
 }
 
 /** Resolves the platform-appropriate file-server base directory, honouring the environment override. */
@@ -67,9 +69,65 @@ export class FileServer {
      * type. The write is atomic. Returns the stored file descriptor.
      */
     async storeKnowledgeFile(location: SessionLocation, fileName: string, mimeType: string, contents: Buffer): Promise<StoredFile> {
+        const stored = await this.store(location, FILE_SERVER_SESSION_DIRECTORIES.knowledge, fileName, mimeType, contents);
+        logger.info({ workspaceId: location.workspaceId, sessionId: location.sessionId, fileName }, "Stored session knowledge file");
+        return stored;
+    }
+
+    /** Lists the knowledge files stored for a session. */
+    listKnowledgeFiles(location: SessionLocation): Promise<StoredFile[]> {
+        return this.list(location, FILE_SERVER_SESSION_DIRECTORIES.knowledge);
+    }
+
+    /** Reads a stored knowledge file's contents. */
+    readKnowledgeFile(location: SessionLocation, fileName: string): Promise<Buffer> {
+        return this.read(location, FILE_SERVER_SESSION_DIRECTORIES.knowledge, fileName);
+    }
+
+    /**
+     * Stores a file in a session's artifacts, replacing one with the same name. The same type rules as uploads
+     * apply. The write is atomic.
+     */
+    async storeArtifact(location: SessionLocation, fileName: string, mimeType: string, contents: Buffer): Promise<StoredFile> {
+        const stored = await this.store(location, FILE_SERVER_SESSION_DIRECTORIES.artifacts, fileName, mimeType, contents);
+        logger.info({ workspaceId: location.workspaceId, sessionId: location.sessionId, fileName }, "Stored session artifact");
+        return stored;
+    }
+
+    listArtifacts(location: SessionLocation): Promise<StoredFile[]> {
+        return this.list(location, FILE_SERVER_SESSION_DIRECTORIES.artifacts);
+    }
+
+    readArtifact(location: SessionLocation, fileName: string): Promise<Buffer> {
+        return this.read(location, FILE_SERVER_SESSION_DIRECTORIES.artifacts, fileName);
+    }
+
+    /** Removes one artifact. Returns false when it did not exist. */
+    async deleteArtifact(location: SessionLocation, fileName: string): Promise<boolean> {
+        this.assertSafeFileName(fileName);
+        try {
+            await unlink(join(this.sessionDirectory(location), FILE_SERVER_SESSION_DIRECTORIES.artifacts, fileName));
+            return true;
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+            throw error;
+        }
+    }
+
+    /** True when the session's artifacts already hold a file with this name. */
+    async hasArtifact(location: SessionLocation, fileName: string): Promise<boolean> {
+        this.assertSafeFileName(fileName);
+        try {
+            return (await stat(join(this.sessionDirectory(location), FILE_SERVER_SESSION_DIRECTORIES.artifacts, fileName))).isFile();
+        } catch {
+            return false;
+        }
+    }
+
+    private async store(location: SessionLocation, folder: string, fileName: string, mimeType: string, contents: Buffer): Promise<StoredFile> {
         this.assertSafeFileName(fileName);
         this.assertAllowedType(fileName, mimeType);
-        const directory = join(this.sessionDirectory(location), FILE_SERVER_SESSION_DIRECTORIES.knowledge);
+        const directory = join(this.sessionDirectory(location), folder);
         await this.makeHardenedDirectory(directory);
         const target = join(directory, fileName);
         const temporary = join(directory, `${FILE_SERVER_TEMP.prefix}${randomBytes(FILE_SERVER_TEMP.randomBytes).toString(FILE_SERVER_TEMP.encoding)}${FILE_SERVER_TEMP.suffix}`);
@@ -81,13 +139,11 @@ export class FileServer {
             await unlink(temporary).catch(() => {});
             throw error;
         }
-        logger.info({ workspaceId: location.workspaceId, sessionId: location.sessionId, fileName }, "Stored session knowledge file");
         return { name: fileName, path: target, size: contents.byteLength };
     }
 
-    /** Lists the knowledge files stored for a session. */
-    async listKnowledgeFiles(location: SessionLocation): Promise<StoredFile[]> {
-        const directory = join(this.sessionDirectory(location), FILE_SERVER_SESSION_DIRECTORIES.knowledge);
+    private async list(location: SessionLocation, folder: string): Promise<StoredFile[]> {
+        const directory = join(this.sessionDirectory(location), folder);
         let entries: string[];
         try {
             entries = await readdir(directory);
@@ -100,15 +156,14 @@ export class FileServer {
             if (name.startsWith(FILE_SERVER_TEMP.prefix)) continue;
             const path = join(directory, name);
             const info = await stat(path);
-            if (info.isFile()) files.push({ name, path, size: info.size });
+            if (info.isFile()) files.push({ name, path, size: info.size, modifiedAt: info.mtime });
         }
         return files;
     }
 
-    /** Reads a stored knowledge file's contents. */
-    async readKnowledgeFile(location: SessionLocation, fileName: string): Promise<Buffer> {
+    private async read(location: SessionLocation, folder: string, fileName: string): Promise<Buffer> {
         this.assertSafeFileName(fileName);
-        const path = join(this.sessionDirectory(location), FILE_SERVER_SESSION_DIRECTORIES.knowledge, fileName);
+        const path = join(this.sessionDirectory(location), folder, fileName);
         try {
             return await readFile(path);
         } catch (error) {

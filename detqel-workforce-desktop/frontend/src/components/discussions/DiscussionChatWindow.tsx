@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   Send,
   Mic,
@@ -12,30 +12,45 @@ import {
   Zap,
   Brain,
   Globe,
-  ExternalLink,
   Loader2,
   ArrowUpRight,
   ArrowDownLeft,
+  Square,
+  Play,
 } from "lucide-react";
 import type { DiscussionTarget } from "@/lib/discussionStore";
 import type { AgentTeam, RecruitedAgent } from "@/lib/api";
 import {
-  apiContinueDiscussionTurn,
-  apiPostDiscussionMessage,
-  type AgentReply,
+  apiExportDiscussionMessage,
+  apiStreamContinueTurn,
+  apiStreamDiscussionMessage,
+  type ExportFormat,
   type PendingSpeaker,
   type ResponseMode,
   type CapabilityMode,
   type SessionUsage,
+  type TurnEvent,
 } from "@/lib/api/discussions";
 import { useToast } from "@/context/ToastContext";
 import { MarkdownContent } from "@/components/ui/markdown-content";
+import { listNames } from "@/constants/discussionConstants";
+import { AgentActivity } from "./AgentActivity";
+import { ReplyLine } from "./ReplyLine";
+import { ReplyViewer } from "./ReplyViewer";
+import { ExportMenu } from "./ExportMenu";
+import { saveDownload } from "@/lib/download";
+import { MessageSources } from "./MessageSources";
 import {
   formatCost,
   formatTime,
   formatTokens,
   formatTokensExact,
+  documentOf,
+  isCompact,
+  isHandoff,
+  isSaved,
   toViewMessage,
+  upsertStep,
   type ChatMessage,
 } from "./discussionView";
 
@@ -48,13 +63,15 @@ interface DiscussionChatWindowProps {
   initialMessages?: ChatMessage[];
   /** The session's gateway usage so far. */
   initialUsage: SessionUsage;
-  /** True when teammates were still due to reply when the session was opened. */
-  resumePending: boolean;
+  /** Agents still due to reply in a turn that stopped before they did, when the session was opened. */
+  initialPendingAgentIds: string[];
   teams: AgentTeam[];
   agents: RecruitedAgent[];
   isRightPaneOpen: boolean;
   onToggleRightPane: () => void;
   onMessagesUpdate: (messages: ChatMessage[]) => void;
+  /** A document or export was saved in the discussion's artifacts. */
+  onArtifactsChanged: () => void;
 }
 
 export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
@@ -68,12 +85,12 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
   workspaceId,
   initialMessages,
   initialUsage,
-  resumePending,
+  initialPendingAgentIds,
+  onArtifactsChanged,
 }) => {
   const toast = useToast();
   const [inputText, setInputText] = useState("");
   const [isRecording, setIsRecording] = useState(false);
-  const [isSending, setIsSending] = useState(false);
   const [responseMode, setResponseMode] = useState<ResponseMode>("detailed");
   const [capabilityMode, setCapabilityMode] = useState<CapabilityMode>("fast");
   const [webEnabled, setWebEnabled] = useState(false);
@@ -96,60 +113,189 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
   // (via its key) whenever a different session's history loads, so no prop-to-state syncing is needed.
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages ?? []);
   const [usage, setUsage] = useState<SessionUsage>(initialUsage);
-  // The teammate replying right now in a team turn; "next" when resuming before the server names them.
-  const [responding, setResponding] = useState<PendingSpeaker | "next" | null>(null);
+  const [isStreaming, setIsStreaming] = useState(false);
+  // Teammates due to reply after the one speaking now, as the server reports them.
+  const [upNext, setUpNext] = useState<PendingSpeaker[]>([]);
+  // Agents still due to reply in a turn that was stopped or left; the user can let them continue.
+  const [stalled, setStalled] = useState<string[]>(initialPendingAgentIds);
+  // The handoff open in the viewer.
+  const [viewingId, setViewingId] = useState<string | null>(null);
 
-  // Each turn gets a generation; a newer message, or leaving the session, stops an older turn's reply queue.
-  const turnGeneration = useRef(0);
-  const mounted = useRef(false);
-  const resumed = useRef(false);
-  // The running queue loop. A new loop waits for the previous one, so the server never gets two replies at once.
-  const currentDrain = useRef<Promise<void>>(Promise.resolve());
+  // The viewer moves between the handoffs given together with the one opened: the run of consecutive handoffs
+  // around it. A document is viewed on its own. A reply cut off mid-way is removed, which closes the viewer.
+  const viewerReplies = useMemo(() => {
+    const at = messages.findIndex((message) => message.id === viewingId);
+    if (at < 0) return [];
+    if (!isHandoff(messages[at])) return isCompact(messages[at]) ? [messages[at]] : [];
+    let first = at;
+    let last = at;
+    while (first > 0 && isHandoff(messages[first - 1])) first--;
+    while (last < messages.length - 1 && isHandoff(messages[last + 1])) last++;
+    return messages.slice(first, last + 1);
+  }, [messages, viewingId]);
+  const closeViewer = useCallback(() => setViewingId(null), []);
 
-  const appendReplies = useCallback((replies: AgentReply[]) => {
-    setMessages((prev) => [...prev, ...replies.map((reply) => toViewMessage(reply.message, activeTarget, reply.sources))]);
-  }, [activeTarget]);
-
-  /**
-   * Lets each queued teammate reply in turn, showing every reply as soon as it arrives. The loop stops when the
-   * queue is empty, when the user sends a newer message, or when the session is closed. A reply already on its
-   * way is still shown, because the server has saved it.
-   */
-  const drainQueue = useCallback((first: PendingSpeaker | "next", generation: number) => {
+  /** Exports a saved reply, downloads it, and keeps the file in the discussion's artifacts. */
+  const exportReply = useCallback(async (message: ChatMessage, format: ExportFormat) => {
     if (!workspaceId || !activeSessionId) return;
-    const previous = currentDrain.current;
-    const isCurrent = () => mounted.current && turnGeneration.current === generation;
-    currentDrain.current = (async () => {
-      await previous;
-      let next: PendingSpeaker | "next" | undefined = first;
-      try {
-        while (next && isCurrent()) {
-          setResponding(next);
-          const result = await apiContinueDiscussionTurn(workspaceId, activeSessionId);
-          if (!mounted.current) return;
-          if (result.reply) appendReplies([result.reply]);
-          setUsage(result.usage);
-          next = result.pending[0];
-        }
-      } catch (error) {
-        if (isCurrent()) toast.error(error instanceof Error ? error.message : "The next teammate could not respond.");
-      } finally {
-        if (isCurrent()) setResponding(null);
-      }
-    })();
-  }, [workspaceId, activeSessionId, appendReplies, toast]);
+    try {
+      const file = await apiExportDiscussionMessage(workspaceId, activeSessionId, message.id, format);
+      saveDownload(file);
+      onArtifactsChanged();
+      toast.success(`Exported ${file.fileName}. It is also saved in this discussion's artifacts.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not export the reply.");
+    }
+  }, [workspaceId, activeSessionId, onArtifactsChanged, toast]);
+
+  const mounted = useRef(true);
+  const abortRef = useRef<AbortController | null>(null);
+  // The reply being written by each speaker of the running turn, and who is speaking now.
+  const liveIds = useRef(new Map<string, string>());
+  const speaking = useRef<string | null>(null);
+  const queued = useRef<string[]>([]);
+  // Reply text arrives many times a second; it is applied once per frame so long replies stay smooth.
+  const pendingText = useRef(new Map<string, string>());
+  const frame = useRef<number | null>(null);
 
   useEffect(() => {
     mounted.current = true;
-    return () => { mounted.current = false; };
+    return () => {
+      mounted.current = false;
+      // Leaving the discussion stops the turn; what was finished is saved, and the rest can continue later.
+      abortRef.current?.abort();
+      if (frame.current !== null) cancelAnimationFrame(frame.current);
+    };
   }, []);
 
-  // Teammates still due to reply when the session was opened pick up where the turn left off, once.
-  useEffect(() => {
-    if (!resumePending || resumed.current) return;
-    resumed.current = true;
-    drainQueue("next", turnGeneration.current);
-  }, [resumePending, drainQueue]);
+  const nameOf = useCallback((agentId: string) => {
+    if (activeTarget?.type === "agent") return activeTarget.name;
+    const member = activeTeam?.members.find((candidate) => candidate.agentId === agentId);
+    return member ? member.agent.customName || member.agent.template?.name || "A teammate" : "A teammate";
+  }, [activeTarget, activeTeam]);
+
+  const updateLive = useCallback((agentId: string, change: (message: ChatMessage) => ChatMessage) => {
+    const id = liveIds.current.get(agentId);
+    if (!id) return;
+    setMessages((prev) => prev.map((message) => (message.id === id ? change(message) : message)));
+  }, []);
+
+  const flushText = useCallback(() => {
+    frame.current = null;
+    const batch = new Map(pendingText.current);
+    pendingText.current.clear();
+    batch.forEach((text, agentId) => updateLive(agentId, (message) => ({ ...message, content: message.content + text })));
+  }, [updateLive]);
+
+  /** Applies one streamed event to the conversation. */
+  const applyEvent = useCallback((event: TurnEvent, onUserMessageSaved: (message: ChatMessage) => void) => {
+    if (!mounted.current) return;
+    switch (event.type) {
+      case "turn":
+        onUserMessageSaved(toViewMessage(event.userMessage, activeTarget));
+        break;
+      case "speaker": {
+        const id = `live-${event.agentId}-${crypto.randomUUID()}`;
+        liveIds.current.set(event.agentId, id);
+        speaking.current = event.agentId;
+        queued.current = queued.current.filter((agentId) => agentId !== event.agentId);
+        setUpNext((prev) => prev.filter((speaker) => speaker.agentId !== event.agentId));
+        setMessages((prev) => [...prev, {
+          id,
+          role: "assistant",
+          content: "",
+          sender: event.name,
+          senderRole: event.role,
+          senderAvatarLetter: event.name[0],
+          isLead: event.isLead,
+          turnRole: event.turnRole,
+          timestamp: formatTime(new Date()),
+          activity: [],
+          streaming: true,
+        }]);
+        break;
+      }
+      case "activity":
+        updateLive(event.agentId, (message) => ({ ...message, activity: upsertStep(message.activity, event.step) }));
+        break;
+      case "token":
+        pendingText.current.set(event.agentId, (pendingText.current.get(event.agentId) ?? "") + event.text);
+        if (frame.current === null) frame.current = requestAnimationFrame(flushText);
+        break;
+      case "reply": {
+        // The saved reply replaces the one being written, so what is shown matches what was stored.
+        pendingText.current.delete(event.agentId);
+        const id = liveIds.current.get(event.agentId);
+        liveIds.current.delete(event.agentId);
+        if (speaking.current === event.agentId) speaking.current = null;
+        const saved = toViewMessage(event.message, activeTarget, event.sources);
+        setMessages((prev) => prev.map((message) => (message.id === id ? saved : message)));
+        if (documentOf(saved)?.saved) onArtifactsChanged();
+        // A handoff open in the viewer stays open as its saved version.
+        setViewingId((current) => (current === id ? saved.id : current));
+        setUsage(event.usage);
+        break;
+      }
+      case "pending":
+        queued.current = event.speakers.map((speaker) => speaker.agentId);
+        setUpNext(event.speakers);
+        break;
+      case "done":
+        setUsage(event.usage);
+        break;
+    }
+  }, [activeTarget, updateLive, flushText, onArtifactsChanged]);
+
+  /**
+   * Runs one streamed turn. Stopping it (or leaving) keeps the replies already saved; a reply cut off mid-way
+   * was not saved, so it is removed, and the agents still due can continue later. A failure is reported.
+   */
+  const runTurn = useCallback(async (
+    start: (onEvent: (event: TurnEvent) => void, signal: AbortSignal) => Promise<void>,
+    handlers: { onUserMessageSaved?: (message: ChatMessage) => void; onFailedBeforeSaving?: () => void } = {},
+  ) => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    liveIds.current.clear();
+    speaking.current = null;
+    queued.current = [];
+    setStalled([]);
+    setUpNext([]);
+    setIsStreaming(true);
+    let userMessageSaved = false;
+    const onUserMessageSaved = (message: ChatMessage) => {
+      userMessageSaved = true;
+      handlers.onUserMessageSaved?.(message);
+    };
+    try {
+      await start((event) => applyEvent(event, onUserMessageSaved), controller.signal);
+    } catch (error) {
+      if (!mounted.current) return;
+      if (controller.signal.aborted) {
+        setStalled([speaking.current, ...queued.current].filter((agentId): agentId is string => Boolean(agentId)));
+      } else {
+        if (!userMessageSaved) handlers.onFailedBeforeSaving?.();
+        toast.error(error instanceof Error ? error.message : "The agent could not respond.");
+      }
+    } finally {
+      if (mounted.current && abortRef.current === controller) {
+        abortRef.current = null;
+        if (frame.current !== null) { cancelAnimationFrame(frame.current); frame.current = null; }
+        pendingText.current.clear();
+        setMessages((prev) => prev.filter((message) => !message.streaming));
+        setUpNext([]);
+        setIsStreaming(false);
+      }
+    }
+  }, [applyEvent, toast]);
+
+  const stopTurn = () => abortRef.current?.abort();
+
+  const continueTurn = () => {
+    if (!workspaceId || !activeSessionId) return;
+    void runTurn((onEvent, signal) => apiStreamContinueTurn(workspaceId, activeSessionId, onEvent, signal));
+  };
 
   // Sync messages with parent for export
   useEffect(() => {
@@ -228,7 +374,7 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const text = inputText.trim();
-    if (!text || isSending) return;
+    if (!text || isStreaming) return;
     if (!workspaceId) {
       toast.error("Select a workspace before starting a discussion.");
       return;
@@ -244,36 +390,26 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
       content: text,
       timestamp: formatTime(new Date()),
     };
-    // A new message starts a new turn: teammates still queued from the previous one no longer reply.
-    const generation = ++turnGeneration.current;
-    setResponding(null);
     setMessages((prev) => [...prev, optimisticUser]);
     setInputText("");
-    setIsSending(true);
-
-    try {
-      const turn = await apiPostDiscussionMessage(workspaceId, activeSessionId, {
+    // A new message starts a new turn: agents still due from an earlier one no longer reply.
+    await runTurn(
+      (onEvent, signal) => apiStreamDiscussionMessage(workspaceId, activeSessionId, {
         message: text,
         responseMode,
         capabilityMode,
         // Web search is only meaningful on the expert path.
         webEnabled: capabilityMode === "expert" && webEnabled,
-      });
-      // Replace the optimistic user message with the persisted one, followed by the first reply.
-      setMessages((prev) => [
-        ...prev.filter((message) => message.id !== optimisticUser.id),
-        toViewMessage(turn.userMessage, activeTarget),
-        ...turn.replies.map((reply) => toViewMessage(reply.message, activeTarget, reply.sources)),
-      ]);
-      setUsage(turn.usage);
-      if (turn.pending.length > 0) drainQueue(turn.pending[0], generation);
-    } catch (error) {
-      setMessages((prev) => prev.filter((message) => message.id !== optimisticUser.id));
-      setInputText(text);
-      toast.error(error instanceof Error ? error.message : "The agent could not respond.");
-    } finally {
-      setIsSending(false);
-    }
+      }, onEvent, signal),
+      {
+        onUserMessageSaved: (saved) => setMessages((prev) => prev.map((message) => (message.id === optimisticUser.id ? saved : message))),
+        // Nothing was saved (for example, no model is configured), so the message goes back to the input.
+        onFailedBeforeSaving: () => {
+          setMessages((prev) => prev.filter((message) => message.id !== optimisticUser.id));
+          setInputText(text);
+        },
+      },
+    );
   };
 
   if (!activeTarget) {
@@ -385,7 +521,9 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
             </p>
           </div>
         ) : (
-          messages.map((msg) => (
+          messages.map((msg) => isCompact(msg) ? (
+          <ReplyLine key={msg.id} message={msg} onView={() => setViewingId(msg.id)} onExport={(format) => exportReply(msg, format)} />
+        ) : (
           <div
             key={msg.id}
             className={`flex items-start gap-3 ${
@@ -431,34 +569,29 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
                       LEAD
                     </span>
                   )}
+                  {isSaved(msg) && (
+                    <span className="ml-auto">
+                      <ExportMenu onExport={(format) => exportReply(msg, format)} label={`Export ${msg.sender}'s reply`} />
+                    </span>
+                  )}
                 </div>
               )}
 
+              {msg.role === "assistant" && msg.activity && msg.activity.length > 0 && (
+                <AgentActivity steps={msg.activity} live={Boolean(msg.streaming)} />
+              )}
+
               {msg.role === "assistant" ? (
-                <MarkdownContent content={msg.content} />
+                msg.content || !msg.streaming ? (
+                  <div className={msg.streaming ? "[&>div>*:last-child]:after:content-['▍'] [&>div>*:last-child]:after:ml-0.5 [&>div>*:last-child]:after:animate-pulse [&>div>*:last-child]:after:text-primary" : undefined}>
+                    <MarkdownContent content={msg.content} />
+                  </div>
+                ) : null
               ) : (
                 <p className="leading-relaxed whitespace-pre-wrap">{msg.content}</p>
               )}
 
-              {msg.role === "assistant" && msg.sources && msg.sources.length > 0 && (
-                <div className="pt-1.5 mt-1 border-t border-slate-100 dark:border-slate-800/80 space-y-1">
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Sources</span>
-                  <ul className="space-y-0.5">
-                    {msg.sources.map((source, index) => (
-                      <li key={`${msg.id}-src-${index}`} className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1">
-                        {source.url ? (
-                          <a href={source.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline truncate">
-                            <ExternalLink className="h-3 w-3 shrink-0" />
-                            <span className="truncate">{source.title || source.url}</span>
-                          </a>
-                        ) : (
-                          <span className="truncate">{source.title || source.reference}</span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+              {msg.role === "assistant" && msg.sources && <MessageSources sources={msg.sources} idPrefix={msg.id} />}
 
               <div
                 className={`text-[9px] pt-1 text-right ${
@@ -471,18 +604,36 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
           </div>
         ))
       )}
-      {(isSending || responding) && (
+      {isStreaming && !messages.some((message) => message.streaming) && (
         <div className="flex items-center gap-2 text-xs text-slate-400 pl-11" role="status" aria-live="polite">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          <span>{activeTarget.type === "team" ? `${activeTarget.name} is gathering` : `${activeTarget.name} is getting ready`}…</span>
+        </div>
+      )}
+      {isStreaming && upNext.length > 0 && (
+        <div className="flex items-center gap-2 text-[11px] text-slate-400 pl-11" role="status" aria-live="polite">
+          <Users className="h-3.5 w-3.5" aria-hidden="true" />
+          <span>Up next: {listNames(upNext.map((speaker) => speaker.name))}</span>
+        </div>
+      )}
+      {!isStreaming && stalled.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 pl-11" role="status">
           <span>
-            {isSending
-              ? `${activeTarget.type === "team" ? "The team" : activeTarget.name} is thinking${capabilityMode === "expert" ? " and researching" : ""}...`
-              : `${responding === "next" ? "The next teammate" : responding?.name} is responding...`}
+            {listNames(stalled.map(nameOf))} {stalled.length === 1 ? "has" : "have"} not replied yet.
           </span>
+          <button
+            type="button"
+            onClick={continueTurn}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border border-primary-border text-primary bg-primary-muted hover:opacity-90 font-semibold cursor-pointer"
+          >
+            <Play className="h-3 w-3" aria-hidden="true" /> Continue
+          </button>
         </div>
       )}
       <div ref={messagesEndRef} />
     </div>
+
+      <ReplyViewer replies={viewerReplies} openId={viewingId} onNavigate={setViewingId} onClose={closeViewer} onExport={exportReply} />
 
       {/* Voice Recognition Active Bar (when listening) */}
       {isRecording && (
@@ -505,7 +656,7 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
       )}
 
       {/* Modernized Input Box (Uploads strictly omitted as they are handled in Right Pane) */}
-      <div className="p-4 bg-white/90 dark:bg-slate-900/90 border-t border-slate-200/80 dark:border-slate-800 backdrop-blur-md shrink-0">
+      <div className="p-4 border-t border-slate-200/80 dark:border-slate-800 shrink-0">
         <form
           onSubmit={handleSendMessage}
           className="flex items-center gap-2 bg-slate-100/90 dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700/80 rounded-2xl px-3 py-2 shadow-xs focus-within:ring-2 focus-within:ring-primary-ring focus-within:border-primary transition-all"
@@ -537,15 +688,27 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
             className="flex-1 bg-transparent border-none text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none"
           />
 
-          {/* Send Button */}
-          <button
-            type="submit"
-            disabled={!inputText.trim() || isSending}
-            title="Send directive"
-            className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary hover:bg-primary-hover disabled:opacity-40 text-primary-fg shadow-xs transition-all cursor-pointer"
-          >
-            {isSending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-          </button>
+          {/* Send, or stop the turn while agents are replying */}
+          {isStreaming ? (
+            <button
+              type="button"
+              onClick={stopTurn}
+              title="Stop replying"
+              aria-label="Stop replying"
+              className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-700 hover:bg-slate-800 dark:bg-slate-600 dark:hover:bg-slate-500 text-white shadow-xs transition-all cursor-pointer"
+            >
+              <Square className="h-3 w-3 fill-current" />
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={!inputText.trim()}
+              title="Send directive"
+              className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary hover:bg-primary-hover disabled:opacity-40 text-primary-fg shadow-xs transition-all cursor-pointer"
+            >
+              <Send className="h-3.5 w-3.5" />
+            </button>
+          )}
         </form>
 
         {/* Response and capability mode controls */}

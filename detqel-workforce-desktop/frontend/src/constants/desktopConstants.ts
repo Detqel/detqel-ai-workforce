@@ -10,6 +10,8 @@ export const DESKTOP_STARTUP_RESTART_MESSAGE = `Resolve the issue above, then re
 
 export const DESKTOP_COMMANDS = {
   apiRequest: "api_request",
+  apiStream: "api_stream",
+  apiStreamCancel: "api_stream_cancel",
   backendStatus: "backend_status",
   frontendReady: "frontend_ready",
 } as const;

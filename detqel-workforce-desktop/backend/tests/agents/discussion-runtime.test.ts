@@ -1,6 +1,6 @@
 import test, { describe } from "node:test";
 import assert from "node:assert/strict";
-import { DiscussionRuntime, addUsage, type DiscussionParticipant, type TurnContext } from "../../src/shared/agents/graphs/discussion-runtime.js";
+import { DiscussionRuntime, type DiscussionParticipant, type TurnContext } from "../../src/shared/agents/graphs/discussion-runtime.js";
 import type { LiteLlmClient, ChatCompletionRequest } from "../../src/shared/agents/litellm.client.js";
 import type { VirtualKeyRegistry } from "../../src/shared/agents/virtual-key.registry.js";
 import type { PomlLoader } from "../../src/shared/agents/poml/loader.js";
@@ -15,16 +15,31 @@ import {
 
 const USAGE = { inputTokens: 10, outputTokens: 2, cachedTokens: 4, costUsd: 0.001 };
 
-/** A gateway that records each chat request and answers from a script, so turns are deterministic. */
+/**
+ * A gateway that records each chat request and answers from a script, so turns are deterministic. A streamed
+ * call delivers its reply in two pieces; `streamed` records which calls were streamed.
+ */
 function scriptedGateway(...replies: string[]) {
     const requests: ChatCompletionRequest[] = [];
+    const streamed: boolean[] = [];
+    const reply = () => replies[requests.length - 1] ?? `reply-${requests.length}`;
     const gateway = {
         async chatCompletion(_key: string, request: ChatCompletionRequest) {
             requests.push(request);
-            return { content: replies[requests.length - 1] ?? `reply-${requests.length}`, tokensUsed: 12, usage: USAGE };
+            streamed.push(false);
+            return { content: reply(), tokensUsed: 12, usage: USAGE };
+        },
+        async chatCompletionStream(_key: string, request: ChatCompletionRequest, onText: (text: string) => void) {
+            requests.push(request);
+            streamed.push(true);
+            const content = reply();
+            const middle = Math.ceil(content.length / 2) - 1;
+            onText(content.slice(0, middle));
+            onText(content.slice(middle));
+            return { content, tokensUsed: 12, usage: USAGE };
         },
     } as unknown as LiteLlmClient;
-    return { gateway, requests };
+    return { gateway, requests, streamed };
 }
 
 const keys = { async resolveProcessKey() { return { virtualKey: "sk-v", modelAlias: "m" }; } } as unknown as VirtualKeyRegistry;
@@ -90,6 +105,22 @@ describe("DiscussionRuntime.triage", () => {
         assert.ok(last(requests[0].messages).content.includes(`PROMPT(${POML_DISCUSSION_IDS.delegationLead})`), "lead receives delegation instructions");
     });
 
+    test("triage reads a requested document's title, and never keeps one for a conversational reply", async () => {
+        const runtime = (reply: unknown) => new DiscussionRuntime(scriptedGateway(JSON.stringify(reply)).gateway, keys, poml);
+        const asked = await runtime({ intent: "task", reply: "", document: { title: "  AI   Market\nBrief " }, delegate: [] }).triage(context());
+        assert.deepEqual(asked.document, { title: "AI Market Brief" });
+        assert.equal((await runtime({ intent: "task", reply: "", document: null }).triage(context())).document, null);
+        assert.equal((await runtime({ intent: "task", reply: "", document: { title: "  " } }).triage(context())).document, null);
+        assert.equal((await runtime({ intent: "conversational", reply: "Hi!", document: { title: "Doc" } }).triage(context())).document, null);
+    });
+
+    test("a writer asked for a document is told its reply is that document", async () => {
+        const { gateway, requests } = scriptedGateway("ok");
+        await new DiscussionRuntime(gateway, keys, poml).write(context({ document: { title: "AI Market Brief" } }), () => {});
+        const final = last(requests[0].messages).content;
+        assert.ok(final.includes(POML_DISCUSSION_IDS.document) && final.includes('"title":"AI Market Brief"'));
+    });
+
     test("a non-lead never receives delegation instructions", async () => {
         const { gateway, requests } = scriptedGateway("{}");
         await new DiscussionRuntime(gateway, keys, poml).triage(context({ team, speakerRole: DISCUSSION_SPEAKER_ROLES.addressed }));
@@ -99,27 +130,27 @@ describe("DiscussionRuntime.triage", () => {
     });
 });
 
-describe("DiscussionRuntime.answer", () => {
-    test("fast is one call with light reasoning and no retrieval", async () => {
-        const { gateway, requests } = scriptedGateway("Answer.");
-        let retrieved = false;
-        const result = await new DiscussionRuntime(gateway, keys, poml).answer(context({ collaborators: { retrieveKnowledge: async () => { retrieved = true; return []; } } }));
+describe("DiscussionRuntime replies", () => {
+    test("fast writes in one streamed call with light reasoning, passing the text on as it arrives", async () => {
+        const { gateway, requests, streamed } = scriptedGateway("Answer.");
+        const pieces: string[] = [];
+        const result = await new DiscussionRuntime(gateway, keys, poml).write(context(), text => pieces.push(text));
         assert.equal(requests.length, 1);
-        assert.equal(retrieved, false);
+        assert.deepEqual(streamed, [true]);
         assert.equal(requests[0].reasoningEffort, DISCUSSION_REASONING.fastAnswer);
-        assert.deepEqual(result.sources, []);
         assert.equal(result.content, "Answer.");
+        assert.deepEqual(pieces, ["Ans", "wer."]);
     });
 
     test("the prompt prefix is stable: persona, team, memory, transcript, then per-turn instructions in the final message", async () => {
         const { gateway, requests } = scriptedGateway("ok");
-        await new DiscussionRuntime(gateway, keys, poml).answer(context({
+        await new DiscussionRuntime(gateway, keys, poml).write(context({
             team,
             speakerRole: DISCUSSION_SPEAKER_ROLES.addressed,
             summary: "Earlier we agreed on Q3.",
             transcript: [{ role: "user", content: "earlier", speakerName: null }, { role: "assistant", content: "answer", speakerName: "Nabspy" }],
             responseMode: DISCUSSION_RESPONSE_MODES.brief,
-        }));
+        }), () => {});
         const [system, first, second, final] = requests[0].messages;
         assert.equal(system.role, "system");
         assert.ok(system.content.startsWith("PROMPT(a-ana)"), "persona comes first");
@@ -131,43 +162,68 @@ describe("DiscussionRuntime.answer", () => {
         assert.ok(/Answer briefly/.test(final.content) && final.content.endsWith("What is our refund policy?"));
     });
 
-    test("a lead's answer names the teammates it handed work to", async () => {
+    test("a lead's reply names the teammates it handed work to", async () => {
         const { gateway, requests } = scriptedGateway("ok");
-        await new DiscussionRuntime(gateway, keys, poml).answer(context({ participant: lead, speakerRole: DISCUSSION_SPEAKER_ROLES.lead, team, handoffs: [{ name: "Ana", task: "Size it" }] }));
+        await new DiscussionRuntime(gateway, keys, poml).write(context({ participant: lead, speakerRole: DISCUSSION_SPEAKER_ROLES.lead, team, handoffs: [{ name: "Ana", task: "Size it" }] }), () => {});
         const final = last(requests[0].messages).content;
         assert.ok(final.includes(POML_DISCUSSION_IDS.leadHandoff) && final.includes("Ana: Size it"));
     });
 
+    test("the lead's wrap-up names the teammates whose contributions it brings together", async () => {
+        const { gateway, requests } = scriptedGateway("ok");
+        const runtime = new DiscussionRuntime(gateway, keys, poml);
+        await runtime.write(context({ participant: lead, speakerRole: DISCUSSION_SPEAKER_ROLES.wrapUp, team, contributors: ["Ana", "Raj"] }), () => {});
+        const final = last(requests[0].messages).content;
+        assert.ok(final.includes(POML_DISCUSSION_IDS.leadWrapUp) && final.includes('"contributors":"Ana, Raj"'));
+        assert.ok(!final.includes(POML_DISCUSSION_IDS.leadHandoff), "the wrap-up is not another handoff");
+        await runtime.write(context({ participant: lead, speakerRole: DISCUSSION_SPEAKER_ROLES.wrapUp, team }), () => {});
+        assert.ok(last(requests[1].messages).content.includes('"contributors":"Your teammates"'), "a resumed wrap-up without names still reads naturally");
+    });
+
     test("a delegate answers its assignment from the lead", async () => {
         const { gateway, requests } = scriptedGateway("ok");
-        await new DiscussionRuntime(gateway, keys, poml).answer(context({ team, speakerRole: DISCUSSION_SPEAKER_ROLES.delegate, assignment: { leadName: "Nabspy", task: "Size it" } }));
+        await new DiscussionRuntime(gateway, keys, poml).write(context({ team, speakerRole: DISCUSSION_SPEAKER_ROLES.delegate, assignment: { leadName: "Nabspy", task: "Size it" } }), () => {});
         const final = last(requests[0].messages).content;
         assert.ok(final.includes(POML_DISCUSSION_IDS.assignment) && final.includes("Size it"));
     });
 
-    test("expert retrieves and cites knowledge, then self-checks, and sums usage across both calls", async () => {
-        const { gateway, requests } = scriptedGateway("draft", "checked");
-        const result = await new DiscussionRuntime(gateway, keys, poml).answer(context({
-            capabilityMode: DISCUSSION_CAPABILITY_MODES.expert,
-            collaborators: { retrieveKnowledge: async () => [{ text: "Refunds within 30 days.", source: "policy.txt" }] },
-        }));
-        assert.equal(requests.length, 2);
-        assert.equal(requests[0].reasoningEffort, undefined, "expert uses the provider's default reasoning");
+    test("expert drafts with default reasoning from the grounding, then streams the reviewed reply", async () => {
+        const { gateway, requests, streamed } = scriptedGateway("draft text", "checked");
+        const runtime = new DiscussionRuntime(gateway, keys, poml);
+        const expert = context({ capabilityMode: DISCUSSION_CAPABILITY_MODES.expert });
+        const grounding = runtime.grounding(["[knowledge: policy.txt] Refunds within 30 days."]);
+        const draft = await runtime.draft(expert, grounding);
+        const pieces: string[] = [];
+        const reviewed = await runtime.review(expert, grounding, draft.content, text => pieces.push(text));
+        assert.deepEqual(streamed, [false, true], "only the reviewed reply streams");
+        assert.equal(requests[0].reasoningEffort, undefined, "the draft uses the provider's default reasoning");
         assert.equal(requests[1].reasoningEffort, DISCUSSION_REASONING.selfCheck);
         assert.ok(last(requests[0].messages).content.includes("Refunds within 30 days."));
-        assert.equal(result.content, "checked");
-        assert.deepEqual(result.sources.map(source => source.reference), ["policy.txt"]);
-        assert.deepEqual(result.usage, addUsage(USAGE, USAGE));
+        assert.ok(last(requests[1].messages).content.includes("draft text"));
+        assert.equal(reviewed.content, "checked");
+        assert.equal(pieces.join(""), "checked");
     });
 
-    test("expert searches the web only when enabled", async () => {
+    test("knowledge and web searches return citable sources, and web search only runs when enabled", async () => {
+        const runtime = new DiscussionRuntime(scriptedGateway().gateway, keys, poml);
         let webCalls = 0;
-        const collaborators = { searchWeb: async () => { webCalls++; return [{ title: "T", url: "https://x.test", snippet: "s" }]; } };
-        await new DiscussionRuntime(scriptedGateway().gateway, keys, poml).answer(context({ capabilityMode: DISCUSSION_CAPABILITY_MODES.expert, collaborators }));
+        const collaborators = {
+            retrieveKnowledge: async () => [{ text: "Refunds within 30 days.", source: "policy.txt" }],
+            searchWeb: async () => { webCalls++; return [{ title: "T", url: "https://x.test", snippet: "s" }]; },
+        };
+        const knowledge = await runtime.searchKnowledge(context({ collaborators }));
+        assert.deepEqual(knowledge.sources.map(source => source.reference), ["policy.txt"]);
+        assert.deepEqual((await runtime.searchWeb(context({ collaborators }))).sources, []);
         assert.equal(webCalls, 0);
-        const result = await new DiscussionRuntime(scriptedGateway().gateway, keys, poml).answer(context({ capabilityMode: DISCUSSION_CAPABILITY_MODES.expert, webEnabled: true, collaborators }));
+        const web = await runtime.searchWeb(context({ collaborators, webEnabled: true }));
         assert.equal(webCalls, 1);
-        assert.ok(result.sources.some(source => source.type === "web" && source.url === "https://x.test"));
+        assert.ok(web.sources.some(source => source.type === "web" && source.url === "https://x.test"));
+        assert.match(runtime.grounding([]), /Nothing relevant was retrieved/);
+    });
+
+    test("a delegate searches with its assignment as well as the user's message", () => {
+        const runtime = new DiscussionRuntime(scriptedGateway().gateway, keys, poml);
+        assert.equal(runtime.searchQuery(context({ assignment: { leadName: "Nabspy", task: "market size" } })), "What is our refund policy?\nmarket size");
     });
 });
 

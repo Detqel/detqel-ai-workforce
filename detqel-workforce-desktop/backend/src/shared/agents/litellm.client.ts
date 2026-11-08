@@ -6,6 +6,7 @@ import {
     LITELLM_HEADERS,
     LITELLM_REASONING_EFFORTS,
     LITELLM_RESPONSE_LIMIT_BYTES,
+    LITELLM_STREAM,
     LITELLM_TIMEOUTS_MS,
 } from "../../constants/litellmConstants.js";
 
@@ -51,6 +52,21 @@ export interface ChatCompletionResult {
 }
 
 const numberOrZero = (value: unknown): number => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0);
+
+/** Usage in the final chunk of a streamed completion; the gateway adds its computed cost. */
+interface StreamUsage {
+    prompt_tokens?: unknown;
+    completion_tokens?: unknown;
+    total_tokens?: unknown;
+    cost?: unknown;
+    prompt_tokens_details?: { cached_tokens?: unknown };
+}
+
+interface StreamChunk {
+    choices?: Array<{ delta?: { content?: unknown } }>;
+    usage?: StreamUsage | null;
+    error?: unknown;
+}
 
 export interface EmbeddingsRequest {
     readonly model: string;
@@ -171,10 +187,8 @@ export class LiteLlmClient {
         logger.info({ keyId }, "Revoked virtual key");
     }
 
-    /** Runs a chat completion through the gateway using a caller-supplied virtual key. */
-    async chatCompletion(virtualKey: string, request: ChatCompletionRequest, signal?: AbortSignal): Promise<ChatCompletionResult> {
-        this.assertConfigured();
-        const body = {
+    private chatBody(request: ChatCompletionRequest): Record<string, unknown> {
+        return {
             model: request.model,
             messages: request.messages.map(message => ({ role: message.role, content: message.content })),
             ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
@@ -185,6 +199,12 @@ export class LiteLlmClient {
             // model) is dropped by the gateway instead of failing the call.
             drop_params: true,
         };
+    }
+
+    /** Runs a chat completion through the gateway using a caller-supplied virtual key. */
+    async chatCompletion(virtualKey: string, request: ChatCompletionRequest, signal?: AbortSignal): Promise<ChatCompletionResult> {
+        this.assertConfigured();
+        const body = this.chatBody(request);
         const { payload, headers } = await this.send(LITELLM_ENDPOINTS.chatCompletions, "POST", virtualKey, body, LITELLM_TIMEOUTS_MS.inference, LITELLM_ERROR_MESSAGES.inferenceFailed, signal) as {
             payload: {
                 choices?: Array<{ message?: { content?: unknown } }>;
@@ -201,6 +221,88 @@ export class LiteLlmClient {
             costUsd: numberOrZero(Number(headers.get(LITELLM_HEADERS.responseCost))),
         };
         return { content, tokensUsed: numberOrZero(payload.usage?.total_tokens), usage };
+    }
+
+    /**
+     * Runs a chat completion as a stream, passing each piece of reply text to onText as it arrives. Resolves
+     * with the full text and the gateway's usage, which arrives in the final chunk.
+     */
+    async chatCompletionStream(
+        virtualKey: string,
+        request: ChatCompletionRequest,
+        onText: (text: string) => void,
+        signal?: AbortSignal,
+    ): Promise<ChatCompletionResult> {
+        this.assertConfigured();
+        const body = {
+            ...this.chatBody(request),
+            stream: true,
+            stream_options: { include_usage: true },
+        };
+        const response = await this.dispatch(LITELLM_ENDPOINTS.chatCompletions, "POST", virtualKey, body, LITELLM_TIMEOUTS_MS.inference, LITELLM_ERROR_MESSAGES.inferenceFailed, signal);
+        if (response.body === null) throw new AppError(502, LITELLM_ERROR_MESSAGES.inferenceFailed);
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let pending = "";
+        let received = 0;
+        let content = "";
+        let usage: StreamUsage | undefined;
+        const readEvent = (line: string) => {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith(LITELLM_STREAM.dataPrefix)) return;
+            const data = trimmed.slice(LITELLM_STREAM.dataPrefix.length).trim();
+            if (data === LITELLM_STREAM.doneMarker) return;
+            let chunk: StreamChunk;
+            try {
+                chunk = JSON.parse(data) as StreamChunk;
+            } catch {
+                throw new AppError(502, LITELLM_ERROR_MESSAGES.unreadableResponse);
+            }
+            // The gateway reports a failure that happens mid-stream as an error event instead of a status code.
+            if (chunk.error) {
+                logger.error({ path: LITELLM_ENDPOINTS.chatCompletions }, "Gateway reported an error during a streamed completion");
+                throw new AppError(502, LITELLM_ERROR_MESSAGES.inferenceFailed);
+            }
+            const text = chunk.choices?.[0]?.delta?.content;
+            if (typeof text === "string" && text.length > 0) {
+                content += text;
+                onText(text);
+            }
+            if (chunk.usage) usage = chunk.usage;
+        };
+        try {
+            for (;;) {
+                let next: Awaited<ReturnType<typeof reader.read>>;
+                try {
+                    next = await reader.read();
+                } catch (error) {
+                    if (signal?.aborted) throw error;
+                    logger.error({ path: LITELLM_ENDPOINTS.chatCompletions }, "Streamed completion was interrupted");
+                    throw new AppError(502, LITELLM_ERROR_MESSAGES.inferenceFailed);
+                }
+                if (next.done) break;
+                received += next.value.byteLength;
+                if (received > LITELLM_RESPONSE_LIMIT_BYTES) {
+                    await reader.cancel();
+                    throw new AppError(502, LITELLM_ERROR_MESSAGES.oversizedResponse);
+                }
+                pending += decoder.decode(next.value, { stream: true });
+                const lines = pending.split("\n");
+                pending = lines.pop() ?? "";
+                for (const line of lines) readEvent(line);
+            }
+            readEvent(pending + decoder.decode());
+        } finally {
+            reader.releaseLock();
+        }
+        const callUsage: CallUsage = {
+            inputTokens: numberOrZero(usage?.prompt_tokens),
+            outputTokens: numberOrZero(usage?.completion_tokens),
+            cachedTokens: numberOrZero(usage?.prompt_tokens_details?.cached_tokens),
+            costUsd: numberOrZero(usage?.cost),
+        };
+        return { content, tokensUsed: numberOrZero(usage?.total_tokens), usage: callUsage };
     }
 
     /** Produces embeddings through the gateway using a caller-supplied virtual key. */
@@ -256,6 +358,26 @@ export class LiteLlmClient {
         failureMessage: string,
         signal?: AbortSignal,
     ): Promise<{ payload: unknown; headers: Headers }> {
+        const response = await this.dispatch(path, method, bearer, body, timeoutMs, failureMessage, signal);
+        const text = await this.readBoundedBody(response);
+        if (text.length === 0) return { payload: {}, headers: response.headers };
+        try {
+            return { payload: JSON.parse(text) as unknown, headers: response.headers };
+        } catch {
+            throw new AppError(502, LITELLM_ERROR_MESSAGES.unreadableResponse);
+        }
+    }
+
+    /** Sends one request and returns the successful response, unread. A failure status throws a clean error. */
+    private async dispatch(
+        path: string,
+        method: "GET" | "POST",
+        bearer: string,
+        body: Record<string, unknown> | undefined,
+        timeoutMs: number,
+        failureMessage: string,
+        signal?: AbortSignal,
+    ): Promise<Response> {
         const headers = new Headers({ [LITELLM_HEADERS.authorization]: `${LITELLM_HEADERS.bearerPrefix}${bearer}` });
         if (body !== undefined) headers.set(LITELLM_HEADERS.contentType, LITELLM_HEADERS.json);
         const timeout = AbortSignal.timeout(timeoutMs);
@@ -270,24 +392,21 @@ export class LiteLlmClient {
                 redirect: "error",
                 signal: combined,
             });
-        } catch {
+        } catch (error) {
+            // A caller that stopped waiting (the user left the discussion) is not a gateway failure.
+            if (signal?.aborted) throw error;
             // The gateway address and request shape are controlled by the application, so a thrown fetch means
             // the local service is unreachable or timed out. The reason is logged without any secret material.
             logger.error({ path, method }, "Gateway request did not complete");
             throw new AppError(502, LITELLM_ERROR_MESSAGES.inferenceFailed);
         }
-
-        const text = await this.readBoundedBody(response);
         if (!response.ok) {
+            // The body is read only to release the connection; it is never surfaced, as it may echo secrets.
+            await this.readBoundedBody(response).catch(() => "");
             logger.error({ path, method, status: response.status }, "Gateway returned an error status");
             throw new AppError(502, failureMessage);
         }
-        if (text.length === 0) return { payload: {}, headers: response.headers };
-        try {
-            return { payload: JSON.parse(text) as unknown, headers: response.headers };
-        } catch {
-            throw new AppError(502, LITELLM_ERROR_MESSAGES.unreadableResponse);
-        }
+        return response;
     }
 
     private async readBoundedBody(response: Response): Promise<string> {

@@ -320,6 +320,34 @@
         "url":  "/api/discussions/workspaces/:workspaceId/sessions/:sessionId/turns/continue"
     },
     {
+        "method":  "PATCH",
+        "url":  "/api/discussions/workspaces/:workspaceId/sessions/:sessionId"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/discussions/workspaces/:workspaceId/sessions/:sessionId/messages/:messageId/export"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/discussions/workspaces/:workspaceId/sessions/:sessionId/artifacts"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/discussions/workspaces/:workspaceId/sessions/:sessionId/artifacts"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/discussions/workspaces/:workspaceId/sessions/:sessionId/artifacts/:fileName"
+    },
+    {
+        "method":  "DELETE",
+        "url":  "/api/discussions/workspaces/:workspaceId/sessions/:sessionId/artifacts/:fileName"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/discussions/workspaces/:workspaceId/sessions/:sessionId/artifacts/:fileName/export"
+    },
+    {
         "method":  "GET",
         "url":  "/api/settings/vyra"
     },

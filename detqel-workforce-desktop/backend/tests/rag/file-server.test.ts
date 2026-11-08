@@ -29,6 +29,29 @@ describe("FileServer", () => {
         assert.equal(listed[0].name, "notes.txt");
     });
 
+    test("artifacts are kept in their own folder, replaced by name, listed with their time, and removable", async () => {
+        const sessionDir = await server.ensureSession(LOCATION);
+        assert.ok((await stat(path.join(sessionDir, "artifacts"))).isDirectory());
+        await server.storeArtifact(LOCATION, "Brief.md", "text/markdown", Buffer.from("v1"));
+        await server.storeArtifact(LOCATION, "Brief.md", "text/markdown", Buffer.from("v2"));
+        assert.equal((await server.readArtifact(LOCATION, "Brief.md")).toString("utf8"), "v2");
+        const listed = await server.listArtifacts(LOCATION);
+        assert.deepEqual(listed.map(file => file.name), ["Brief.md"]);
+        assert.ok(listed[0].modifiedAt instanceof Date);
+        assert.deepEqual(await server.listKnowledgeFiles(LOCATION), [], "artifacts never mix with knowledge");
+        assert.equal(await server.hasArtifact(LOCATION, "Brief.md"), true);
+        assert.equal(await server.deleteArtifact(LOCATION, "Brief.md"), true);
+        assert.equal(await server.deleteArtifact(LOCATION, "Brief.md"), false);
+        await assert.rejects(() => server.readArtifact(LOCATION, "Brief.md"), /not found/);
+    });
+
+    test("artifacts follow the same safety rules as uploads", async () => {
+        await assert.rejects(() => server.storeArtifact(LOCATION, "tool.exe", "application/octet-stream", Buffer.from("x")), /not allowed/);
+        await assert.rejects(() => server.storeArtifact(LOCATION, "../escape.md", "text/markdown", Buffer.from("x")), /not valid/);
+        await assert.rejects(() => server.readArtifact(LOCATION, "..\\secrets.md"), /not valid/);
+        await assert.rejects(() => server.deleteArtifact(LOCATION, ".hidden"), /not valid/);
+    });
+
     test("executable and script uploads are rejected by extension", async () => {
         for (const name of ["payload.ps1", "run.sh", "setup.bat", "tool.exe"]) {
             await assert.rejects(() => server.storeKnowledgeFile(LOCATION, name, "text/plain", Buffer.from("x")), /not allowed/, name);

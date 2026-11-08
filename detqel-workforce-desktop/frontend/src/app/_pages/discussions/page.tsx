@@ -19,11 +19,11 @@ import {
   apiListDiscussionMessages,
   apiDeleteDiscussionSession,
   apiGetDiscussionSession,
+  apiRenameDiscussionSession,
   type ChatSession,
   type SessionUsage,
 } from "@/lib/api/discussions";
 import { EMPTY_USAGE, toViewMessage } from "@/components/discussions/discussionView";
-import { markdownToPlainText } from "@/lib/markdown";
 import { useToast } from "@/context/ToastContext";
 import { useConfirm } from "@/context/ConfirmContext";
 import {
@@ -58,26 +58,29 @@ export default function DiscussionsPage() {
   const [initialMessages, setInitialMessages] = useState<ChatMessage[]>([]);
   const [historyVersion, setHistoryVersion] = useState(0);
   const [initialUsage, setInitialUsage] = useState<SessionUsage>(EMPTY_USAGE);
-  const [resumePending, setResumePending] = useState(false);
+  const [initialPendingAgentIds, setInitialPendingAgentIds] = useState<string[]>([]);
+  // Bumped whenever the chat saves a document or an export, so the artifacts list reloads.
+  const [artifactsVersion, setArtifactsVersion] = useState(0);
+  const handleArtifactsChanged = useCallback(() => setArtifactsVersion((version) => version + 1), []);
 
   /** Maps a backend session to the sidebar's session shape, keyed by the real backend id. */
-  const toSidebarSession = useCallback((session: ChatSession, target: { name: string; subtitle?: string; avatarLetter?: string; targetId: string; targetType: "team" | "agent" }): DiscussionSession => ({
+  const toSidebarSession = useCallback((session: ChatSession, target: { name: string; avatarLetter?: string; targetId: string; targetType: "team" | "agent" }): DiscussionSession => ({
     id: session.id,
+    title: session.title,
     targetId: target.targetId,
     targetType: target.targetType,
     name: target.name,
-    subtitle: target.subtitle,
     avatarLetter: target.avatarLetter ?? target.name[0],
   }), []);
 
   /**
-   * Shows a session's history, usage, and any teammates still due to reply in the chat window. The window is
+   * Shows a session's history, usage, and any agents still due to reply in the chat window. The window is
    * keyed by this version, so new history remounts it with fresh state instead of copying props into state.
    */
   const showHistory = useCallback((messages: ChatMessage[], session?: ChatSession) => {
     setInitialMessages(messages);
     setInitialUsage(session ? { inputTokens: session.inputTokens, outputTokens: session.outputTokens, cachedTokens: session.cachedTokens, costUsd: session.costUsd } : EMPTY_USAGE);
-    setResumePending(Boolean(session?.pendingTurn?.queue.length));
+    setInitialPendingAgentIds(session?.pendingTurn?.queue.map((entry) => entry.agentId) ?? []);
     setHistoryVersion((version) => version + 1);
   }, []);
 
@@ -116,7 +119,6 @@ export default function DiscussionsPage() {
         targetId: target.id,
         targetType: target.type,
         name: target.name,
-        subtitle: target.role || target.focus,
         avatarLetter: target.avatarLetter || target.name[0],
       });
       setSessions((prev) => [sidebar, ...prev]);
@@ -146,7 +148,7 @@ export default function DiscussionsPage() {
         if (session.teamId) {
           const team = fetchedTeams.find((t) => t.id === session.teamId);
           const name = team?.name ?? session.title;
-          return { targetId: session.teamId, targetType: "team" as const, name, subtitle: team?.focus, avatarLetter: name[0] };
+          return { targetId: session.teamId, targetType: "team" as const, name, avatarLetter: name[0] };
         }
         const agent = fetchedAgents.find((a) => a.id === session.agentId);
         const name = agent ? agent.customName || agent.template?.name || session.title : session.title;
@@ -155,7 +157,6 @@ export default function DiscussionsPage() {
           targetId: session.agentId ?? session.id,
           targetType: "agent" as const,
           name,
-          subtitle: agent?.customRole || agent?.template?.role,
           avatarLetter: name[0],
         };
       };
@@ -185,7 +186,7 @@ export default function DiscussionsPage() {
 
   const handleDeleteSession = useCallback(async (session: DiscussionSession) => {
     if (!workspaceId) return;
-    const confirmed = await confirm({ title: "Delete discussion", message: `Delete "${session.name}" and all of its messages and knowledge? This cannot be undone.`, variant: "danger", confirmText: "Delete" });
+    const confirmed = await confirm({ title: "Delete discussion", message: `Delete "${session.title}" and all of its messages and knowledge? This cannot be undone.`, variant: "danger", confirmText: "Delete" });
     if (!confirmed) return;
     try {
       await apiDeleteDiscussionSession(workspaceId, session.id);
@@ -231,7 +232,6 @@ export default function DiscussionsPage() {
       type: session.targetType,
       id: session.targetId,
       name: session.name,
-      role: session.subtitle,
       avatarLetter: session.avatarLetter,
     });
   };
@@ -245,12 +245,24 @@ export default function DiscussionsPage() {
     setSessions((prev) => {
       const current = prev.find((s) => s.id === activeSessionId);
       // Returning the same array when nothing changed lets React skip the re-render.
-      // The preview is one line of plain text, so Markdown and math markup are stripped from it.
-      const preview = markdownToPlainText(last.content);
-      if (!current || (current.lastMessage === preview && current.timestamp === last.timestamp)) return prev;
-      return prev.map((s) => (s.id === activeSessionId ? { ...s, lastMessage: preview, timestamp: last.timestamp } : s));
+      if (!current || current.timestamp === last.timestamp) return prev;
+      return prev.map((s) => (s.id === activeSessionId ? { ...s, timestamp: last.timestamp } : s));
     });
   }, [activeSessionId]);
+
+  /** Renames a discussion; the list shows the new title at once and reverts if the server refuses it. */
+  const handleRenameSession = useCallback(async (session: DiscussionSession, title: string) => {
+    if (!workspaceId) return;
+    const setTitle = (value: string) => setSessions((prev) => prev.map((s) => (s.id === session.id ? { ...s, title: value } : s)));
+    setTitle(title);
+    try {
+      const renamed = await apiRenameDiscussionSession(workspaceId, session.id, title);
+      setTitle(renamed.title);
+    } catch (error) {
+      setTitle(session.title);
+      toast.error(error instanceof Error ? error.message : "Could not rename the discussion.");
+    }
+  }, [workspaceId, toast]);
 
   if (!workspaceId) {
     return (
@@ -277,6 +289,7 @@ export default function DiscussionsPage() {
         onSelectSession={handleSelectSession}
         onOpenNewChatModal={() => setIsNewChatModalOpen(true)}
         onDeleteSession={handleDeleteSession}
+        onRenameSession={handleRenameSession}
       />
 
       {/* Center modernized chat window */}
@@ -287,12 +300,13 @@ export default function DiscussionsPage() {
         workspaceId={workspaceId ?? null}
         initialMessages={initialMessages}
         initialUsage={initialUsage}
-        resumePending={resumePending}
+        initialPendingAgentIds={initialPendingAgentIds}
         teams={teams}
         agents={agents}
         isRightPaneOpen={isRightPaneOpen}
         onToggleRightPane={() => setIsRightPaneOpen(!isRightPaneOpen)}
         onMessagesUpdate={handleMessagesUpdate}
+        onArtifactsChanged={handleArtifactsChanged}
       />
 
       {/* Right-hand pane for artifacts, knowledge base, connectors */}
@@ -302,6 +316,7 @@ export default function DiscussionsPage() {
           workspaceId={workspaceId}
           activeSessionId={activeSessionId}
           messages={currentMessages}
+          artifactsVersion={artifactsVersion}
           onClose={() => setIsRightPaneOpen(false)}
         />
       )}

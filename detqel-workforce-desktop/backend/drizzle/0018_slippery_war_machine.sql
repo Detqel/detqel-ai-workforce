@@ -1,0 +1,1 @@
+ALTER TABLE "chat_messages" ADD COLUMN "activity" jsonb DEFAULT '[]'::jsonb NOT NULL;

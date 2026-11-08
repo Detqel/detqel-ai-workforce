@@ -3,12 +3,17 @@ import { users, workspaces } from "./auth.js";
 import { connections } from "./connections.js";
 import { organizationAgents } from "./recruit.js";
 import { agentTeams } from "./teams.js";
+import type { DiscussionActivityStep } from "../../../shared/types/discussion-activity.js";
 
-/** A teammate still due to speak in the current team turn, after the lead delegated to them or the user named them. */
+/** An agent still due to speak in the current turn: the lead or solo agent, a delegate, or a teammate the user named. */
 export interface PendingResponder {
     readonly agentId: string;
     /** What the lead asked this teammate to contribute; null when the user addressed them directly. */
     readonly assignment: string | null;
+    /** Set for the agent answering first: the team lead (who may delegate) or the agent of a one-to-one discussion. */
+    readonly first?: boolean;
+    /** Set for the lead's closing reply, which brings its teammates' contributions together. */
+    readonly wrapUp?: boolean;
 }
 
 /** The queue of teammates who still have to reply in the current turn, in speaking order, with the turn's settings. */
@@ -20,6 +25,8 @@ export interface PendingTurn {
     readonly responseMode: string;
     readonly capabilityMode: string;
     readonly webEnabled: boolean;
+    /** A document the user asked for in this turn that is not written yet, and the agent who will write it. */
+    readonly document?: { readonly title: string; readonly ownerAgentId: string } | null;
 }
 
 /**
@@ -65,10 +72,14 @@ export const chatMessages = pgTable("chat_messages", {
     speakerName: varchar("speaker_name", { length: 255 }),
     speakerRole: varchar("speaker_role", { length: 255 }),
     isLead: boolean("is_lead").notNull().default(false),
+    // The speaker's part in the turn (solo, lead, addressed, delegate, wrapUp), so a handoff can be shown apart.
+    turnRole: varchar("turn_role", { length: 20 }),
     // Response mode (brief | detailed) and capability (fast | expert) recorded for assistant turns.
     responseMode: varchar("response_mode", { length: 20 }),
     capabilityMode: varchar("capability_mode", { length: 20 }),
     tokensUsed: integer("tokens_used").notNull().default(0),
+    // The steps the agent worked through for this reply, shown as activity traces.
+    activity: jsonb("activity").$type<DiscussionActivityStep[]>().notNull().default([]),
     // Gateway usage for the model calls that produced this message.
     inputTokens: integer("input_tokens").notNull().default(0),
     outputTokens: integer("output_tokens").notNull().default(0),

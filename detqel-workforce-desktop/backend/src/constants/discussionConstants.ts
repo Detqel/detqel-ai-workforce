@@ -64,7 +64,7 @@ export const DISCUSSION_INTENTS = { conversational: "conversational", task: "tas
 export type DiscussionIntent = (typeof DISCUSSION_INTENTS)[keyof typeof DISCUSSION_INTENTS];
 
 /** Keys of the JSON object the triage step returns. */
-export const DISCUSSION_TRIAGE_KEYS = { intent: "intent", reply: "reply", delegate: "delegate", name: "name", task: "task" } as const;
+export const DISCUSSION_TRIAGE_KEYS = { intent: "intent", reply: "reply", delegate: "delegate", name: "name", task: "task", document: "document", title: "title" } as const;
 
 /** How a participant takes part in the current turn. */
 export const DISCUSSION_SPEAKER_ROLES = {
@@ -76,8 +76,64 @@ export const DISCUSSION_SPEAKER_ROLES = {
     addressed: "addressed",
     /** A teammate the lead handed part of the request to. */
     delegate: "delegate",
+    /** The lead again, after its teammates replied, bringing their contributions into one answer. */
+    wrapUp: "wrapUp",
 } as const;
 export type DiscussionSpeakerRole = (typeof DISCUSSION_SPEAKER_ROLES)[keyof typeof DISCUSSION_SPEAKER_ROLES];
+
+/**
+ * High-level steps an agent works through for one reply, shown to the user as single-line activity traces and
+ * kept with the reply. The UI words each step; the server only reports which step ran and its outcome.
+ */
+export const DISCUSSION_ACTIVITY_KINDS = {
+    /** Reading the message and deciding whether it needs real work (the triage call). */
+    understanding: "understanding",
+    /** The lead handing parts of the request to teammates. */
+    coordinating: "coordinating",
+    /** A teammate picking up what the lead assigned. */
+    assigned: "assigned",
+    searchingKnowledge: "searchingKnowledge",
+    searchingWeb: "searchingWeb",
+    /** Expert mode: writing a draft that is checked before it is shown. */
+    drafting: "drafting",
+    /** Expert mode: checking the draft against the sources while writing the final reply. */
+    reviewing: "reviewing",
+    /** Writing the reply the user sees. */
+    writing: "writing",
+    /** The lead bringing its teammates' contributions together into one answer. */
+    consolidating: "consolidating",
+    /** Writing a document the user asked for; the reply is the document. */
+    writingDocument: "writingDocument",
+    /** Saving that document in the discussion's artifacts. */
+    savingDocument: "savingDocument",
+} as const;
+export type DiscussionActivityKind = (typeof DISCUSSION_ACTIVITY_KINDS)[keyof typeof DISCUSSION_ACTIVITY_KINDS];
+
+export const DISCUSSION_ACTIVITY_STATUSES = { running: "running", done: "done", failed: "failed" } as const;
+export type DiscussionActivityStatus = (typeof DISCUSSION_ACTIVITY_STATUSES)[keyof typeof DISCUSSION_ACTIVITY_STATUSES];
+
+/** Events of a streamed turn, one JSON object per line. */
+export const DISCUSSION_STREAM_EVENTS = {
+    /** The user's message was saved; first event of a new turn. */
+    turn: "turn",
+    /** An agent starts its reply. */
+    speaker: "speaker",
+    /** An activity step started or finished. */
+    activity: "activity",
+    /** Text of the reply being written. */
+    token: "token",
+    /** The reply was saved; carries the stored message and the session's usage totals. */
+    reply: "reply",
+    /** Teammates still due to reply in this turn. */
+    pending: "pending",
+    done: "done",
+    error: "error",
+} as const;
+
+export const DISCUSSION_STREAM = {
+    /** Graph steps one speaker can take (next speaker, triage, research, draft, review, save), plus headroom. */
+    graphStepsPerSpeaker: 8,
+} as const;
 
 /** Temperature kept low for a calm, consistent, professional voice. */
 export const DISCUSSION_TEMPERATURE = 0.3;
@@ -96,5 +152,6 @@ export const DISCUSSION_ERRORS = {
     sessionWithoutParticipants: "This discussion is no longer linked to an agent or team. Start a new discussion.",
     nothingPending: "No teammate is waiting to reply in this discussion.",
     replyInProgress: "A teammate is already replying in this discussion.",
+    turnFailed: "The discussion could not continue. Try again.",
     targetConflict: "A discussion is with either an agent or a team, not both.",
 } as const;

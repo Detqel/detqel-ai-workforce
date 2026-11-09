@@ -24,10 +24,10 @@ const asRole = (role: string, createdBy: string | null = otherUserId): NonNullab
 });
 
 describe("authentication", () => {
-  test("every API route except sign in, sign up and account lookup requires a session", async () => {
+  test("every API route except sign in, sign up and the license list requires a session", async () => {
     await withApp({}, async app => {
       const routes: Array<{ method: string; url: string }> = JSON.parse(await readFile(new URL("./fixtures/routes.json", import.meta.url), "utf8"));
-      const open = new Set(["POST /api/auth/login", "POST /api/auth/register", "GET /api/auth/check-user"]);
+      const open = new Set(["POST /api/auth/login", "POST /api/auth/register", "GET /api/auth/license-options"]);
       let checked = 0;
       for (const route of routes) {
         if (!route.url.startsWith("/api/")) continue;
@@ -61,6 +61,11 @@ describe("authentication", () => {
     await withApp({ users: { findById: async () => null } }, async app => {
       assert.equal((await app.inject({ url: "/api/auth/me", headers: bearer() })).statusCode, 401, "deleted user");
     });
+    for (const license of [{ licenseExpiresAt: new Date(Date.now() - 1000) }, { licenseId: null, licenseExpiresAt: null }]) {
+      await withApp({ users: { findById: async () => userRow(userId, license) } }, async app => {
+        assert.equal((await app.inject({ url: "/api/auth/me", headers: bearer() })).statusCode, 401, "expired or missing license");
+      });
+    }
   });
 
   test("/auth/me renews the caller's own session and ignores a userId in the query", async () => {
@@ -73,14 +78,6 @@ describe("authentication", () => {
     });
   });
 
-  test("account lookup reveals only whether an account exists", async () => {
-    await withApp({ users: { findByEmail: async () => userRow(otherUserId, { name: "Private Name", email: "victim@example.test" }), findByIdentifier: async () => null } }, async app => {
-      const response = await app.inject("/api/auth/check-user?email=victim@example.test");
-      assert.equal(response.statusCode, 200);
-      assert.equal(response.json().exists, true);
-      assert.doesNotMatch(response.body, new RegExp(`${otherUserId}|Private Name|SECRET-PASSWORD-HASH`));
-    });
-  });
 });
 
 describe("workspace authorization", () => {
@@ -209,10 +206,10 @@ describe("user data", () => {
     }, async app => {
       const list = await app.inject({ url: "/api/users", headers: bearer() });
       assert.deepEqual(list.json().map((user: { name: string }) => user.name), ["Colleague", "Me"]);
-      assert.doesNotMatch(list.body, /SECRET-PASSWORD-HASH|passwordHash/);
+      assert.doesNotMatch(list.body, /SECRET-PASSWORD-HASH|SECRET-LICENSE-TOKEN|passwordHash|licenseToken/);
       const own = await app.inject({ url: `/api/users/${userId}`, headers: bearer() });
       assert.equal(own.statusCode, 200);
-      assert.doesNotMatch(own.body, /SECRET-PASSWORD-HASH|passwordHash/);
+      assert.doesNotMatch(own.body, /SECRET-PASSWORD-HASH|SECRET-LICENSE-TOKEN|passwordHash|licenseToken/);
       assert.equal((await app.inject({ url: `/api/users/${otherUserId}`, headers: bearer() })).statusCode, 200);
       assert.equal((await app.inject({ url: "/api/users/6d1f0a9b-1111-4222-8333-444455556666", headers: bearer() })).statusCode, 404, "unrelated users are not visible");
     });

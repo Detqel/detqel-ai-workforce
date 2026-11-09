@@ -40,6 +40,8 @@ describe("isolated PostgreSQL integration", { skip: !adminUrl }, () => {
   let ownerId: string;
   let workspaceId: string;
   const sessionFor = (userId: string) => new SessionService(testConfig.AUTH_SESSION_SECRET, testConfig.AUTH_SESSION_TTL_SECONDS).issue(userId).accessToken;
+  // Sign-in goes through the License Portal; these tests stand in for it with a verified license already stored.
+  const licensed = () => ({ portalUserId: randomUUID(), licenseId: randomUUID(), licenseToken: "LICENSE-TOKEN", licenseExpiresAt: new Date(Date.now() + 3_600_000) });
 
   before(async () => {
     const url = new URL(adminUrl!);
@@ -128,6 +130,7 @@ describe("isolated PostgreSQL integration", { skip: !adminUrl }, () => {
       await verifyMigrationState(desktop.db);
       assert.ok(details.some(detail => detail.includes("AI providers")));
       assert.ok(await repositories.users.findById(owner.id));
+      await repositories.users.update(owner.id, licensed());
       const app = await buildApp({ config: { ...testConfig, DATABASE_URL: desktopUrl }, verifyDatabase: true, logger: false });
       try {
         const anonymous = await app.inject("/api/settings/providers");
@@ -219,23 +222,22 @@ describe("isolated PostgreSQL integration", { skip: !adminUrl }, () => {
   test("API workflows use real repositories and retain frontend response contracts", async () => {
     const app = await buildApp({ config: { ...testConfig, DATABASE_URL: databaseUrl }, services: createServices(unit, connection.check, testConfig), logger: false });
     try {
-      const registration = await app.inject({ method: "POST", url: "/api/auth/register", payload: { name: "API User", email: "api@example.test", password: "password", username: "apiuser" } });
-      assert.equal(registration.statusCode, 201);
-      assert.equal(registration.json().hasWorkspace, false);
-      assert.equal(registration.json().user.passwordHash, undefined);
-      const login = await app.inject({ method: "POST", url: "/api/auth/login", payload: { identifier: "apiuser", password: "password" } });
-      assert.equal(login.statusCode, 200);
-      assert.equal(login.json().user.id, registration.json().user.id);
-      const authorization = { authorization: `Bearer ${registration.json().accessToken}` };
-      const create = await app.inject({ method: "POST", url: "/api/workspaces", headers: authorization, payload: { name: "API Workspace", createdBy: registration.json().user.id } });
+      const apiUser = await unit.users.create({ name: "API User", email: "api@example.test", username: "apiuser", ...licensed() });
+      const authorization = { authorization: `Bearer ${sessionFor(apiUser.id)}` };
+      const me = await app.inject({ url: "/api/auth/me", headers: authorization });
+      assert.equal(me.statusCode, 200);
+      assert.equal(me.json().hasWorkspace, false);
+      assert.equal(me.json().user.license.id, apiUser.licenseId);
+      assert.doesNotMatch(me.body, /passwordHash|LICENSE-TOKEN/);
+      const create = await app.inject({ method: "POST", url: "/api/workspaces", headers: authorization, payload: { name: "API Workspace", createdBy: apiUser.id } });
       assert.equal(create.statusCode, 201);
       assert.equal(create.json().role, "owner");
-      const workspaces = await app.inject({ url: `/api/workspaces/user/${registration.json().user.id}`, headers: authorization });
+      const workspaces = await app.inject({ url: `/api/workspaces/user/${apiUser.id}`, headers: authorization });
       assert.equal(workspaces.json().length, 1);
       // A different user can neither list these workspaces nor read their members.
-      const outsider = await app.inject({ method: "POST", url: "/api/auth/register", payload: { name: "Outsider", email: "outsider@example.test", password: "password", username: "outsider" } });
-      const outsiderAuthorization = { authorization: `Bearer ${outsider.json().accessToken}` };
-      assert.equal((await app.inject({ url: `/api/workspaces/user/${registration.json().user.id}`, headers: outsiderAuthorization })).statusCode, 403);
+      const outsider = await unit.users.create({ name: "Outsider", email: "outsider@example.test", username: "outsider", ...licensed() });
+      const outsiderAuthorization = { authorization: `Bearer ${sessionFor(outsider.id)}` };
+      assert.equal((await app.inject({ url: `/api/workspaces/user/${apiUser.id}`, headers: outsiderAuthorization })).statusCode, 403);
       assert.equal((await app.inject({ url: `/api/workspaces/${create.json().id}`, headers: outsiderAuthorization })).statusCode, 403);
       const overview = await app.inject({ url: `/api/workspaces/${create.json().id}`, headers: authorization });
       assert.equal(overview.statusCode, 200);

@@ -5,25 +5,25 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     const controller = new AuthController(app.services.auth);
     // These three routes are the only ones reachable without a session.
     const publicRoute = { public: true };
-    app.get("/auth/check-user", {
+    app.get("/auth/license-options", {
         config: publicRoute,
         schema: {
             tags: [API_TAG_NAMES.auth],
-            summary: "Check if a user account already exists by email or username",
+            summary: "List the licenses the DETQEL License Portal offers for KIN registration",
         },
-    }, controller.checkUser.bind(controller));
+    }, controller.licenseOptions.bind(controller));
     app.post("/auth/login", {
         config: publicRoute,
         schema: {
             tags: [API_TAG_NAMES.auth],
-            summary: "Authenticate user and fetch active workspaces",
+            summary: "Sign in through the DETQEL License Portal with a username and password",
         },
     }, controller.login.bind(controller));
     app.post("/auth/register", {
         config: publicRoute,
         schema: {
             tags: [API_TAG_NAMES.auth],
-            summary: "Register new user account or log in existing user if credentials match",
+            summary: "Register a DETQEL account and request a KIN license from the License Portal",
         },
     }, controller.register.bind(controller));
     app.get("/auth/me", {

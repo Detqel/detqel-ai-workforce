@@ -5,7 +5,7 @@ export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || API_LOCAL_BASE_UR
 
 export const API_PATHS = {
   prefix: "/api/",
-  authCheckUser: "/api/auth/check-user",
+  authLicenseOptions: "/api/auth/license-options",
   authLogin: "/api/auth/login",
   authRegister: "/api/auth/register",
   authMe: "/api/auth/me",

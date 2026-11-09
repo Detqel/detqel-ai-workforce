@@ -1,10 +1,15 @@
 "use client";
 
-import { LEGACY_DEMO_ACCOUNT, MIN_USERNAME_LENGTH, MIN_PASSWORD_LENGTH } from "@/constants/authConstants";
+import {
+  MIN_USERNAME_LENGTH,
+  MIN_PASSWORD_LENGTH,
+  PHONE_DIGITS,
+  USERNAME_PATTERN,
+} from "@/constants/authConstants";
 
 import { ASSET_PATHS, APPLICATION_NAME_UPPERCASE } from "@/constants/commonConstants";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Image from "next/image";
 import {
   Mail,
@@ -18,19 +23,32 @@ import {
   AtSign,
   Loader2,
   AlertCircle,
+  Phone,
+  Globe,
+  MapPin,
+  BadgeCheck,
 } from "lucide-react";
 import { PuzzleCaptcha } from "./PuzzleCaptcha";
 import { useWorkspace } from "@/context/WorkspaceContext";
-import {
-  apiLogin,
-  apiRegister,
-  apiCheckUser,
-  CheckUserResponse,
-  UserProfile,
-  WorkspaceSummary,
-} from "@/lib/api";
+import { apiLicenseOptions, apiLogin, apiRegister, type LicenseOption } from "@/lib/api";
+import { loadCountries, type CountryOption } from "@/lib/country-regions";
 import { PrimaryButton } from "@/components/ui/primary-button";
 import { IconOnlyButton } from "@/components/ui/icon-only-button";
+import { CustomDropdown } from "@/components/ui/custom-dropdown";
+
+const INPUT_SHELL =
+  "flex items-center px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/70 transition-colors focus-within:border-[#8a2be2] focus-within:bg-white focus-within:ring-2 focus-within:ring-[#8a2be2]/10";
+const INPUT_TEXT = "w-full bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400";
+const DROPDOWN_TRIGGER = "py-2.5 text-sm";
+
+const Field: React.FC<{ id: string; label: string; children: React.ReactNode }> = ({ id, label, children }) => (
+  <div>
+    <label htmlFor={id} className="block text-xs font-medium text-slate-700 mb-1.5">
+      {label}
+    </label>
+    {children}
+  </div>
+);
 
 export const LoginForm: React.FC = () => {
   const { setSession } = useWorkspace();
@@ -44,43 +62,80 @@ export const LoginForm: React.FC = () => {
   const [resetSubmitted, setResetSubmitted] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
 
-  const [signInIdentifier, setSignInIdentifier] = useState("");
-  const [companyName, setCompanyName] = useState("");
+  const [signInUsername, setSignInUsername] = useState("");
   const [signInPassword, setSignInPassword] = useState("");
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
-  const [companyEmail, setCompanyEmail] = useState("");
   const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
+  const [companyName, setCompanyName] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [phone, setPhone] = useState("");
+  const [country, setCountry] = useState("");
+  const [region, setRegion] = useState("");
+  const [licensePlanId, setLicensePlanId] = useState("");
 
+  const [countries, setCountries] = useState<CountryOption[] | null>(null);
+  const [countriesError, setCountriesError] = useState(false);
+  const [licenseOptions, setLicenseOptions] = useState<LicenseOption[] | null>(null);
+  const [licenseOptionsError, setLicenseOptionsError] = useState<string | null>(null);
   const [isCaptchaVerified, setIsCaptchaVerified] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authSuccess, setAuthSuccess] = useState<string | null>(null);
-  const [existingUserMatch, setExistingUserMatch] = useState<CheckUserResponse | null>(null);
 
-  const checkExistingAccount = async (emailVal: string, usernameVal: string) => {
-    if (!emailVal.includes("@") && (!usernameVal || usernameVal.length < MIN_USERNAME_LENGTH)) {
-      setExistingUserMatch(null);
-      return;
-    }
-    const res = await apiCheckUser({ email: emailVal, username: usernameVal });
-    if (res.exists) {
-      setExistingUserMatch(res);
-    } else {
-      setExistingUserMatch(null);
-    }
-  };
+  // The country and state list is loaded only when someone opens registration.
+  useEffect(() => {
+    if (activeTab !== "signup" || countries) return;
+    let active = true;
+    loadCountries().then(
+      (list) => { if (active) setCountries(list); },
+      () => { if (active) setCountriesError(true); },
+    );
+    return () => { active = false; };
+  }, [activeTab, countries]);
+
+  // The licenses on offer come from the License Portal's catalog each time registration opens.
+  useEffect(() => {
+    if (activeTab !== "signup" || licenseOptions) return;
+    let active = true;
+    apiLicenseOptions().then(
+      (options) => {
+        if (!active) return;
+        setLicenseOptions(options);
+        setLicensePlanId((current) => current || options[0]?.id || "");
+      },
+      (error: unknown) => {
+        if (active) setLicenseOptionsError(error instanceof Error ? error.message : "The license list could not be loaded.");
+      },
+    );
+    return () => { active = false; };
+  }, [activeTab, licenseOptions]);
+
+  const licenseDropdownOptions = (licenseOptions ?? []).map((option) => ({
+    value: option.id,
+    label: option.name,
+    badge: option.billing === "FREE" ? "Free" : option.billing,
+    description: [option.description, option.durationDays ? `Valid ${option.durationDays} days after approval` : "No expiry"]
+      .filter(Boolean)
+      .join(" · "),
+  }));
+
+  const countryOptions = (countries ?? []).map((item) => ({ value: item.code, label: item.name }));
+  const regions = countries?.find((item) => item.code === country)?.regions ?? [];
+  const regionOptions = regions.map((name) => ({ value: name, label: name }));
 
   const handleTabChange = (tab: "signin" | "signup") => {
     setActiveTab(tab);
     setAuthError(null);
     setAuthSuccess(null);
+    setCountriesError(false);
+    setLicenseOptionsError(null);
     setIsCaptchaVerified(false);
-    if (tab === "signin" && (companyEmail.trim() || username.trim())) {
-      setSignInIdentifier(companyEmail.trim() || username.trim());
+    if (tab === "signin" && username.trim()) {
+      setSignInUsername(username.trim());
     }
   };
 
@@ -104,8 +159,8 @@ export const LoginForm: React.FC = () => {
     }
 
     if (activeTab === "signin") {
-      if (!signInIdentifier.trim()) {
-        setAuthError("Please enter your email or username.");
+      if (!signInUsername.trim()) {
+        setAuthError("Please enter your username.");
         return;
       }
       if (!signInPassword) {
@@ -117,92 +172,41 @@ export const LoginForm: React.FC = () => {
 
       try {
         const response = await apiLogin({
-          identifier: signInIdentifier.trim(),
+          username: signInUsername.trim(),
           password: signInPassword,
-          companyName: companyName.trim() || undefined,
         });
 
         setSession(response.user, response.workspaces);
-
-        if (response.hasWorkspace && response.workspaces.length > 0) {
-          const matchedWorkspace = companyName.trim()
-            ? response.workspaces.find(
-                (w) =>
-                  w.name.toLowerCase().includes(companyName.trim().toLowerCase()) ||
-                  w.slug.toLowerCase().includes(companyName.trim().toLowerCase())
-              )
-            : undefined;
-
-          if (matchedWorkspace) {
-            setSession(response.user, [
-              matchedWorkspace,
-              ...response.workspaces.filter((w) => w.id !== matchedWorkspace.id),
-            ]);
-          }
-
-          setAuthSuccess(
-            `Authentication successful! Connecting to ${
-              matchedWorkspace?.name || response.workspaces[0].name
-            }...`
-          );
-          setIsSubmitting(false);
-        } else {
-          // First time user with no workspace -> Redirect to dashboard (full setup modal covers page there)
-          setSession(response.user, []);
-          setAuthSuccess("Authentication successful! Welcome to DETQEL.");
-          setIsSubmitting(false);
-        }
+        setAuthSuccess(
+          response.hasWorkspace && response.workspaces.length > 0
+            ? `Authentication successful! Connecting to ${response.workspaces[0].name}...`
+            : "Authentication successful! Welcome to DETQEL."
+        );
       } catch (err: unknown) {
-        // Fallback demo credentials if API backend is not reached
-        const isDefaultAdmin =
-          (signInIdentifier.trim().toLowerCase() === LEGACY_DEMO_ACCOUNT.username ||
-            signInIdentifier.trim().toLowerCase() === LEGACY_DEMO_ACCOUNT.email) &&
-          signInPassword === LEGACY_DEMO_ACCOUNT.password;
-
-        if (isDefaultAdmin) {
-          const fallbackUser: UserProfile = {
-            id: LEGACY_DEMO_ACCOUNT.userId,
-            name: LEGACY_DEMO_ACCOUNT.name,
-            email: LEGACY_DEMO_ACCOUNT.email,
-            username: LEGACY_DEMO_ACCOUNT.username,
-            status: LEGACY_DEMO_ACCOUNT.status,
-          };
-          const fallbackWorkspace: WorkspaceSummary = {
-            id: LEGACY_DEMO_ACCOUNT.workspaceId,
-            name: companyName.trim() || LEGACY_DEMO_ACCOUNT.workspaceName,
-            slug: LEGACY_DEMO_ACCOUNT.workspaceSlug,
-            industry: LEGACY_DEMO_ACCOUNT.workspaceIndustry,
-            role: LEGACY_DEMO_ACCOUNT.role,
-            status: LEGACY_DEMO_ACCOUNT.status,
-          };
-          setSession(fallbackUser, [fallbackWorkspace]);
-          setAuthSuccess(`Welcome back, ${LEGACY_DEMO_ACCOUNT.name}!`);
-          setIsSubmitting(false);
-          return;
-        }
-
-        setIsSubmitting(false);
-        const errMsg =
+        setAuthError(
           err instanceof Error
             ? err.message
-            : "Failed to authenticate. Please check credentials.";
-        setAuthError(errMsg);
+            : "Failed to authenticate. Please check credentials."
+        );
+      } finally {
+        setIsSubmitting(false);
       }
     } else {
+      const digits = phone.trim();
       if (!firstName.trim() || !lastName.trim()) {
         setAuthError("Please provide both first and last name.");
         return;
       }
-      if (!companyEmail.trim() || !companyEmail.includes("@")) {
-        setAuthError("Please enter a valid company email address.");
+      if (username.trim().length < MIN_USERNAME_LENGTH || !USERNAME_PATTERN.test(username.trim())) {
+        setAuthError(`Username must be at least ${MIN_USERNAME_LENGTH} characters and use only letters, numbers, dots, dashes or underscores.`);
         return;
       }
-      if (!username.trim() || username.length < MIN_USERNAME_LENGTH) {
-        setAuthError(`Username must be at least ${MIN_USERNAME_LENGTH} characters.`);
+      if (!email.trim() || !email.includes("@")) {
+        setAuthError("Please enter a valid email address.");
         return;
       }
-      if (!password) {
-        setAuthError("Please enter a password.");
+      if (!companyName.trim()) {
+        setAuthError("Please enter your company name.");
         return;
       }
       if (password.length < MIN_PASSWORD_LENGTH) {
@@ -213,6 +217,22 @@ export const LoginForm: React.FC = () => {
         setAuthError("Passwords do not match. Please verify both passwords.");
         return;
       }
+      if (!/^\d+$/.test(digits) || digits.length < PHONE_DIGITS.minimum || digits.length > PHONE_DIGITS.maximum) {
+        setAuthError(`Phone number must contain ${PHONE_DIGITS.minimum} to ${PHONE_DIGITS.maximum} digits.`);
+        return;
+      }
+      if (!country) {
+        setAuthError("Please select your country.");
+        return;
+      }
+      if (regions.length > 0 && !region) {
+        setAuthError("Please select your state.");
+        return;
+      }
+      if (!licensePlanId) {
+        setAuthError("Please select a license.");
+        return;
+      }
       if (!agreeTerms) {
         setAuthError("You must agree to the Terms of Service and Privacy Policy.");
         return;
@@ -221,32 +241,34 @@ export const LoginForm: React.FC = () => {
       setIsSubmitting(true);
       try {
         const response = await apiRegister({
-          name: `${firstName.trim()} ${lastName.trim()}`,
-          email: companyEmail.trim(),
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
           username: username.trim(),
+          email: email.trim(),
+          companyName: companyName.trim(),
           password,
+          confirmPassword,
+          phone: digits,
+          country,
+          state: region,
+          licensePlanId,
         });
-
-        if (response.hasWorkspace && response.workspaces.length > 0) {
-          // Existing user with active workspace -> Log them directly into their workspace!
-          setSession(response.user, response.workspaces);
-          setAuthSuccess(
-            `Welcome back, ${response.user.name}! Connecting to your workspace (${response.workspaces[0].name})...`
-          );
-          setIsSubmitting(false);
-        } else {
-          // First-time user with 0 workspaces -> Redirect to dashboard (full setup modal covers page there)
-          setSession(response.user, []);
-          setAuthSuccess("Account created! Welcome to DETQEL.");
-          setIsSubmitting(false);
-        }
+        // No session yet: a DETQEL administrator approves the license before the first sign-in.
+        setActiveTab("signin");
+        setSignInUsername(username.trim());
+        setSignInPassword("");
+        setPassword("");
+        setConfirmPassword("");
+        setIsCaptchaVerified(false);
+        setAuthSuccess(`${response.message} You can sign in once it is approved.`);
       } catch (err: unknown) {
-        setIsSubmitting(false);
-        const errMsg =
+        setAuthError(
           err instanceof Error
             ? err.message
-            : "Failed to process registration. Please check your credentials.";
-        setAuthError(errMsg);
+            : "Failed to process registration. Please check your details."
+        );
+      } finally {
+        setIsSubmitting(false);
       }
     }
   };
@@ -346,24 +368,6 @@ export const LoginForm: React.FC = () => {
             </div>
           )}
 
-          {activeTab === "signup" && existingUserMatch?.exists && (
-            <div className="mb-5 p-3.5 rounded-xl border border-purple-200 bg-purple-50 text-purple-900 text-xs flex items-center justify-between gap-2.5 animate-in fade-in duration-200">
-              <div className="flex items-center gap-2.5">
-                <AlertCircle className="w-4 h-4 text-[#8a2be2] flex-shrink-0" />
-                <span>
-                  Existing account detected (<strong>{existingUserMatch.user?.email || existingUserMatch.user?.name}</strong>). Enter your password to sign in directly to your workspace.
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => handleTabChange("signin")}
-                className="text-xs font-bold text-[#8a2be2] hover:underline shrink-0 cursor-pointer"
-              >
-                Sign In &rarr;
-              </button>
-            </div>
-          )}
-
           {authSuccess && (
             <div className="mb-5 p-3.5 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-800 text-xs flex items-center gap-2.5 animate-in fade-in duration-200">
               <Check className="w-4 h-4 text-emerald-600 flex-shrink-0 stroke-[3]" />
@@ -395,47 +399,21 @@ export const LoginForm: React.FC = () => {
               </div>
             ) : activeTab === "signin" ? (
               <>
-                <div>
-                  <label
-                    htmlFor="signInIdentifier"
-                    className="block text-xs font-medium text-slate-700 mb-1.5"
-                  >
-                    Email or Username
-                  </label>
-                  <div className="flex items-center px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/70 transition-colors focus-within:border-[#8a2be2] focus-within:bg-white focus-within:ring-2 focus-within:ring-[#8a2be2]/10">
-                    <User className="w-4 h-4 text-slate-400 mr-2.5 flex-shrink-0" />
+                <Field id="signInUsername" label="Username">
+                  <div className={INPUT_SHELL}>
+                    <AtSign className="w-4 h-4 text-slate-400 mr-2.5 flex-shrink-0" />
                     <input
-                      id="signInIdentifier"
+                      id="signInUsername"
                       type="text"
                       required
-                      value={signInIdentifier}
-                      onChange={(e) => setSignInIdentifier(e.target.value)}
-                      placeholder="you@company.com or username"
-                      className="w-full bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                      autoComplete="username"
+                      value={signInUsername}
+                      onChange={(e) => setSignInUsername(e.target.value)}
+                      placeholder="Your DETQEL username"
+                      className={INPUT_TEXT}
                     />
                   </div>
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="companyName"
-                    className="block text-xs font-medium text-slate-700 mb-1.5"
-                  >
-                    Company Name
-                  </label>
-                  <div className="flex items-center px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/70 transition-colors focus-within:border-[#8a2be2] focus-within:bg-white focus-within:ring-2 focus-within:ring-[#8a2be2]/10">
-                    <Building2 className="w-4 h-4 text-slate-400 mr-2.5 flex-shrink-0" />
-                    <input
-                      id="companyName"
-                      type="text"
-                      required
-                      value={companyName}
-                      onChange={(e) => setCompanyName(e.target.value)}
-                      placeholder="Acme Corporation"
-                      className="w-full bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
-                    />
-                  </div>
-                </div>
+                </Field>
 
                 <div>
                   <label
@@ -507,186 +485,136 @@ export const LoginForm: React.FC = () => {
             ) : (
               <div className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label
-                      htmlFor="firstName"
-                      className="block text-xs font-medium text-slate-700 mb-1.5"
-                    >
-                      First Name
-                    </label>
-                    <div className="flex items-center px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/70 transition-colors focus-within:border-[#8a2be2] focus-within:bg-white focus-within:ring-2 focus-within:ring-[#8a2be2]/10">
+                  <Field id="firstName" label="First Name">
+                    <div className={INPUT_SHELL}>
                       <User className="w-4 h-4 text-slate-400 mr-2.5 flex-shrink-0" />
-                      <input
-                        id="firstName"
-                        type="text"
-                        required
-                        value={firstName}
-                        onChange={(e) => setFirstName(e.target.value)}
-                        placeholder="Jane"
-                        className="w-full bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
-                      />
+                      <input id="firstName" type="text" required maxLength={60} autoComplete="given-name" value={firstName}
+                        onChange={(e) => setFirstName(e.target.value)} placeholder="Jane" className={INPUT_TEXT} />
                     </div>
-                  </div>
-
-                  <div>
-                    <label
-                      htmlFor="lastName"
-                      className="block text-xs font-medium text-slate-700 mb-1.5"
-                    >
-                      Last Name
-                    </label>
-                    <div className="flex items-center px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/70 transition-colors focus-within:border-[#8a2be2] focus-within:bg-white focus-within:ring-2 focus-within:ring-[#8a2be2]/10">
+                  </Field>
+                  <Field id="lastName" label="Last Name">
+                    <div className={INPUT_SHELL}>
                       <User className="w-4 h-4 text-slate-400 mr-2.5 flex-shrink-0" />
-                      <input
-                        id="lastName"
-                        type="text"
-                        required
-                        value={lastName}
-                        onChange={(e) => setLastName(e.target.value)}
-                        placeholder="Doe"
-                        className="w-full bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
-                      />
+                      <input id="lastName" type="text" required maxLength={60} autoComplete="family-name" value={lastName}
+                        onChange={(e) => setLastName(e.target.value)} placeholder="Doe" className={INPUT_TEXT} />
                     </div>
-                  </div>
+                  </Field>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label
-                      htmlFor="companyEmail"
-                      className="block text-xs font-medium text-slate-700 mb-1.5"
-                    >
-                      Company Email
-                    </label>
-                    <div className="flex items-center px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/70 transition-colors focus-within:border-[#8a2be2] focus-within:bg-white focus-within:ring-2 focus-within:ring-[#8a2be2]/10">
-                      <Mail className="w-4 h-4 text-slate-400 mr-2.5 flex-shrink-0" />
-                      <input
-                        id="companyEmail"
-                        type="email"
-                        required
-                        value={companyEmail}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setCompanyEmail(val);
-                          if (val.includes("@")) {
-                            checkExistingAccount(val, username);
-                          } else if (!username) {
-                            setExistingUserMatch(null);
-                          }
-                        }}
-                        onBlur={() => checkExistingAccount(companyEmail, username)}
-                        placeholder="jane@company.com"
-                        className="w-full bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label
-                      htmlFor="username"
-                      className="block text-xs font-medium text-slate-700 mb-1.5"
-                    >
-                      Username
-                    </label>
-                    <div className="flex items-center px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/70 transition-colors focus-within:border-[#8a2be2] focus-within:bg-white focus-within:ring-2 focus-within:ring-[#8a2be2]/10">
+                  <Field id="username" label="Username">
+                    <div className={INPUT_SHELL}>
                       <AtSign className="w-4 h-4 text-slate-400 mr-2.5 flex-shrink-0" />
-                      <input
-                        id="username"
-                        type="text"
-                        required
-                        value={username}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setUsername(val);
-                          if (val.length >= 3) {
-                            checkExistingAccount(companyEmail, val);
-                          } else if (!companyEmail.includes("@")) {
-                            setExistingUserMatch(null);
-                          }
-                        }}
-                        onBlur={() => checkExistingAccount(companyEmail, username)}
-                        placeholder="janedoe"
-                        className="w-full bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
-                      />
+                      <input id="username" type="text" required minLength={MIN_USERNAME_LENGTH} maxLength={64} autoComplete="username"
+                        value={username} onChange={(e) => setUsername(e.target.value)} placeholder="janedoe" className={INPUT_TEXT} />
                     </div>
-                  </div>
+                  </Field>
+                  <Field id="email" label="Email">
+                    <div className={INPUT_SHELL}>
+                      <Mail className="w-4 h-4 text-slate-400 mr-2.5 flex-shrink-0" />
+                      <input id="email" type="email" required maxLength={254} autoComplete="email" value={email}
+                        onChange={(e) => setEmail(e.target.value)} placeholder="jane@company.com" className={INPUT_TEXT} />
+                    </div>
+                  </Field>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label
-                      htmlFor="password"
-                      className="block text-xs font-medium text-slate-700 mb-1.5"
-                    >
-                      Password
-                    </label>
-                    <div className="flex items-center px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/70 transition-colors focus-within:border-[#8a2be2] focus-within:bg-white focus-within:ring-2 focus-within:ring-[#8a2be2]/10">
+                  <Field id="companyName" label="Company Name">
+                    <div className={INPUT_SHELL}>
+                      <Building2 className="w-4 h-4 text-slate-400 mr-2.5 flex-shrink-0" />
+                      <input id="companyName" type="text" required maxLength={120} autoComplete="organization" value={companyName}
+                        onChange={(e) => setCompanyName(e.target.value)} placeholder="Acme Corporation" className={INPUT_TEXT} />
+                    </div>
+                  </Field>
+                  <Field id="phone" label="Phone Number">
+                    <div className={INPUT_SHELL}>
+                      <Phone className="w-4 h-4 text-slate-400 mr-2.5 flex-shrink-0" />
+                      <input id="phone" type="tel" required inputMode="numeric" pattern="[0-9]*" autoComplete="tel"
+                        minLength={PHONE_DIGITS.minimum} maxLength={PHONE_DIGITS.maximum} value={phone}
+                        onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, PHONE_DIGITS.maximum))}
+                        placeholder="Digits only, with country code" className={INPUT_TEXT} />
+                    </div>
+                  </Field>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Field id="password" label="Password">
+                    <div className={INPUT_SHELL}>
                       <Lock className="w-4 h-4 text-slate-400 mr-2.5 flex-shrink-0" />
-                      <input
-                        id="password"
-                        type={showPassword ? "text" : "password"}
-                        required
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        placeholder="Min. 8 characters"
-                        className="w-full bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
-                      />
+                      <input id="password" type={showPassword ? "text" : "password"} required minLength={MIN_PASSWORD_LENGTH} maxLength={128}
+                        autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)}
+                        placeholder={`Min. ${MIN_PASSWORD_LENGTH} characters`} className={INPUT_TEXT} />
                       <IconOnlyButton
                         onClick={() => setShowPassword(!showPassword)}
                         className="ml-1 p-0.5"
-                        aria-label={
-                          showPassword ? "Hide password" : "Show password"
-                        }
-                        icon={
-                          showPassword ? (
-                            <EyeOff className="w-4 h-4" />
-                          ) : (
-                            <Eye className="w-4 h-4" />
-                          )
-                        }
+                        aria-label={showPassword ? "Hide password" : "Show password"}
+                        icon={showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       />
                     </div>
-                  </div>
-
-                  <div>
-                    <label
-                      htmlFor="confirmPassword"
-                      className="block text-xs font-medium text-slate-700 mb-1.5"
-                    >
-                      Confirm Password
-                    </label>
-                    <div className="flex items-center px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/70 transition-colors focus-within:border-[#8a2be2] focus-within:bg-white focus-within:ring-2 focus-within:ring-[#8a2be2]/10">
+                  </Field>
+                  <Field id="confirmPassword" label="Confirm Password">
+                    <div className={INPUT_SHELL}>
                       <Lock className="w-4 h-4 text-slate-400 mr-2.5 flex-shrink-0" />
-                      <input
-                        id="confirmPassword"
-                        type={showConfirmPassword ? "text" : "password"}
-                        required
-                        value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
-                        placeholder="Repeat password"
-                        className="w-full bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
-                      />
+                      <input id="confirmPassword" type={showConfirmPassword ? "text" : "password"} required maxLength={128}
+                        autoComplete="new-password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
+                        placeholder="Repeat password" className={INPUT_TEXT} />
                       <IconOnlyButton
-                        onClick={() =>
-                          setShowConfirmPassword(!showConfirmPassword)
-                        }
+                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                         className="ml-1 p-0.5"
-                        aria-label={
-                          showConfirmPassword
-                            ? "Hide password"
-                            : "Show password"
-                        }
-                        icon={
-                          showConfirmPassword ? (
-                            <EyeOff className="w-4 h-4" />
-                          ) : (
-                            <Eye className="w-4 h-4" />
-                          )
-                        }
+                        aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+                        icon={showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       />
                     </div>
-                  </div>
+                  </Field>
                 </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Field id="country" label="Country">
+                    <CustomDropdown
+                      options={countryOptions}
+                      value={country}
+                      onChange={(code) => { setCountry(code); setRegion(""); }}
+                      placeholder={countriesError ? "Country list unavailable" : "Select country"}
+                      loading={!countries && !countriesError}
+                      loadingText="Loading countries..."
+                      searchable
+                      searchPlaceholder="Search countries"
+                      icon={<Globe className="w-4 h-4" />}
+                      triggerClassName={DROPDOWN_TRIGGER}
+                    />
+                  </Field>
+                  <Field id="state" label="State">
+                    <CustomDropdown
+                      options={regionOptions}
+                      value={region}
+                      onChange={setRegion}
+                      placeholder={!country ? "Select a country first" : regions.length ? "Select state" : "No states for this country"}
+                      disabled={!country || regions.length === 0}
+                      searchable
+                      searchPlaceholder="Search states"
+                      icon={<MapPin className="w-4 h-4" />}
+                      triggerClassName={DROPDOWN_TRIGGER}
+                    />
+                  </Field>
+                </div>
+
+                <Field id="licenseType" label="License Type">
+                  <CustomDropdown
+                    options={licenseDropdownOptions}
+                    value={licensePlanId}
+                    onChange={setLicensePlanId}
+                    placeholder={licenseOptionsError ? "License list unavailable" : "Select license"}
+                    loading={!licenseOptions && !licenseOptionsError}
+                    loadingText="Loading licenses..."
+                    emptyText="No licenses are offered right now"
+                    icon={<BadgeCheck className="w-4 h-4" />}
+                    triggerClassName={DROPDOWN_TRIGGER}
+                  />
+                  <p className={`mt-1.5 text-[11px] ${licenseOptionsError ? "text-red-600" : "text-slate-500"}`}>
+                    {licenseOptionsError ??
+                      "Licenses are managed by DETQEL. An administrator approves each request before the first sign-in."}
+                  </p>
+                </Field>
 
                 <div className="flex items-start gap-2 pt-1">
                   <button
@@ -749,13 +677,11 @@ export const LoginForm: React.FC = () => {
                 className="w-full py-3.5 text-sm shadow-md hover:shadow-lg"
                 value={
                   isSubmitting
-                    ? "Authenticating..."
+                    ? activeTab === "signup" ? "Submitting..." : "Authenticating..."
                     : isForgotPassword
                     ? "Send Reset Link"
                     : activeTab === "signin"
                     ? "Sign In"
-                    : existingUserMatch?.exists
-                    ? "Sign In to Your Workspace"
                     : "Create Account"
                 }
                 icon={

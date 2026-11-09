@@ -1,50 +1,68 @@
 import { AppError } from "../../../shared/errors/app-error.js";
-import { hashPassword, verifyPassword } from "../../../shared/security/password.js";
-import type { User } from "../../../shared/types/entities.js";
+import type { LicensePortalClient, PortalClientMetadata } from "../../../shared/licensing/license-portal.client.js";
+import type { LicenseClaims, LicenseTokenVerifier } from "../../../shared/licensing/license-token.verifier.js";
+import { verifyPassword } from "../../../shared/security/password.js";
+import type { NewUser, User } from "../../../shared/types/entities.js";
 import type { IUserRepository } from "../../users/repositories/user.repository.js";
 import type { IWorkspaceRepository } from "../../workspaces/repositories/workspace.repository.js";
 import type { SessionService } from "../../../shared/security/session.js";
+import type { RegisterInput } from "../validation/auth.schemas.js";
 function profile(user: User) {
-    return { id: user.id, name: user.name, email: user.email, username: user.username, avatarUrl: user.avatarUrl, status: user.status };
+    return {
+        id: user.id, name: user.name, email: user.email, username: user.username, avatarUrl: user.avatarUrl, status: user.status,
+        firstName: user.firstName, lastName: user.lastName, companyName: user.companyName, country: user.country, state: user.state,
+        license: user.licenseId ? { id: user.licenseId, type: user.licenseType, billing: user.licenseBilling, expiresAt: user.licenseExpiresAt } : null,
+    };
 }
+/** The local copy of a portal identity and its license, taken only from verified token claims. */
+function identityFrom(claims: LicenseClaims, token: string): Partial<NewUser> & Pick<NewUser, "name" | "email"> {
+    return {
+        portalUserId: claims.sub,
+        name: claims.user.displayName,
+        email: claims.user.email,
+        username: claims.user.username,
+        firstName: claims.user.firstName,
+        lastName: claims.user.lastName,
+        companyName: claims.user.companyName,
+        country: claims.user.country,
+        state: claims.user.state,
+        licenseId: claims.license.id,
+        licenseType: claims.license.type,
+        licenseBilling: claims.license.billing,
+        licenseToken: token,
+        licenseExpiresAt: new Date(claims.exp * 1000),
+    };
+}
+/**
+ * Accounts and licenses live in the DETQEL License Portal. Registration requests a license there; sign-in
+ * exchanges credentials for a signed license token, verifies it, and mirrors the identity into this database.
+ */
 export class AuthService {
-    constructor(private readonly users: IUserRepository, private readonly workspaces: IWorkspaceRepository, private readonly sessions: SessionService) { }
-    // Public endpoint: it answers only whether the account the caller named exists, and echoes back what the
-    // caller supplied. It never discloses another user's id, name, or workspaces.
-    async checkUser(email?: string, username?: string) {
-        if (!email && !username)
-            throw new AppError(400, "Either email or username query parameter is required.");
-        const [emailUser, usernameUser] = await Promise.all([email ? this.users.findByEmail(email) : null, username ? this.users.findByIdentifier(username) : null]);
-        if (!emailUser && !usernameUser)
-            return { exists: false, hasWorkspace: false, workspaceCount: 0 };
-        return { exists: true, emailMatch: !!emailUser, usernameMatch: !!usernameUser, user: { email: email ?? null, username: username ?? null } };
+    constructor(
+        private readonly users: IUserRepository,
+        private readonly workspaces: IWorkspaceRepository,
+        private readonly sessions: SessionService,
+        private readonly portal: LicensePortalClient,
+        private readonly licenses: LicenseTokenVerifier,
+        private readonly installation: PortalClientMetadata,
+    ) { }
+    /** The licenses a new user can request, as currently offered on the License Portal. */
+    async licenseOptions() {
+        return { options: await this.portal.licenseOptions() };
     }
-    async login(identifier: string, password: string) {
-        const user = await this.users.findByIdentifier(identifier);
-        if (!user)
-            throw new AppError(401, "Invalid credentials. No user found with this email or username.");
-        if (!verifyPassword(password, user.passwordHash))
-            throw new AppError(401, "Invalid credentials. Password is incorrect.");
+    async register(input: RegisterInput) {
+        const { confirmPassword: _confirmed, ...registration } = input;
+        const result = await this.portal.register(registration);
+        return { status: result.status, licenseId: result.licenseId, message: result.message };
+    }
+    async login(username: string, password: string) {
+        const grant = await this.portal.login(username, password, this.installation);
+        const claims = await this.licenses.verify(grant.token);
+        const user = await this.syncUser(claims, grant.token, password);
+        if (user.status !== "active")
+            throw new AppError(403, "This account has been disabled on this KIN installation.");
         const workspaces = await this.workspaces.listAuthWorkspaces(user.id);
-        return { user: profile(user), workspaces, hasWorkspace: workspaces.length > 0, ...this.sessions.issue(user.id) };
-    }
-    async register(body: {
-        name: string;
-        email: string;
-        username?: string;
-        password: string;
-    }) {
-        const email = body.email.toLowerCase().trim(), username = body.username?.toLowerCase().trim() || null;
-        const [byEmail, byUsername] = await Promise.all([this.users.findByEmail(email), username ? this.users.findByIdentifier(username) : null]);
-        const existing = byEmail || byUsername;
-        if (existing) {
-            if (!verifyPassword(body.password, existing.passwordHash))
-                throw new AppError(409, byEmail ? "An account with this email address already exists. Please sign in with your password." : "This username is already taken. Please sign in or choose another username.", { isExistingUser: true });
-            const workspaces = await this.workspaces.listAuthWorkspaces(existing.id);
-            return { user: profile(existing), workspaces, hasWorkspace: workspaces.length > 0, isExistingUser: true, message: "Existing account verified! Signed in to your workspace.", ...this.sessions.issue(existing.id) };
-        }
-        const user = await this.users.create({ name: body.name.trim(), email, username, passwordHash: hashPassword(body.password), status: "active" });
-        return { user: profile(user), workspaces: [], hasWorkspace: false, isExistingUser: false, ...this.sessions.issue(user.id) };
+        return { user: profile(user), workspaces, hasWorkspace: workspaces.length > 0, ...this.sessions.issue(user.id, user.licenseExpiresAt) };
     }
     /** Returns the signed-in user's profile and a renewed token. `userId` comes from a verified session, never from the client. */
     async me(userId: string) {
@@ -56,7 +74,27 @@ export class AuthService {
             user: profile(user),
             workspaces,
             hasWorkspace: workspaces.length > 0,
-            ...this.sessions.issue(user.id),
+            ...this.sessions.issue(user.id, user.licenseExpiresAt),
         };
+    }
+    private async syncUser(claims: LicenseClaims, token: string, password: string): Promise<User> {
+        const identity = identityFrom(claims, token);
+        const linked = await this.users.findByPortalUserId(claims.sub);
+        if (linked) return this.updated(linked.id, identity);
+        // First portal sign-in on this installation. A local account with the same username or email is adopted
+        // only when the same password unlocks it, which proves the person signing in owns it.
+        const local = (await this.users.findByIdentifier(claims.user.username)) ?? (await this.users.findByEmail(claims.user.email));
+        if (local) {
+            if (local.portalUserId || !verifyPassword(password, local.passwordHash))
+                throw new AppError(409, "Another account on this KIN installation already uses this username or email.");
+            // Local passwords are retired once the account is linked; the portal checks credentials from now on.
+            return this.updated(local.id, { ...identity, passwordHash: null });
+        }
+        return this.users.create({ ...identity, status: "active" });
+    }
+    private async updated(id: string, changes: Partial<NewUser>): Promise<User> {
+        const user = await this.users.update(id, changes);
+        if (!user) throw new AppError(409, "The account changed while signing in. Try again.");
+        return user;
     }
 }

@@ -1,4 +1,5 @@
 import { AppError } from "../../../shared/errors/app-error.js";
+import { hasActiveLicense } from "../../../shared/licensing/license-token.verifier.js";
 import type { SessionService } from "../../../shared/security/session.js";
 import type { IUserRepository } from "../../users/repositories/user.repository.js";
 import type { IWorkspaceRepository } from "../repositories/workspace.repository.js";
@@ -25,11 +26,12 @@ const ACCESS_DENIED: Record<WorkspaceAccess, string> = {
 export class WorkspaceAccessService {
     constructor(private readonly sessions: SessionService, private readonly users: IUserRepository, private readonly workspaces: IWorkspaceRepository) {}
 
-    /** Verifies the bearer token and that its user still exists and is active. */
+    /** Verifies the bearer token and that its user still exists, is active and holds an unexpired license. */
     async authenticate(authorization: string | undefined): Promise<string> {
         const userId = this.sessions.verify(authorization);
         const user = await this.users.findById(userId);
         if (!user || user.status !== "active") throw new AppError(401, "An active user session is required");
+        if (!hasActiveLicense(user)) throw new AppError(401, "A valid KIN license is required. Sign in again to continue");
         return userId;
     }
 

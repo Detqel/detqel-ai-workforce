@@ -144,10 +144,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
             }).cause?.code;
             const statusCode = databaseCode === DATABASE_ERROR_CODES.uniqueViolation ? 409 : databaseCode === DATABASE_ERROR_CODES.foreignKeyViolation ? 400 : err.statusCode || 500;
             request.log.error({ err: error, requestId: request.id }, "Request failed");
+            const hidden = statusCode >= 500 && !(error instanceof AppError && error.expose);
             return reply.status(statusCode).send({
                 statusCode,
                 error: statusCode >= 500 ? "Internal Server Error" : err.name || "Request Error",
-                message: statusCode >= 500 ? "An unexpected error occurred" : databaseCode === DATABASE_ERROR_CODES.uniqueViolation ? "A record with these values already exists" : databaseCode === DATABASE_ERROR_CODES.foreignKeyViolation ? "A referenced record does not exist" : err.message,
+                message: hidden ? "An unexpected error occurred" : databaseCode === DATABASE_ERROR_CODES.uniqueViolation ? "A record with these values already exists" : databaseCode === DATABASE_ERROR_CODES.foreignKeyViolation ? "A referenced record does not exist" : err.message,
                 ...(error instanceof AppError ? error.details : {}),
             });
         });

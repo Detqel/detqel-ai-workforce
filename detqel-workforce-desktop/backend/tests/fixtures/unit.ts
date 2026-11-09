@@ -9,7 +9,8 @@ export const otherWorkspaceId = "c3d4e5f6-a7b8-4c9d-8e0f-1a2b3c4d5e6f";
 
 export const userRow = (id: string, overrides: Record<string, unknown> = {}) => ({
   id, name: "Test User", email: `${id}@example.test`, username: null, passwordHash: "SECRET-PASSWORD-HASH",
-  avatarUrl: null, status: "active", createdAt: new Date(), updatedAt: new Date(), ...overrides,
+  avatarUrl: null, status: "active", licenseId: "9e0c7a52-41d4-4f6b-9a3e-2b8c5d1f7a60", licenseToken: "SECRET-LICENSE-TOKEN",
+  licenseExpiresAt: new Date(Date.now() + 86_400_000), createdAt: new Date(), updatedAt: new Date(), ...overrides,
 });
 export const workspaceRow = (id: string, createdBy: string | null, overrides: Record<string, unknown> = {}) => ({
   id, name: "Workspace", slug: id, description: null, industry: null, timezone: "UTC", logoUrl: null,

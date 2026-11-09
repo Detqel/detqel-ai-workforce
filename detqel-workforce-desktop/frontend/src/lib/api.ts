@@ -11,6 +11,20 @@ export interface UserProfile {
   username?: string | null;
   avatarUrl?: string | null;
   status: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  companyName?: string | null;
+  country?: string | null;
+  state?: string | null;
+  license?: UserLicense | null;
+}
+
+/** The KIN license issued by the DETQEL License Portal for the signed-in user. */
+export interface UserLicense {
+  id: string;
+  type: string | null;
+  billing: string | null;
+  expiresAt: string | null;
 }
 
 export interface WorkspaceSummary {
@@ -34,53 +48,52 @@ export interface AuthResponse {
   isExistingUser?: boolean;
 }
 
-export interface CheckUserResponse {
-  exists: boolean;
-  hasWorkspace: boolean;
-  emailMatch?: boolean;
-  usernameMatch?: boolean;
-  workspaceCount?: number;
-  user?: {
-    id: string;
-    name: string;
-    email: string;
-    username: string | null;
-  };
+export interface RegistrationPayload {
+  firstName: string;
+  lastName: string;
+  username: string;
+  email: string;
+  companyName: string;
+  password: string;
+  confirmPassword: string;
+  phone: string;
+  country: string;
+  state: string;
+  licensePlanId: string;
+}
+
+/** A license the DETQEL License Portal offers for KIN, chosen at registration. */
+export interface LicenseOption {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  billing: string;
+  durationDays: number | null;
+}
+
+/** Lists the licenses currently offered for KIN. */
+export async function apiLicenseOptions(): Promise<LicenseOption[]> {
+  const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.authLicenseOptions}`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.message || "The license list could not be loaded. Please try again.");
+  }
+  return data.options ?? [];
+}
+
+export interface RegistrationResponse {
+  status: string;
+  licenseId: string;
+  message: string;
 }
 
 /**
- * Check if a user account already exists by email or username
- */
-export async function apiCheckUser(params: {
-  email?: string;
-  username?: string;
-}): Promise<CheckUserResponse> {
-  const query = new URLSearchParams();
-  if (params.email?.trim()) query.set("email", params.email.trim());
-  if (params.username?.trim()) query.set("username", params.username.trim());
-
-  if (!params.email?.trim() && !params.username?.trim()) {
-    return { exists: false, hasWorkspace: false };
-  }
-
-  try {
-    const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.authCheckUser}?${query.toString()}`);
-    if (!res.ok) {
-      return { exists: false, hasWorkspace: false };
-    }
-    return res.json();
-  } catch {
-    return { exists: false, hasWorkspace: false };
-  }
-}
-
-/**
- * Authenticate with the DETQEL API backend
+ * Sign in through the DETQEL License Portal. Succeeds only once the user's KIN license is approved.
  */
 export async function apiLogin(payload: {
-  identifier: string;
+  username: string;
   password: string;
-  companyName?: string;
 }): Promise<AuthResponse> {
   const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.authLogin}`, {
     method: "POST",
@@ -100,14 +113,10 @@ export async function apiLogin(payload: {
 }
 
 /**
- * Register a new user account
+ * Register a DETQEL account and request a KIN license. No session is created: the license must first be
+ * approved by a DETQEL administrator.
  */
-export async function apiRegister(payload: {
-  name: string;
-  email: string;
-  username?: string;
-  password: string;
-}): Promise<AuthResponse> {
+export async function apiRegister(payload: RegistrationPayload): Promise<RegistrationResponse> {
   const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.authRegister}`, {
     method: "POST",
     headers: {
@@ -116,12 +125,10 @@ export async function apiRegister(payload: {
     body: JSON.stringify(payload),
   });
 
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(data.message || "Failed to create account with DETQEL API");
+    throw new Error(data.issues?.[0]?.message || data.message || "Registration could not be submitted. Please try again.");
   }
-
-  storeAccessToken(data.accessToken);
   return data;
 }
 

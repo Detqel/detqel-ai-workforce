@@ -24,6 +24,9 @@ interface CustomDropdownProps {
   triggerClassName?: string;
   menuClassName?: string;
   icon?: React.ReactNode;
+  /** Shows a filter box above long option lists. */
+  searchable?: boolean;
+  searchPlaceholder?: string;
 }
 
 export const CustomDropdown: React.FC<CustomDropdownProps> = ({
@@ -39,13 +42,20 @@ export const CustomDropdown: React.FC<CustomDropdownProps> = ({
   triggerClassName = "",
   menuClassName = "",
   icon,
+  searchable = false,
+  searchPlaceholder = "Search...",
 }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuId = useId();
 
   const selectedOption = options.find((opt) => opt.value === value);
+  const term = query.trim().toLowerCase();
+  const visibleOptions = searchable && term
+    ? options.filter((opt) => opt.label.toLowerCase().includes(term))
+    : options;
 
   // Close when clicked outside
   useEffect(() => {
@@ -96,7 +106,10 @@ export const CustomDropdown: React.FC<CustomDropdownProps> = ({
         aria-haspopup="listbox"
         aria-expanded={isOpen}
         aria-controls={menuId}
-        onClick={() => setIsOpen((prev) => !prev)}
+        onClick={() => {
+          if (!isOpen) setQuery("");
+          setIsOpen(!isOpen);
+        }}
         className={`w-full px-3.5 py-2.5 rounded-xl border transition-all text-xs flex items-center justify-between gap-2.5 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
           isOpen
             ? "border-primary ring-2 ring-primary-ring bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm"
@@ -138,12 +151,23 @@ export const CustomDropdown: React.FC<CustomDropdownProps> = ({
           tabIndex={-1}
           className={`absolute left-0 right-0 top-full mt-1.5 z-50 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-2xl p-1.5 max-h-64 overflow-y-auto space-y-0.5 animate-in fade-in zoom-in-95 duration-150 scrollbar-thin ${menuClassName}`}
         >
-          {options.length === 0 ? (
+          {searchable && (
+            <input
+              type="text"
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={searchPlaceholder}
+              aria-label={searchPlaceholder}
+              className="w-full mb-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-xs text-slate-900 dark:text-slate-100 outline-none focus:border-primary"
+            />
+          )}
+          {visibleOptions.length === 0 ? (
             <div className="p-3 text-center text-xs text-slate-400">
               {emptyText}
             </div>
           ) : (
-            options.map((option) => {
+            visibleOptions.map((option) => {
               const isSelected = option.value === value;
               return (
                 <button

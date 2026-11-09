@@ -5,20 +5,14 @@ export const AUTH_STORAGE_KEYS = {
   currentWorkspace: "detqel_current_workspace",
 } as const;
 
+// Account rules enforced by the DETQEL License Portal, checked here first for immediate feedback.
 export const MIN_USERNAME_LENGTH = 3;
-export const MIN_PASSWORD_LENGTH = 6;
+export const USERNAME_PATTERN = /^[a-zA-Z0-9._-]+$/;
+export const MIN_PASSWORD_LENGTH = 12;
+export const PHONE_DIGITS = { minimum: 6, maximum: 15 } as const;
 
-// Preserved existing development account behavior; this is not an API credential.
+
+// Display name shown before the signed-in user's profile has loaded.
 export const LEGACY_DEMO_ACCOUNT = {
-  username: "admin",
-  password: "admin",
-  email: "admin@detqel.ai",
-  userId: "user-admin-default",
   name: "DETQEL Admin",
-  workspaceId: "ws-acme-default",
-  workspaceName: "ACME Retail",
-  workspaceSlug: "acme-retail",
-  workspaceIndustry: "Retail & E-Commerce",
-  role: "owner",
-  status: "active",
 } as const;

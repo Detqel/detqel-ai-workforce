@@ -41,7 +41,7 @@
     },
     {
         "method":  "GET",
-        "url":  "/api/auth/check-user"
+        "url":  "/api/auth/license-options"
     },
     {
         "method":  "POST",

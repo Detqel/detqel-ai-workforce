@@ -36,8 +36,13 @@ import { AgentModelProvisioner } from "../shared/agents/agent-model.provisioner.
 import { WorkspaceWebSearch } from "../shared/agents/tools/workspace-web-search.js";
 import { DocumentExporter } from "../shared/documents/document-exporter.js";
 import type { IUnitOfWork } from "../shared/contracts/unit-of-work.js";
+import { LicensePortalClient, type PortalClientMetadata } from "../shared/licensing/license-portal.client.js";
+import { LicenseTokenVerifier } from "../shared/licensing/license-token.verifier.js";
+import { hostname } from "node:os";
 export function createServices(unit: IUnitOfWork, checkDatabase: () => Promise<void>, config: Environment, pomlLoader: PomlLoader = new PomlLoader({ bundledDirectory: process.cwd(), runtimeDirectory: process.cwd() })) {
     const sessions = new SessionService(config.AUTH_SESSION_SECRET, config.AUTH_SESSION_TTL_SECONDS);
+    const licensePortal = new LicensePortalClient({ baseUrl: config.LICENSE_PORTAL_URL, productKey: config.LICENSE_PORTAL_PRODUCT_KEY, timeoutMs: config.LICENSE_PORTAL_TIMEOUT_MS });
+    const licenseTokens = new LicenseTokenVerifier({ portalUrl: config.LICENSE_PORTAL_URL, issuer: config.LICENSE_PORTAL_ISSUER, audience: config.LICENSE_PORTAL_AUDIENCE, timeoutMs: config.LICENSE_PORTAL_TIMEOUT_MS });
     const credentials = new ConnectionCredentialsService(config.CONNECTOR_ENCRYPTION_KEY);
     const providerSecrets = new SecretCipher(config.CONNECTOR_ENCRYPTION_KEY, SECRET_PURPOSES.aiProviderCredentials);
     const adapters = new ConnectorAdapterRegistry({
@@ -48,7 +53,7 @@ export function createServices(unit: IUnitOfWork, checkDatabase: () => Promise<v
     const settings = new SettingsService(unit.settings, providerSecrets);
     const discussions = createDiscussionService(unit, config, settings, pomlLoader);
     return {
-        auth: new AuthService(unit.users, unit.workspaces, sessions),
+        auth: new AuthService(unit.users, unit.workspaces, sessions, licensePortal, licenseTokens, installationMetadata()),
         workspaces: new WorkspaceService(unit),
         domains: new DomainService(unit.domains),
         users: new UserService(unit.users, unit.workspaces),
@@ -68,6 +73,12 @@ export function createServices(unit: IUnitOfWork, checkDatabase: () => Promise<v
         lookups: new LookupService(unit.lookups),
         discussions,
     };
+}
+
+/** How this installation identifies itself in the License Portal's sign-in records. */
+function installationMetadata(): PortalClientMetadata {
+    const version = process.env.npm_package_version;
+    return { deviceName: hostname().slice(0, 120), platform: process.platform, ...(version ? { appVersion: version.slice(0, 40) } : {}) };
 }
 
 /**

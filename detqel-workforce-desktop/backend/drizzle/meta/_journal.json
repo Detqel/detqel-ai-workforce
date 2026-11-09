@@ -141,6 +141,13 @@
       "when": 1794113182305,
       "tag": "0019_giant_mongu",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1794228666298,
+      "tag": "0020_portal_licensing",
+      "breakpoints": true
     }
   ]
 }

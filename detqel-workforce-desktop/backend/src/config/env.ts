@@ -9,6 +9,7 @@ import {
     PROVIDER_ENDPOINTS,
 } from "../constants/configurationConstants.js";
 import { MAXIMUM_TCP_PORT, POSTGRESQL_PROTOCOLS } from "../constants/networkConstants.js";
+import { LICENSE_PORTAL_DEFAULTS, LICENSE_PORTAL_INSECURE_HOSTS } from "../constants/licenseConstants.js";
 if (!process.env.DETQEL_DESKTOP) dotenv.config({ path: fileURLToPath(new URL(BACKEND_ENV_FILE, import.meta.url)) });
 export const envSchema = z.object({
     LITELLM_BASE_URL: z.string().url().optional(),
@@ -28,6 +29,15 @@ export const envSchema = z.object({
     NODE_ENV: z.enum(NODE_ENVIRONMENTS).default(ENVIRONMENT_DEFAULTS.nodeEnvironment),
     DATABASE_URL: z.string().url().refine(value => { const url = new URL(value); return POSTGRESQL_PROTOCOLS.some(protocol => protocol === url.protocol) && url.pathname.length > 1; }, "DATABASE_URL must be a PostgreSQL URL with a database name"),
     CORS_ORIGIN: z.string().min(1).default(ENVIRONMENT_DEFAULTS.corsOrigin),
+    LICENSE_PORTAL_URL: z.string().url().default(LICENSE_PORTAL_DEFAULTS.url).refine(value => {
+        const url = new URL(value);
+        return url.protocol === "https:" || (url.protocol === "http:" && LICENSE_PORTAL_INSECURE_HOSTS.includes(url.hostname));
+    }, "LICENSE_PORTAL_URL must use HTTPS unless it points to this machine"),
+    // Issued by the portal with `npm run product:key -- --product kin`. Sign-in and registration are refused without it.
+    LICENSE_PORTAL_PRODUCT_KEY: z.preprocess(value => value === "" ? undefined : value, z.string().regex(/^dpk_[A-Za-z0-9_-]{43}$/, "LICENSE_PORTAL_PRODUCT_KEY must be a dpk_ key issued by the License Portal").optional()),
+    LICENSE_PORTAL_ISSUER: z.string().min(1).default(LICENSE_PORTAL_DEFAULTS.issuer),
+    LICENSE_PORTAL_AUDIENCE: z.string().min(1).default(LICENSE_PORTAL_DEFAULTS.audience),
+    LICENSE_PORTAL_TIMEOUT_MS: z.coerce.number().int().positive().default(LICENSE_PORTAL_DEFAULTS.timeoutMs),
     DB_POOL_MAX: z.coerce.number().int().positive().default(ENVIRONMENT_DEFAULTS.databasePoolMax),
     DB_IDLE_TIMEOUT: z.coerce.number().int().positive().default(ENVIRONMENT_DEFAULTS.databaseIdleTimeoutSeconds),
     DB_CONNECT_TIMEOUT: z.coerce.number().int().positive().default(ENVIRONMENT_DEFAULTS.databaseConnectTimeoutSeconds),

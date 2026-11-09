@@ -25,6 +25,10 @@ export class UserRepository extends BaseRepository<typeof users, User, NewUser> 
             .limit(1);
         return results[0] || null;
     }
+    async findByPortalUserId(portalUserId: string): Promise<User | null> {
+        const results = await this.database.select().from(users).where(eq(users.portalUserId, portalUserId)).limit(1);
+        return results[0] || null;
+    }
     async findWithMemberships(userId: string) {
         return this.database.query.users.findFirst({
             where: eq(users.id, userId),

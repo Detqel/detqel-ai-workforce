@@ -58,7 +58,6 @@ test("notification and auth response envelopes remain compatible", async () => {
   const app = await buildApp({ config, services, logger: false });
   try {
     assert.deepEqual((await app.inject({ url: `/api/notifications?userId=${userId}`, headers: bearer() })).json(), { notifications: [], unreadCount: 3 });
-    assert.deepEqual((await app.inject("/api/auth/check-user?email=nobody@example.com")).json(), { exists: false, hasWorkspace: false, workspaceCount: 0 });
   } finally { await app.close(); }
 });
 

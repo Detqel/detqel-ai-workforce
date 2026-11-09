@@ -13,8 +13,10 @@ export class SessionService {
         if (this.key.length !== SESSION_CRYPTO.keyBytes) throw new Error("AUTH_SESSION_SECRET must contain 32 base64-encoded bytes");
     }
 
-    issue(userId: string): { accessToken: string; expiresAt: string } {
-        const expires = Math.floor(Date.now() / SESSION_CRYPTO.millisecondsPerSecond) + this.lifetimeSeconds;
+    /** `notAfter` caps the session, so a session never outlives the license it was issued under. */
+    issue(userId: string, notAfter?: Date | null): { accessToken: string; expiresAt: string } {
+        const lifetimeEnd = Math.floor(Date.now() / SESSION_CRYPTO.millisecondsPerSecond) + this.lifetimeSeconds;
+        const expires = notAfter ? Math.min(lifetimeEnd, Math.floor(notAfter.getTime() / SESSION_CRYPTO.millisecondsPerSecond)) : lifetimeEnd;
         const payload = Buffer.from(JSON.stringify({ sub: userId, exp: expires, nonce: randomBytes(SESSION_CRYPTO.nonceBytes).toString(SESSION_CRYPTO.encoding) })).toString(SESSION_CRYPTO.encoding);
         const signature = createHmac(SESSION_CRYPTO.algorithm, this.key).update(payload).digest(SESSION_CRYPTO.encoding);
         return { accessToken: `${payload}.${signature}`, expiresAt: new Date(expires * SESSION_CRYPTO.millisecondsPerSecond).toISOString() };

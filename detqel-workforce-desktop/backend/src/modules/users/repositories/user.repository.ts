@@ -4,5 +4,6 @@ import type { UserWithMemberships } from "../../../shared/types/graphs.js";
 export interface IUserRepository extends IRepository<User, NewUser> {
     findByEmail(email: string): Promise<User | null>;
     findByIdentifier(identifier: string): Promise<User | null>;
+    findByPortalUserId(portalUserId: string): Promise<User | null>;
     findWithMemberships(userId: string): Promise<UserWithMemberships | undefined>;
 }

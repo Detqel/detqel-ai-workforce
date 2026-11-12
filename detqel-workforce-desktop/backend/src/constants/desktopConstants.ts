@@ -1,3 +1,6 @@
+import { SESSION_CRYPTO } from "./authConstants.js";
+import { CONNECTOR_CRYPTO } from "./connectionConstants.js";
+
 export const DESKTOP_STARTUP_STATUS = { pending: "pending", running: "running", complete: "complete", error: "error" } as const;
 export type DesktopStartupStatus = typeof DESKTOP_STARTUP_STATUS[keyof typeof DESKTOP_STARTUP_STATUS];
 export type DesktopReportedStartupStatus = Exclude<DesktopStartupStatus, typeof DESKTOP_STARTUP_STATUS.pending>;
@@ -41,6 +44,22 @@ export const DESKTOP_PROTECTED_ENVIRONMENT_KEYS: readonly string[] = [
     DESKTOP_ENVIRONMENT_KEYS.host, DESKTOP_ENVIRONMENT_KEYS.port, DESKTOP_ENVIRONMENT_KEYS.nodeEnvironment,
     DESKTOP_ENVIRONMENT_KEYS.nodeOptions, DESKTOP_ENVIRONMENT_KEYS.nodePath, DESKTOP_ENVIRONMENT_KEYS.runtimeDirectory,
 ];
+// Installed copies start from the bundled template; these fill what a per-machine installation cannot ship.
+export const DESKTOP_CONFIGURATION = {
+    generatedSecrets: { AUTH_SESSION_SECRET: SESSION_CRYPTO.keyBytes, CONNECTOR_ENCRYPTION_KEY: CONNECTOR_CRYPTO.keyBytes },
+    generatedSecretEncoding: "base64",
+    defaults: {
+        AUTH_SESSION_TTL_SECONDS: "2592000",
+        CONNECTOR_REQUEST_TIMEOUT_MS: "15000",
+        CONNECTOR_ALLOWED_COMMANDS: "[]",
+        CONNECTOR_ALLOWED_ROOTS: "[]",
+    },
+    productKey: "LICENSE_PORTAL_PRODUCT_KEY",
+    // Set by the desktop shell when the release build embeds a product key; never forwarded to the API.
+    embeddedProductKey: "DETQEL_EMBEDDED_PRODUCT_KEY",
+    generatedComment: "# Generated for this installation on first start. Keep private: changing these signs everyone out and makes saved connection credentials unreadable.",
+    fileMode: 0o600,
+} as const;
 export const DESKTOP_VALIDATION = { startupToken: /^[a-f0-9-]{36}$/, windowsUserSid: /\bS-\d-(?:\d+-)*\d+\b/ } as const;
 export const DESKTOP_RETRYABLE_PORT_ERRORS: readonly string[] = ["EADDRINUSE", "EACCES"];
 export const DESKTOP_FILESYSTEM_ERROR_CODES = { notFound: "ENOENT", alreadyExists: "EEXIST" } as const;

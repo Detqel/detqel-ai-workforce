@@ -1,6 +1,6 @@
 [package]
 name = "detqel-workforce-desktop"
-version = "0.1.0"
+version = "1.0.0"
 description = "DETQEL Kin Desktop"
 authors = ["DETQEL"]
 edition = "2021"

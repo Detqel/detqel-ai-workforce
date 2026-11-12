@@ -1,6 +1,5 @@
 // The parent owns configuration and process lifetime; stdout carries startup events only.
 import { createInterface } from "node:readline";
-import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import type { FastifyInstance } from "fastify";
 import { APPLICATION_NAME } from "./constants/commonConstants.js";
@@ -9,7 +8,6 @@ import {
     DESKTOP_FILES,
     DESKTOP_IPC,
     DESKTOP_PLATFORM,
-    DESKTOP_PROTECTED_ENVIRONMENT_KEYS,
     DESKTOP_STARTUP_SETTINGS,
     DESKTOP_STARTUP_STATUS,
     DESKTOP_STARTUP_STEP_IDS,
@@ -24,6 +22,7 @@ import {
     stopDesktopInfrastructure,
 } from "./desktop/infrastructure/desktop-infrastructure.js";
 import { DESKTOP_STARTUP_STEPS, emitStartupStep, listenOnPrivatePort } from "./desktop/startup.js";
+import { loadDesktopConfiguration } from "./desktop/desktop-configuration.js";
 import { prepareApplicationDatabase } from "./desktop/infrastructure/application-database.js";
 import { writeDesktopLog } from "./shared/logging/desktop-logs.js";
 
@@ -82,13 +81,8 @@ async function main(): Promise<void> {
     const configPath = process.env[DESKTOP_ENVIRONMENT_KEYS.configurationPath];
     const runtimeDirectory = process.env[DESKTOP_ENVIRONMENT_KEYS.runtimeDirectory];
     if (!configPath || !runtimeDirectory) throw new Error("Desktop configuration paths are missing");
-    const { parse } = await import("dotenv");
-    const values = parse(await readFile(configPath));
-    for (const [key, value] of Object.entries(values)) {
-        if (!DESKTOP_PROTECTED_ENVIRONMENT_KEYS.includes(key) && process.env[key] === undefined) {
-            process.env[key] = value;
-        }
-    }
+    const { generatedKeys } = await loadDesktopConfiguration(configPath);
+    if (generatedKeys.length) await writeDesktopLog("desktop.configuration.secrets-generated", { keys: generatedKeys });
     process.env[DESKTOP_ENVIRONMENT_KEYS.host] = LOOPBACK_HOST;
     process.env[DESKTOP_ENVIRONMENT_KEYS.port] = String(DESKTOP_STARTUP_SETTINGS.initialApiPort);
     process.env[DESKTOP_ENVIRONMENT_KEYS.nodeEnvironment] = DESKTOP_PLATFORM.production;

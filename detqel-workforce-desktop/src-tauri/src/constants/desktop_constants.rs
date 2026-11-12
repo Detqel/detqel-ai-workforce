@@ -38,6 +38,11 @@ pub const NAME_LOGO_LIGHT: &str = "/images/detqel-kin-name-logo.png";
 pub const NAME_LOGO_DARK: &str = "/images/detqel-kin-name-logo-dark.png";
 /// Environment variable carrying the app version to the backend, which reports it to the License Portal.
 pub const APP_VERSION_ENV: &str = "DETQEL_APP_VERSION";
+/// License Portal product key embedded by `npm run build:release`. Every installed copy presents it to the portal,
+/// so it identifies the product rather than guarding anything; backend.env can still override it.
+pub const EMBEDDED_PRODUCT_KEY: Option<&str> = option_env!("DETQEL_LICENSE_PORTAL_PRODUCT_KEY");
+/// Environment variable carrying the embedded product key to the backend.
+pub const EMBEDDED_PRODUCT_KEY_ENV: &str = "DETQEL_EMBEDDED_PRODUCT_KEY";
 pub const STARTUP_STEPS: &[(&str, &str)] = &[
     (UPDATE_STEP, UPDATE_STEP_LABEL),
     (FRONTEND_STEP, "Frontend startup"),

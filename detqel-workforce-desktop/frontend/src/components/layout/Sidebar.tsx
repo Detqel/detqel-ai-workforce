@@ -28,6 +28,10 @@ import {
   type UserNotification,
 } from "@/lib/api";
 import { IconOnlyButton } from "@/components/ui/icon-only-button";
+import { licenseSummary } from "@/lib/license-display";
+
+/** Re-evaluates the days remaining while the app stays open, so the count drops at midnight. */
+const LICENSE_CLOCK_INTERVAL_MS = 60_000;
 
 export const Sidebar: React.FC = () => {
   const { activePageId, navigate } = useNavigation();
@@ -38,6 +42,12 @@ export const Sidebar: React.FC = () => {
   const [isCollapsed, setIsCollapsed] = React.useState(true);
   const [userMenuOpen, setUserMenuOpen] = React.useState(false);
   const [alertMenuOpen, setAlertMenuOpen] = React.useState(false);
+  const [now, setNow] = React.useState(() => Date.now());
+
+  React.useEffect(() => {
+    const clock = setInterval(() => setNow(Date.now()), LICENSE_CLOCK_INTERVAL_MS);
+    return () => clearInterval(clock);
+  }, []);
   const [isMounted, setIsMounted] = React.useState(false);
 
   // Dynamic user notifications
@@ -132,6 +142,8 @@ export const Sidebar: React.FC = () => {
 
   const displayName = isMounted && user?.name ? user.name : LEGACY_DEMO_ACCOUNT.name;
   const avatarLetter = (displayName[0] || "A").toUpperCase();
+  const license = isMounted ? licenseSummary(user?.license, now) : null;
+  const licenseClass = license?.expired ? "text-red-200 dark:text-red-700" : "text-white/75 dark:text-slate-950/70";
 
   const activeItemIndex = sidebarPages.findIndex((page) => page.id === activePageId);
 
@@ -529,6 +541,11 @@ export const Sidebar: React.FC = () => {
               }`}
             >
               <span className="text-xs font-bold text-white dark:text-slate-950 whitespace-nowrap truncate">{displayName}</span>
+              {license && (
+                <span className={`text-[10px] font-medium leading-tight whitespace-nowrap truncate ${licenseClass}`}>
+                  {license.label}
+                </span>
+              )}
             </div>
 
             {/* Hover pill when collapsed and menu is closed */}
@@ -553,6 +570,15 @@ export const Sidebar: React.FC = () => {
                 <div className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
                   {displayName}
                 </div>
+                {license && (
+                  <div
+                    className={`mt-0.5 text-[11px] font-medium truncate ${
+                      license.expired ? "text-red-600 dark:text-red-400" : "text-slate-500 dark:text-slate-400"
+                    }`}
+                  >
+                    {license.label}
+                  </div>
+                )}
               </div>
 
               <div className="py-1">

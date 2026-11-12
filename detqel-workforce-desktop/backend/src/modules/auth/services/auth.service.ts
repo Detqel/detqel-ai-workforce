@@ -11,7 +11,8 @@ function profile(user: User) {
     return {
         id: user.id, name: user.name, email: user.email, username: user.username, avatarUrl: user.avatarUrl, status: user.status,
         firstName: user.firstName, lastName: user.lastName, companyName: user.companyName, country: user.country, state: user.state,
-        license: user.licenseId ? { id: user.licenseId, type: user.licenseType, billing: user.licenseBilling, expiresAt: user.licenseExpiresAt } : null,
+        // expiresAt is the license's own end date (null: no expiry), not the shorter session-token lifetime.
+        license: user.licenseId ? { id: user.licenseId, type: user.licenseType, name: user.licenseName, billing: user.licenseBilling, expiresAt: user.licenseEndsAt } : null,
     };
 }
 /** The local copy of a portal identity and its license, taken only from verified token claims. */
@@ -28,9 +29,11 @@ function identityFrom(claims: LicenseClaims, token: string): Partial<NewUser> & 
         state: claims.user.state,
         licenseId: claims.license.id,
         licenseType: claims.license.type,
+        licenseName: claims.license.name ?? null,
         licenseBilling: claims.license.billing,
         licenseToken: token,
         licenseExpiresAt: new Date(claims.exp * 1000),
+        licenseEndsAt: claims.license.expiresAt ? new Date(claims.license.expiresAt) : null,
     };
 }
 /**

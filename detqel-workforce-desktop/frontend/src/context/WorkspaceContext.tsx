@@ -3,7 +3,7 @@
 import { AUTH_STORAGE_KEYS } from "@/constants/authConstants";
 
 import React, { createContext, useContext, useState, useEffect } from "react";
-import { SESSION_EXPIRED_EVENT, clearAccessToken, readAccessToken } from "@/lib/auth-session";
+import { SESSION_EXPIRED_EVENT, clearAccessToken, readAccessToken, renewSession } from "@/lib/auth-session";
 import {
   UserProfile,
   WorkspaceSummary,
@@ -59,7 +59,15 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({
         clearStoredSession();
         return;
       }
-      if (parsedUser) setUser(parsedUser);
+      if (parsedUser) {
+        setUser(parsedUser);
+        // The saved profile is from sign-in; replace it with the server's current one (license, name, etc.).
+        renewSession()
+          .then((session) => {
+            if (session?.user) setUser(session.user);
+          })
+          .catch(() => undefined);
+      }
 
       const storedWorkspaces = localStorage.getItem(AUTH_STORAGE_KEYS.workspaces);
       const parsedWorkspaces: WorkspaceSummary[] = storedWorkspaces ? JSON.parse(storedWorkspaces) : [];

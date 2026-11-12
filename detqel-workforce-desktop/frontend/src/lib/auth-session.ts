@@ -1,6 +1,7 @@
 import { AUTH_STORAGE_KEYS } from "@/constants/authConstants";
 import { API_BASE_URL, API_PATHS } from "@/constants/apiConstants";
 import { desktopFetch, desktopStreamFetch } from "@/lib/desktop";
+import type { UserProfile } from "@/lib/api";
 
 /** Fired when the server rejects the session and it cannot be renewed, so the app can return to sign in. */
 export const SESSION_EXPIRED_EVENT = "detqel:session-expired";
@@ -48,6 +49,14 @@ export function announceSessionExpired(): void {
  * Returns the new token, or null when the session could not be renewed.
  */
 export async function refreshSession(): Promise<string | null> {
+  return (await renewSession())?.accessToken ?? null;
+}
+
+/**
+ * Renews the session and saves the server's current profile, so details that changed since sign-in (such as the
+ * license) replace the copy stored at sign-in. Returns null when the session could not be renewed.
+ */
+export async function renewSession(): Promise<{ accessToken: string; user: UserProfile } | null> {
   const token = readAccessToken();
   if (!token) return null;
   const res = await desktopFetch(`${API_BASE_URL}${API_PATHS.authMe}`, { headers: { Authorization: `Bearer ${token}` } });
@@ -56,7 +65,14 @@ export async function refreshSession(): Promise<string | null> {
   if (!res.ok) throw new Error(data.message || "Failed to renew session");
   if (typeof data.accessToken !== "string" || data.accessToken.length === 0) throw new Error("No access token returned from session endpoint");
   storeAccessToken(data.accessToken);
-  return data.accessToken;
+  if (data.user && typeof data.user === "object") {
+    try {
+      localStorage.setItem(AUTH_STORAGE_KEYS.user, JSON.stringify(data.user));
+    } catch {
+      // Gracefully ignore storage quota or access issues
+    }
+  }
+  return { accessToken: data.accessToken, user: data.user as UserProfile };
 }
 
 /**

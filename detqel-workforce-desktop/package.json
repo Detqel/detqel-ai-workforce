@@ -14,7 +14,8 @@
   "scripts": {
     "dev": "tauri dev --no-dev-server-wait",
     "build": "tauri build -- --locked",
-    "build:debug": "tauri build --debug -- --locked",
+    "build:release": "node scripts/release.mjs",
+    "build:debug": "tauri build --debug --config src-tauri/tauri.unsigned.conf.json -- --locked",
     "prepare:dev": "node scripts/prepare.mjs --dev",
     "dev:frontend": "npm run dev --workspace frontend",
     "build:app": "node scripts/prepare.mjs",

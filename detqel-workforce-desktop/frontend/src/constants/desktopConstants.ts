@@ -1,6 +1,6 @@
 import type { ComponentType } from "react";
 import { DockerIcon, Postgresql } from "@dev.icons/react";
-import { Boxes, CheckCircle2, Circle, Loader2, Monitor, Route, Server, XCircle } from "lucide-react";
+import { Boxes, CheckCircle2, Circle, Download, Loader2, Monitor, Route, Server, XCircle } from "lucide-react";
 import { APPLICATION_NAME } from "./commonConstants";
 
 export const DESKTOP_STATUS_POLL_INTERVAL_MS = 1000;
@@ -19,6 +19,7 @@ export const DESKTOP_COMMANDS = {
 type ServiceIcon = ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
 
 export const STARTUP_SERVICE_ICONS = new Map<string, ServiceIcon>([
+  ["software-update", Download],
   ["frontend-startup", Monitor],
   ["backend-startup", Server],
   ["docker", DockerIcon],

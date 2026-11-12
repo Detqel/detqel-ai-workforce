@@ -77,7 +77,8 @@ export function createServices(unit: IUnitOfWork, checkDatabase: () => Promise<v
 
 /** How this installation identifies itself in the License Portal's sign-in records. */
 function installationMetadata(): PortalClientMetadata {
-    const version = process.env.npm_package_version;
+    // The desktop shell passes the installed app's version; npm sets the package version when run on its own.
+    const version = process.env.DETQEL_APP_VERSION || process.env.npm_package_version;
     return { deviceName: hostname().slice(0, 120), platform: process.platform, ...(version ? { appVersion: version.slice(0, 40) } : {}) };
 }
 

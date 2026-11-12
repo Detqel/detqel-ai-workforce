@@ -1,3 +1,5 @@
+use super::update_constants::{UPDATE_STEP, UPDATE_STEP_LABEL};
+
 pub const APPLICATION_NAME: &str = "DETQEL Kin";
 pub const MAIN_WINDOW: &str = "main";
 pub const STARTUP_WINDOW: &str = "startup";
@@ -34,7 +36,10 @@ pub const LOGO_LIGHT: &str = "/images/detqel-kin-logo.png";
 pub const LOGO_DARK: &str = "/images/detqel-kin-logo-dark.png";
 pub const NAME_LOGO_LIGHT: &str = "/images/detqel-kin-name-logo.png";
 pub const NAME_LOGO_DARK: &str = "/images/detqel-kin-name-logo-dark.png";
+/// Environment variable carrying the app version to the backend, which reports it to the License Portal.
+pub const APP_VERSION_ENV: &str = "DETQEL_APP_VERSION";
 pub const STARTUP_STEPS: &[(&str, &str)] = &[
+    (UPDATE_STEP, UPDATE_STEP_LABEL),
     (FRONTEND_STEP, "Frontend startup"),
     (BACKEND_RUNTIME_STEP, "Backend startup"),
     ("docker", "Container runtime"),

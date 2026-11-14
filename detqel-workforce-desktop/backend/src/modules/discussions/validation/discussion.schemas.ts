@@ -24,6 +24,8 @@ export const messageParamsSchema = z.object({ sessionId: z.string().uuid(), mess
 
 export const artifactParamsSchema = z.object({ sessionId: z.string().uuid(), fileName: z.string().min(1).max(255) });
 
+export const knowledgeParamsSchema = artifactParamsSchema;
+
 export const exportSchema = z.object({
     format: z.enum([DOCUMENT_FORMATS.markdown, DOCUMENT_FORMATS.word, DOCUMENT_FORMATS.pdf]),
 }).strict();

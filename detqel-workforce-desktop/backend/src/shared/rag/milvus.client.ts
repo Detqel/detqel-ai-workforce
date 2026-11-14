@@ -95,6 +95,13 @@ export class MilvusClient {
         }));
     }
 
+    /** Deletes every chunk of one source document, so re-ingesting it replaces its chunks instead of adding to them. */
+    async deleteSource(collection: string, source: string, signal?: AbortSignal): Promise<void> {
+        if (!(await this.hasCollection(collection, signal))) return;
+        const literal = source.replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
+        await this.request(RAG_MILVUS_ENDPOINTS.delete, { collectionName: collection, filter: `${RAG_FIELDS.source} == "${literal}"` }, signal);
+    }
+
     async dropCollection(collection: string, signal?: AbortSignal): Promise<void> {
         if (!(await this.hasCollection(collection, signal))) return;
         await this.request(RAG_MILVUS_ENDPOINTS.dropCollection, { collectionName: collection }, signal);

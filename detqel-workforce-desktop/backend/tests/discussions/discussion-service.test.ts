@@ -4,7 +4,18 @@ import { setImmediate as nextTick } from "node:timers/promises";
 import { DiscussionService, type PreparedTurn } from "../../src/modules/discussions/services/discussion.service.js";
 import type { DiscussionParticipants } from "../../src/modules/discussions/services/discussion-participants.js";
 import type { IUnitOfWork } from "../../src/shared/contracts/unit-of-work.js";
-import type { DiscussionParticipant, DiscussionRuntime, TriageResult, TurnContext } from "../../src/shared/agents/graphs/discussion-runtime.js";
+import type {
+    AgentToolbox,
+    AgentToolResult,
+    AgentToolSession,
+    DiscussionParticipant,
+    DiscussionRuntime,
+    TriageResult,
+    TurnContext,
+} from "../../src/shared/agents/graphs/discussion-runtime.js";
+import type { DiscussionToolboxFactory, ToolboxRequest } from "../../src/modules/discussions/services/discussion-toolbox.js";
+import type { ToolCall } from "../../src/shared/agents/litellm.client.js";
+import { SessionKnowledge } from "../../src/shared/rag/session-knowledge.js";
 import type { TurnStreamEvent } from "../../src/shared/agents/graphs/discussion-turn.graph.js";
 import type { FileServer } from "../../src/shared/rag/file-server.js";
 import type { RagService } from "../../src/shared/rag/rag.service.js";
@@ -23,6 +34,7 @@ import {
     DISCUSSION_STREAM_EVENTS,
 } from "../../src/constants/discussionConstants.js";
 import { FILE_SERVER_SCOPES } from "../../src/constants/fileServerConstants.js";
+import { DOCUMENT_LIMITS } from "../../src/constants/documentConstants.js";
 
 const WORKSPACE = "11111111-1111-1111-1111-111111111111";
 const OTHER_WORKSPACE = "22222222-2222-2222-2222-222222222222";
@@ -89,7 +101,7 @@ function fakeParticipants(members: DiscussionParticipant[] = [lead, ana, raj]) {
     return { participants, roster };
 }
 
-type Step = "triage" | "write" | "draft" | "review";
+type Step = "triage" | "investigate" | "write" | "draft" | "review";
 
 /**
  * A runtime whose triage verdict is scripted per call and which records every context it ran. Written replies
@@ -136,6 +148,12 @@ function fakeRuntime(triageFor: (context: TurnContext) => Verdict = () => ({ int
             return streamed(context, onText, signal);
         },
         async summarize(_ws: string, _previous: string | null, folded: unknown[]) { summaries.push({ count: folded.length }); return { summary: "Summary.", usage: USAGE }; },
+        /** Reads once with the first offered tool, the way a model calling a function would. */
+        async investigate(context: TurnContext, session: AgentToolSession, _rounds: number, _prior: string[], runTool: (call: ToolCall) => Promise<AgentToolResult>) {
+            calls.push({ step: "investigate", context });
+            const result = await runTool({ id: "call-1", name: session.definitions[0].name, arguments: JSON.stringify({ connector: "crm", sql: "SELECT 1" }) });
+            return { blocks: [result.content], sources: result.sources, usage: USAGE };
+        },
     } as unknown as DiscussionRuntime;
     return {
         runtime,
@@ -177,14 +195,49 @@ function readyModels(): IAgentModelProvisioner & { ensured: string[] } {
 
 function spyRag(chunks: Array<{ text: string; source: string }> = []) {
     const deleted: string[] = [];
-    const rag = { async deleteSession(id: string) { deleted.push(id); }, async retrieve() { return chunks; }, async ingestDocument() { return 1; } } as unknown as RagService;
-    return { rag, deleted };
+    const removedDocuments: string[] = [];
+    const rag = {
+        async deleteSession(id: string) { deleted.push(id); },
+        async deleteDocument(_sessionId: string, source: string) { removedDocuments.push(source); },
+        async retrieve() { return chunks; },
+        async ingestDocument() { return 1; },
+    } as unknown as RagService;
+    return { rag, deleted, removedDocuments };
+}
+
+/**
+ * A toolbox factory that offers one database tool when `tools` is set. It records the requests it was built for
+ * and every call the agent made, so tests see what reached the tools.
+ */
+function fakeToolboxes(options: { tools?: boolean; searchKnowledge?: boolean; cachedContext?: string } = {}) {
+    const requests: ToolboxRequest[] = [];
+    const executed: ToolCall[] = [];
+    const toolboxes = {
+        async build(request: ToolboxRequest): Promise<AgentToolbox> {
+            requests.push(request);
+            return {
+                cachedContext: options.cachedContext ?? "",
+                searchKnowledge: options.searchKnowledge ?? false,
+                hasTools: options.tools ?? false,
+                start: () => ({
+                    definitions: [{ name: "query_database", description: "Query", parameters: { type: "object" } }],
+                    describe: (call: ToolCall) => ({ tool: call.name, target: "CRM", action: "SELECT 1" }),
+                    async execute(call: ToolCall) {
+                        executed.push(call);
+                        return { content: "<untrusted_data>rows: 1</untrusted_data>", sources: [{ type: "connection", title: "CRM: query", reference: "conn-1:query" }] };
+                    },
+                }),
+            };
+        },
+    } as unknown as DiscussionToolboxFactory;
+    return { toolboxes, requests, executed };
 }
 
 /** A file server that keeps each session's artifacts in memory. */
 function spyFileServer() {
     const deleted: string[] = [];
     const artifacts = new Map<string, Map<string, { contents: Buffer; mimeType: string }>>();
+    const knowledge = new Map<string, Buffer>();
     const folder = (loc: { sessionId: string }) => {
         if (!artifacts.has(loc.sessionId)) artifacts.set(loc.sessionId, new Map());
         return artifacts.get(loc.sessionId)!;
@@ -192,7 +245,13 @@ function spyFileServer() {
     const fs = {
         async ensureSession() { return "/tmp/x"; },
         async deleteSession(loc: { sessionId: string }) { deleted.push(loc.sessionId); },
-        async storeKnowledgeFile() { return { name: "n", path: "/tmp/n", size: 1 }; },
+        async storeKnowledgeFile(_loc: unknown, name: string, _mimeType: string, contents: Buffer) {
+            knowledge.set(name, contents);
+            return { name, path: `/tmp/${name}`, size: contents.byteLength };
+        },
+        async listKnowledgeFiles() { return [...knowledge].map(([name, contents]) => ({ name, path: `/tmp/${name}`, size: contents.byteLength, modifiedAt: new Date() })); },
+        async readKnowledgeFile(_loc: unknown, name: string) { return knowledge.get(name)!; },
+        async deleteKnowledgeFile(_loc: unknown, name: string) { return knowledge.delete(name); },
         async storeArtifact(loc: { sessionId: string }, name: string, mimeType: string, contents: Buffer) {
             folder(loc).set(name, { contents, mimeType });
             return { name, path: `/tmp/${name}`, size: contents.byteLength };
@@ -232,9 +291,14 @@ describe("DiscussionService", () => {
     let fixture: ReturnType<typeof fakeUnit>;
     beforeEach(() => { fixture = fakeUnit(); });
 
-    function build(options: { runtime?: DiscussionRuntime; models?: IAgentModelProvisioner; members?: DiscussionParticipant[]; rag?: RagService; fs?: FileServer; webSearch?: IWorkspaceWebSearch } = {}) {
+    function build(options: { runtime?: DiscussionRuntime; models?: IAgentModelProvisioner; members?: DiscussionParticipant[]; rag?: RagService; fs?: FileServer; webSearch?: IWorkspaceWebSearch; toolboxes?: DiscussionToolboxFactory } = {}) {
         const { participants, roster } = fakeParticipants(options.members);
-        const service = new DiscussionService(fixture.unit, options.runtime ?? fakeRuntime().runtime, options.fs ?? spyFileServer().fs, options.rag ?? spyRag().rag, options.models ?? readyModels(), participants, options.webSearch ?? fakeWebSearch().webSearch, new DocumentExporter());
+        const fs = options.fs ?? spyFileServer().fs;
+        const rag = options.rag ?? spyRag().rag;
+        const service = new DiscussionService(
+            fixture.unit, options.runtime ?? fakeRuntime().runtime, fs, rag, options.models ?? readyModels(), participants,
+            options.webSearch ?? fakeWebSearch().webSearch, new DocumentExporter(), new SessionKnowledge(fs, rag), options.toolboxes ?? fakeToolboxes().toolboxes,
+        );
         return { service, roster };
     }
 
@@ -572,7 +636,11 @@ describe("DiscussionService", () => {
         test("an expert reply searches knowledge and the web, drafts, then streams the reviewed reply with its sources", async () => {
             const web = fakeWebSearch(true);
             const fake = fakeRuntime();
-            const { service } = build({ runtime: fake.runtime, webSearch: web.webSearch, rag: spyRag([{ text: "Refunds within 30 days.", source: "policy.txt" }]).rag });
+            const { service } = build({
+                runtime: fake.runtime, webSearch: web.webSearch,
+                rag: spyRag([{ text: "Refunds within 30 days.", source: "policy.txt" }]).rag,
+                toolboxes: fakeToolboxes({ searchKnowledge: true }).toolboxes,
+            });
             const session = await service.createSession({ workspaceId: WORKSPACE, agentId: solo.agentId, createdBy: USER });
             const events = await collect(await service.startMessage(expertWeb(session.id, "Latest AI regulation news")));
             assert.deepEqual(fake.calls.map(call => call.step), ["triage", "draft", "review"]);
@@ -768,6 +836,59 @@ describe("DiscussionService", () => {
             const context = fake.calls.at(-1)!.context;
             assert.equal(context.summary, "Summary.");
             assert.equal(context.transcript.length, DISCUSSION_MEMORY.keepRecent + 1, "only messages outside the summary are sent, plus the new message");
+        });
+    });
+
+    describe("reading connectors and knowledge", () => {
+        test("a fast reply with tools reads first, reports what it read, then writes from it", async () => {
+            fixture.connections.set("conn-1", { id: "conn-1", workspaceId: WORKSPACE });
+            const fake = fakeRuntime();
+            const tools = fakeToolboxes({ tools: true, cachedContext: "CACHED" });
+            const { service } = build({ runtime: fake.runtime, toolboxes: tools.toolboxes });
+            const session = await service.createSession({ workspaceId: WORKSPACE, agentId: solo.agentId, createdBy: USER });
+            await service.attachConnector(WORKSPACE, session.id, "conn-1");
+            const events = await collect(await service.startMessage(turn(session.id, "How many open orders?")));
+
+            assert.deepEqual(fake.calls.map(call => call.step), ["triage", "investigate", "write"]);
+            assert.deepEqual(tools.requests.map(request => request.connectionIds), [["conn-1"]]);
+            assert.equal(tools.executed.length, 1);
+            assert.equal(fake.calls[0].context.collaborators.toolbox?.cachedContext, "CACHED");
+            const [saved] = replies(events);
+            assert.deepEqual(kinds(saved.activity), [DISCUSSION_ACTIVITY_KINDS.understanding, DISCUSSION_ACTIVITY_KINDS.readingConnector, DISCUSSION_ACTIVITY_KINDS.writing]);
+            assert.deepEqual(saved.activity[1].detail, { tool: "query_database", target: "CRM", action: "SELECT 1" });
+            assert.ok(!JSON.stringify(saved.activity).includes("rows: 1"), "the activity trace never carries the data read");
+            assert.deepEqual((ofType(events, "reply")[0].sources as any[]).map(source => source.reference), ["conn-1:query"]);
+        });
+
+        test("a toolbox that cannot be prepared leaves the reply without tools instead of failing it", async () => {
+            const fake = fakeRuntime();
+            const broken = { async build() { throw new Error("connector offline"); } } as unknown as DiscussionToolboxFactory;
+            const { service } = build({ runtime: fake.runtime, toolboxes: broken });
+            const session = await service.createSession({ workspaceId: WORKSPACE, agentId: solo.agentId, createdBy: USER });
+            await collect(await service.startMessage(turn(session.id, "Plan")));
+            assert.deepEqual(fake.calls.map(call => call.step), ["triage", "write"]);
+        });
+
+        test("knowledge uploads accept text only, within the size limit", async () => {
+            const { service } = build();
+            const session = await service.createSession({ workspaceId: WORKSPACE, agentId: solo.agentId, createdBy: USER });
+            await assert.rejects(() => service.addKnowledge(WORKSPACE, session.id, "image.png", "image/png", Buffer.from([0x89, 0x50, 0x00, 0x47])),
+                (error: AppError) => error.statusCode === 415);
+            await assert.rejects(() => service.addKnowledge(WORKSPACE, session.id, "big.txt", "text/plain", Buffer.alloc(DOCUMENT_LIMITS.maxKnowledgeBytes + 1, 0x61)),
+                (error: AppError) => error.statusCode === 413);
+            await assert.rejects(() => service.addKnowledge(WORKSPACE, session.id, "blank.txt", "text/plain", Buffer.from("   \n")), /no text/);
+        });
+
+        test("knowledge documents are listed and removed together with their indexed chunks", async () => {
+            const rag = spyRag();
+            const { service } = build({ rag: rag.rag });
+            const session = await service.createSession({ workspaceId: WORKSPACE, agentId: solo.agentId, createdBy: USER });
+            await service.addKnowledge(WORKSPACE, session.id, "policy.md", "text/markdown", Buffer.from("# Refunds\nWithin 30 days."));
+            assert.deepEqual((await service.listKnowledge(WORKSPACE, session.id)).map(document => document.name), ["policy.md"]);
+            assert.equal(await service.deleteKnowledge(WORKSPACE, session.id, "policy.md"), true);
+            assert.deepEqual(rag.removedDocuments, ["policy.md"]);
+            assert.equal(await service.deleteKnowledge(WORKSPACE, session.id, "policy.md"), false);
+            await assert.rejects(() => service.listKnowledge(OTHER_WORKSPACE, session.id), /not found/);
         });
     });
 });

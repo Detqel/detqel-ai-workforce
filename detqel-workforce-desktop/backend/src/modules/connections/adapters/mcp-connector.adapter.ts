@@ -5,7 +5,8 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { AppError } from "../../../shared/errors/app-error.js";
-import type { ConnectorAdapter, ConnectorContext, ConnectorHandle, ConnectorRuntimeOptions } from "../../../shared/types/connector-catalog.js";
+import { CONNECTOR_OPERATIONS } from "../../../constants/connectorOperationConstants.js";
+import type { ConnectorAdapter, ConnectorContext, ConnectorHandle, ConnectorOperationRequest, ConnectorOperationResult, ConnectorRuntimeOptions } from "../../../shared/types/connector-catalog.js";
 import { allowedExecutable, authenticationHeaders, bounded, httpEndpoint, requiredString } from "./adapter-configuration.js";
 import { originRestrictedFetch } from "./http-verification.js";
 
@@ -49,6 +50,63 @@ export const createSseTransport: McpTransportFactory = async (configuration, opt
         redirectPolicy: "same-origin",
     });
 };
+
+/** A tool the server offers, with whether the server itself declares it read-only. */
+export interface McpToolSummary {
+    readonly name: string;
+    readonly description: string;
+    readonly inputSchema: Record<string, unknown>;
+    readonly readOnly: boolean;
+}
+
+type McpRequestOptions = { timeout: number; maxTotalTimeout: number; resetTimeoutOnProgress: boolean };
+const MCP_MAX_TOOL_PAGES = 5;
+
+/**
+ * Operations on a connected MCP server. `list` returns its tools; `invoke-tool` calls one. A tool counts as
+ * read-only only when the server annotates it `readOnlyHint: true`, and the caller's own claim never changes
+ * that: an unannotated tool is treated as one that may change data.
+ */
+export function mcpOperations(client: Pick<Client, "listTools" | "callTool">, hasTools: boolean, requestOptions: McpRequestOptions) {
+    const listTools = async (): Promise<McpToolSummary[]> => {
+        if (!hasTools) return [];
+        const tools: McpToolSummary[] = [];
+        let cursor: string | undefined;
+        for (let page = 0; page < MCP_MAX_TOOL_PAGES; page++) {
+            const result = await client.listTools(cursor ? { cursor } : undefined, requestOptions);
+            for (const tool of result.tools) {
+                tools.push({
+                    name: tool.name,
+                    description: (tool.description ?? "").slice(0, 500),
+                    inputSchema: (tool.inputSchema ?? { type: "object" }) as Record<string, unknown>,
+                    readOnly: tool.annotations?.readOnlyHint === true,
+                });
+            }
+            cursor = result.nextCursor;
+            if (!cursor) break;
+        }
+        return tools;
+    };
+    return async (request: ConnectorOperationRequest): Promise<ConnectorOperationResult> => {
+        if (request.operation === CONNECTOR_OPERATIONS.list) {
+            const tools = await listTools();
+            return { data: tools, metadata: { count: tools.length } };
+        }
+        if (request.operation === CONNECTOR_OPERATIONS.invokeTool) {
+            const name = request.parameters.name;
+            if (typeof name !== "string" || !name) throw new AppError(400, "A tool name is required.");
+            const tool = (await listTools()).find(candidate => candidate.name === name);
+            if (!tool) throw new AppError(404, "The MCP server does not offer that tool.");
+            // The server's annotation decides; a caller cannot vouch for a tool the server did not mark read-only.
+            if (!tool.readOnly && request.declaredMutating !== true) throw new AppError(403, "This MCP tool may change data, so it needs confirmation before it runs.");
+            const args = request.parameters.arguments;
+            if (args !== undefined && (args === null || typeof args !== "object" || Array.isArray(args))) throw new AppError(400, "Tool arguments must be an object.");
+            const result = await client.callTool({ name, arguments: (args ?? {}) as Record<string, unknown> }, undefined, requestOptions);
+            return { data: result, metadata: { tool: name, readOnly: tool.readOnly, isError: result.isError === true } };
+        }
+        throw new AppError(422, "The MCP connector supports listing and calling tools.");
+    };
+}
 
 /** Protocol behavior is owned by the official SDK; transport factories are independently registered. */
 export class McpConnectorAdapter implements ConnectorAdapter {
@@ -121,7 +179,8 @@ export class McpConnectorAdapter implements ConnectorAdapter {
             }
             if (closing || disconnected) throw new AppError(422, "The MCP server disconnected during verification.");
             connected = true;
-            return { metadata: discovery, close };
+            const hasTools = Boolean(capabilities.tools);
+            return { metadata: discovery, close, execute: mcpOperations(client, hasTools, requestOptions) };
         } catch (error) {
             await close().catch(() => {});
             throw error;

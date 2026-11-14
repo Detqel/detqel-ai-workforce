@@ -5,6 +5,7 @@ import type { IUnitOfWork } from "../../../shared/contracts/unit-of-work.js";
 import type { FileServer } from "../../../shared/rag/file-server.js";
 import type { RagService } from "../../../shared/rag/rag.service.js";
 import type {
+    AgentToolbox,
     DiscussionCollaborators,
     DiscussionParticipant,
     DiscussionRuntime,
@@ -50,6 +51,9 @@ import { FILE_SERVER_SCOPES, type FileServerScope } from "../../../constants/fil
 import type { ChatMessage, ChatSession, PendingResponder, PendingTurn } from "../repositories/discussion.repository.js";
 import type { DiscussionParticipants } from "./discussion-participants.js";
 import { addressedMembers } from "./discussion-addressing.js";
+import type { DiscussionToolboxFactory } from "./discussion-toolbox.js";
+import { workspaceBrief } from "./workspace-brief.js";
+import { knowledgeText, type KnowledgeDocument, type SessionKnowledge } from "../../../shared/rag/session-knowledge.js";
 
 const logger = createScopedLogger("discussion-service");
 
@@ -198,6 +202,8 @@ export class DiscussionService {
         private readonly participants: DiscussionParticipants,
         private readonly webSearch: IWorkspaceWebSearch,
         private readonly exporter: DocumentExporter,
+        private readonly knowledge: SessionKnowledge,
+        private readonly toolboxes: DiscussionToolboxFactory,
     ) {}
 
     /** Renames a discussion. The title is what the discussion list shows. */
@@ -364,15 +370,50 @@ export class DiscussionService {
         return (await this.unit.discussions.listAttachedConnections(sessionId)).map(row => row.connectionId);
     }
 
-    /** Stores an uploaded knowledge file for the session and ingests it into the session's vector collection. */
+    /**
+     * Stores an uploaded knowledge document for the session and indexes it for retrieval. Uploading a document with
+     * the same name replaces it. Only text documents are accepted, so agents never read binary noise.
+     */
     async addKnowledge(workspaceId: string, sessionId: string, fileName: string, mimeType: string, contents: Buffer): Promise<{ chunks: number }> {
         const session = await this.getSession(workspaceId, sessionId);
+        if (contents.byteLength > DOCUMENT_LIMITS.maxKnowledgeBytes) throw new AppError(413, DOCUMENT_ERRORS.knowledgeTooLarge);
+        const text = knowledgeText(contents);
         // Embedding the document needs the workspace's gateway models, so make sure they are provisioned first.
         await this.models.ensure(workspaceId);
         const stored = await this.fileServer.storeKnowledgeFile({ workspaceId, scope: scopeOf(session), sessionId }, fileName, mimeType, contents);
-        const chunks = await this.rag.ingestDocument({ workspaceId, sessionId, source: stored.name, text: contents.toString("utf8") });
-        logger.info({ workspaceId, sessionId, fileName, chunks }, "Ingested session knowledge file");
+        const chunks = await this.rag.ingestDocument({ workspaceId, sessionId, source: stored.name, text });
+        logger.info({ workspaceId, sessionId, chunks }, "Ingested session knowledge file");
         return { chunks };
+    }
+
+    async listKnowledge(workspaceId: string, sessionId: string): Promise<KnowledgeDocument[]> {
+        const session = await this.getSession(workspaceId, sessionId);
+        return this.knowledge.documents(this.locationOf(session));
+    }
+
+    async deleteKnowledge(workspaceId: string, sessionId: string, fileName: string): Promise<boolean> {
+        const session = await this.getSession(workspaceId, sessionId);
+        return this.knowledge.remove(this.locationOf(session), fileName);
+    }
+
+    /**
+     * The agent's reading tools for a turn: the session's attached connectors, its knowledge documents and the
+     * workspace's business brief. A failure here leaves the turn without tools rather than failing it.
+     */
+    private async toolboxFor(session: ChatSession): Promise<AgentToolbox | undefined> {
+        try {
+            const attached = await this.unit.discussions.listAttachedConnections(session.id);
+            return await this.toolboxes.build({
+                workspaceId: session.workspaceId,
+                sessionId: session.id,
+                location: this.locationOf(session),
+                connectionIds: attached.map(row => row.connectionId),
+                workspaceBrief: await workspaceBrief(this.unit.business, session.workspaceId),
+            });
+        } catch (error) {
+            logger.warn({ sessionId: session.id, error: String(error) }, "Agent tools could not be prepared; replying without them");
+            return undefined;
+        }
     }
 
     /**
@@ -485,10 +526,15 @@ export class DiscussionService {
         const stop = () => slot.controller.abort();
         signal.addEventListener("abort", stop, { once: true });
         const expert = settings.capabilityMode === DISCUSSION_CAPABILITY_MODES.expert;
+        const toolbox = await this.toolboxFor(session);
         const collaborators: DiscussionCollaborators = {
-            // Retrieval and web search only run on the expert path; fast stays tool-free.
-            retrieveKnowledge: expert ? query => this.rag.retrieve(session.workspaceId, session.id, query, DISCUSSION_LIMITS.expertRetrievalTopK) : undefined,
+            // Expert replies search the knowledge base up front (RAG) unless it is small enough to sit whole in the
+            // cached prefix (CAG). Web search runs on the expert path only.
+            retrieveKnowledge: expert && toolbox?.searchKnowledge
+                ? query => this.knowledge.search(session.workspaceId, session.id, query, DISCUSSION_LIMITS.expertRetrievalTopK)
+                : undefined,
             searchWeb: expert && settings.webEnabled ? query => this.webSearch.search(session.workspaceId, query, DISCUSSION_LIMITS.expertWebResults) : undefined,
+            ...(toolbox ? { toolbox } : {}),
         };
         let finished = false;
         try {

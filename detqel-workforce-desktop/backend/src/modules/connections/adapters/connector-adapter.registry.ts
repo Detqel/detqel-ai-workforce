@@ -1,9 +1,11 @@
 import { CONNECTOR_ADAPTER_KEYS } from "../../../constants/connectionConstants.js";
 import { AppError } from "../../../shared/errors/app-error.js";
 import type { ConnectorAdapter, ConnectorContext, ConnectorHandle, ConnectorRuntimeOptions } from "../../../shared/types/connector-catalog.js";
-import { FilesystemConnectorAdapter, GithubConnectorAdapter, HttpConnectorAdapter, PostgresConnectorAdapter } from "./data-connector.adapters.js";
+import { FilesystemConnectorAdapter, HttpConnectorAdapter, PostgresConnectorAdapter } from "./data-connector.adapters.js";
 import { DockerEnvironmentConnectorAdapter, HttpEnvironmentConnectorAdapter, LocalEnvironmentConnectorAdapter } from "./environment-connector.adapters.js";
 import { createSseTransport, createStdioTransport, createStreamableHttpTransport, McpConnectorAdapter } from "./mcp-connector.adapter.js";
+import { RepositoryConnectorAdapter } from "./repository-connector.adapter.js";
+import { REPOSITORY_PROVIDERS } from "./repository-providers.js";
 
 export class ConnectorAdapterRegistry {
     private readonly adapters = new Map<string, ConnectorAdapter>();
@@ -17,13 +19,13 @@ export class ConnectorAdapterRegistry {
             new HttpConnectorAdapter(options),
             new FilesystemConnectorAdapter("file", options),
             new FilesystemConnectorAdapter("directory", options),
-            new GithubConnectorAdapter(options),
             new McpConnectorAdapter(CONNECTOR_ADAPTER_KEYS.mcpStdio, createStdioTransport, options),
             new McpConnectorAdapter(CONNECTOR_ADAPTER_KEYS.mcpStreamableHttp, createStreamableHttpTransport, options),
             new McpConnectorAdapter(CONNECTOR_ADAPTER_KEYS.mcpSse, createSseTransport, options),
             new LocalEnvironmentConnectorAdapter(options),
             new HttpEnvironmentConnectorAdapter(options),
             new DockerEnvironmentConnectorAdapter(options),
+            ...REPOSITORY_PROVIDERS.map(provider => new RepositoryConnectorAdapter(provider, options)),
         ].forEach((adapter) => this.register(adapter));
     }
 

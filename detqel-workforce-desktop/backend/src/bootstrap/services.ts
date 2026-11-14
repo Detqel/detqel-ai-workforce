@@ -39,6 +39,9 @@ import type { IUnitOfWork } from "../shared/contracts/unit-of-work.js";
 import { LicensePortalClient, type PortalClientMetadata } from "../shared/licensing/license-portal.client.js";
 import { LicenseTokenVerifier } from "../shared/licensing/license-token.verifier.js";
 import { hostname } from "node:os";
+import { AgentConnectorAccess, type IAgentConnectorAccess } from "../modules/connections/services/agent-connector-access.service.js";
+import { DiscussionToolboxFactory } from "../modules/discussions/services/discussion-toolbox.js";
+import { SessionKnowledge } from "../shared/rag/session-knowledge.js";
 export function createServices(unit: IUnitOfWork, checkDatabase: () => Promise<void>, config: Environment, pomlLoader: PomlLoader = new PomlLoader({ bundledDirectory: process.cwd(), runtimeDirectory: process.cwd() })) {
     const sessions = new SessionService(config.AUTH_SESSION_SECRET, config.AUTH_SESSION_TTL_SECONDS);
     const licensePortal = new LicensePortalClient({ baseUrl: config.LICENSE_PORTAL_URL, productKey: config.LICENSE_PORTAL_PRODUCT_KEY, timeoutMs: config.LICENSE_PORTAL_TIMEOUT_MS });
@@ -51,7 +54,9 @@ export function createServices(unit: IUnitOfWork, checkDatabase: () => Promise<v
         allowedFilesystemRoots: config.CONNECTOR_ALLOWED_ROOTS,
     });
     const settings = new SettingsService(unit.settings, providerSecrets);
-    const discussions = createDiscussionService(unit, config, settings, pomlLoader);
+    const connections = new ConnectionService(unit.connections, unit.connectorCatalog, credentials, adapters);
+    // Agents read connectors only through this layer, which allows read operations alone.
+    const discussions = createDiscussionService(unit, config, settings, pomlLoader, new AgentConnectorAccess(connections));
     return {
         auth: new AuthService(unit.users, unit.workspaces, sessions, licensePortal, licenseTokens, installationMetadata()),
         workspaces: new WorkspaceService(unit),
@@ -59,7 +64,7 @@ export function createServices(unit: IUnitOfWork, checkDatabase: () => Promise<v
         users: new UserService(unit.users, unit.workspaces),
         business: new BusinessService(unit.business),
         workforce: new WorkforceService(unit.workforce, unit.connections),
-        connections: new ConnectionService(unit.connections, unit.connectorCatalog, credentials, adapters),
+        connections,
         workspaceAccess: new WorkspaceAccessService(sessions, unit.users, unit.workspaces),
         sessions,
         missions: new MissionService(unit),
@@ -88,7 +93,7 @@ function installationMetadata(): PortalClientMetadata {
  * infrastructure environment; the discussion service is still constructed when they are absent so the module
  * registers, and its endpoints fail fast with a clear message if the gateway or vector store is unconfigured.
  */
-function createDiscussionService(unit: IUnitOfWork, config: Environment, settings: SettingsService, pomlLoader: PomlLoader): DiscussionService {
+function createDiscussionService(unit: IUnitOfWork, config: Environment, settings: SettingsService, pomlLoader: PomlLoader, connectorAccess: IAgentConnectorAccess): DiscussionService {
     const gateway = new LiteLlmClient({ baseUrl: config.LITELLM_BASE_URL ?? "", masterKey: config.LITELLM_API_KEY ?? "" });
     const virtualKeyCipher = new SecretCipher(config.CONNECTOR_ENCRYPTION_KEY, AGENT_RUNTIME_SECRET_PURPOSE);
     const keys = new VirtualKeyRegistry(gateway, unit.virtualKeys, virtualKeyCipher);
@@ -106,7 +111,9 @@ function createDiscussionService(unit: IUnitOfWork, config: Environment, setting
     const participants = new DiscussionParticipants(unit.workforce, pomlLoader);
     // Each workspace searches the web with the Tavily key it saved in Settings.
     const webSearch = new WorkspaceWebSearch(workspaceId => settings.resolveWebSearchKey(workspaceId));
-    return new DiscussionService(unit, runtime, fileServer, rag, models, participants, webSearch, new DocumentExporter());
+    const knowledge = new SessionKnowledge(fileServer, rag);
+    const toolboxes = new DiscussionToolboxFactory(connectorAccess, knowledge);
+    return new DiscussionService(unit, runtime, fileServer, rag, models, participants, webSearch, new DocumentExporter(), knowledge, toolboxes);
 }
 export type ApplicationServices = ReturnType<typeof createServices>;
 declare module "fastify" {

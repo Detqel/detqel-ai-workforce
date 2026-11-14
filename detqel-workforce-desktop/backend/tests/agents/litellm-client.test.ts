@@ -219,4 +219,47 @@ describe("LiteLlmClient gateway wrapper", () => {
         const client = new LiteLlmClient(GATEWAY);
         assert.equal(await client.isHealthy(), false);
     });
+
+    test("function calling sends tools and tool turns in the OpenAI shape and parses the calls the model asks for", async () => {
+        const { calls } = stubFetch(() => ({
+            status: 200,
+            json: {
+                choices: [{ message: { content: null, tool_calls: [
+                    { id: "call-1", type: "function", function: { name: "query_database", arguments: "{\"sql\":\"SELECT 1\"}" } },
+                    { id: "call-2", type: "function", function: { name: "describe_connector", arguments: { connector: "crm" } } },
+                    { type: "function", function: { name: "no-id" } },
+                ] } }],
+                usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 },
+            },
+        }));
+        const client = new LiteLlmClient(GATEWAY);
+        const result = await client.chatCompletion("sk-virtual", {
+            model: "m",
+            messages: [
+                { role: "user", content: "How many orders?" },
+                { role: "assistant", content: "", toolCalls: [{ id: "call-0", name: "describe_connector", arguments: "{}" }] },
+                { role: "tool", toolCallId: "call-0", content: "tables" },
+            ],
+            tools: [{ name: "query_database", description: "Query", parameters: { type: "object" } }],
+        });
+        const body = calls[0].body as Record<string, any>;
+        assert.deepEqual(body.tools, [{ type: "function", function: { name: "query_database", description: "Query", parameters: { type: "object" } } }]);
+        assert.equal(body.tool_choice, "auto");
+        assert.deepEqual(body.messages[1], { role: "assistant", content: null, tool_calls: [{ id: "call-0", type: "function", function: { name: "describe_connector", arguments: "{}" } }] });
+        assert.deepEqual(body.messages[2], { role: "tool", tool_call_id: "call-0", content: "tables" });
+        assert.equal(result.content, "", "a reply that only calls tools has no text");
+        assert.deepEqual(result.toolCalls, [
+            { id: "call-1", name: "query_database", arguments: "{\"sql\":\"SELECT 1\"}" },
+            { id: "call-2", name: "describe_connector", arguments: "{\"connector\":\"crm\"}" },
+        ], "malformed calls are dropped and object arguments are serialized");
+    });
+
+    test("a request without tools sends no tool fields", async () => {
+        const { calls } = stubFetch(() => ({ status: 200, json: { choices: [{ message: { content: "hi" } }] } }));
+        const result = await new LiteLlmClient(GATEWAY).chatCompletion("sk-virtual", { model: "m", messages: [{ role: "user", content: "x" }] });
+        const body = calls[0].body as Record<string, unknown>;
+        assert.equal("tools" in body, false);
+        assert.equal("tool_choice" in body, false);
+        assert.deepEqual(result.toolCalls, []);
+    });
 });

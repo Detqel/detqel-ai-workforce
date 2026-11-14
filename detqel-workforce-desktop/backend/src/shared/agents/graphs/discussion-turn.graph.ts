@@ -17,9 +17,13 @@ import {
     type DiscussionSpeakerRole,
 } from "../../../constants/discussionConstants.js";
 import type { DiscussionActivityDetail, DiscussionActivityStep } from "../../types/discussion-activity.js";
+import { AGENT_TOOL_LIMITS, AGENT_TOOL_NAMES } from "../../../constants/agentContextConstants.js";
+import type { ToolCall } from "../litellm.client.js";
 import {
     addUsage,
     ZERO_USAGE,
+    type AgentToolResult,
+    type AgentToolSession,
     type DiscussionCollaborators,
     type DiscussionParticipant,
     type DocumentRequest,
@@ -43,11 +47,6 @@ export interface SpeakerPlan {
 /** The lead's closing reply after its teammates: one answer built from their contributions. */
 export function wrapUpPlan(lead: DiscussionParticipant, handoffs: ReadonlyArray<SpeakerPlan>): SpeakerPlan {
     return { participant: lead, speakerRole: DISCUSSION_SPEAKER_ROLES.wrapUp, contributors: handoffs.map(handoff => handoff.participant.name) };
-}
-
-/** A document requested in this turn, and the agent whose reply completes it. */
-export interface TurnDocument extends DocumentRequest {
-    readonly ownerAgentId: string;
 }
 
 /** A document requested in this turn, and the agent whose reply completes it. */
@@ -275,11 +274,28 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
         return { intent: result.intent, handoffs, usage: result.usage, steps, document };
     }
 
+    /** Runs one tool call as an activity step: the trace shows what was read, never the data itself. */
+    const toolRunner = (state: State, config: LangGraphRunnableConfig, session: AgentToolSession, steps: DiscussionActivityStep[]) =>
+        async (call: ToolCall): Promise<AgentToolResult> => {
+            const summary = session.describe(call);
+            const knowledge = call.name === AGENT_TOOL_NAMES.searchKnowledge || call.name === AGENT_TOOL_NAMES.readKnowledgeDocument;
+            const { result, step } = await track(state, config, knowledge ? DISCUSSION_ACTIVITY_KINDS.readingKnowledge : DISCUSSION_ACTIVITY_KINDS.readingConnector,
+                { ...summary }, () => session.execute(call, config.signal));
+            steps.push(step);
+            return result;
+        };
+
     async function research(state: State, config: LangGraphRunnableConfig): Promise<Partial<State>> {
         const context = contextFor(state);
         const steps = [...state.steps];
         const blocks: string[] = [];
         const sources: DiscussionSource[] = [];
+        let usage = state.usage;
+        if (!expert) {
+            // Fast replies only investigate the attached connectors and documents, briefly.
+            const found = await investigate(state, config, context, AGENT_TOOL_LIMITS.maxRoundsFast, [], steps);
+            return { grounding: found.blocks.length ? runtime.grounding(found.blocks) : "", sources: [...found.sources], steps, usage: addUsage(usage, found.usage) };
+        }
         if (context.collaborators.retrieveKnowledge) {
             const { result, step } = await track(state, config, DISCUSSION_ACTIVITY_KINDS.searchingKnowledge, undefined,
                 () => runtime.searchKnowledge(context), found => ({ count: found.sources.length }));
@@ -294,7 +310,20 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
             sources.push(...result.sources);
             steps.push(step);
         }
-        return { grounding: runtime.grounding(blocks), sources, steps };
+        // With what retrieval found in hand, the agent reads whatever else it needs from connectors and documents.
+        const found = await investigate(state, config, context, AGENT_TOOL_LIMITS.maxRounds, blocks, steps);
+        blocks.push(...found.blocks);
+        for (const source of found.sources) if (!sources.some(existing => existing.reference === source.reference)) sources.push(source);
+        usage = addUsage(usage, found.usage);
+        return { grounding: runtime.grounding(blocks), sources, steps, usage };
+    }
+
+    async function investigate(state: State, config: LangGraphRunnableConfig, context: TurnContext, rounds: number, prior: ReadonlyArray<string>, steps: DiscussionActivityStep[]) {
+        const toolbox = context.collaborators.toolbox;
+        if (!toolbox?.hasTools) return { blocks: [] as string[], sources: [] as DiscussionSource[], usage: ZERO_USAGE };
+        const session = toolbox.start();
+        if (!session.definitions.length) return { blocks: [] as string[], sources: [] as DiscussionSource[], usage: ZERO_USAGE };
+        return runtime.investigate(context, session, rounds, prior, toolRunner(state, config, session, steps), config.signal);
     }
 
     async function write(state: State, config: LangGraphRunnableConfig): Promise<Partial<State>> {
@@ -305,7 +334,7 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
         const { result, step } = await track(state, config,
             document ? DISCUSSION_ACTIVITY_KINDS.writingDocument : wrappingUp ? DISCUSSION_ACTIVITY_KINDS.consolidating : DISCUSSION_ACTIVITY_KINDS.writing,
             document ? { ...names, title: document.title } : wrappingUp ? names : undefined,
-            () => runtime.write(contextFor(state), streamText(state, config), config.signal));
+            () => runtime.write(contextFor(state), streamText(state, config), config.signal, state.grounding));
         return { content: result.content, usage: addUsage(state.usage, result.usage), steps: [...state.steps, step] };
     }
 
@@ -350,14 +379,17 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
 
     // Delegates were handed concrete work, so they skip triage. The wrap-up works from the replies already given,
     // so it neither triages nor searches again.
+    // Fast replies research only when there is something attached to read; expert replies always research.
+    const researches = expert || Boolean(environment.collaborators.toolbox?.hasTools);
     const afterSpeakerStarts = (state: State) => {
         const role = state.current?.speakerRole;
         if (role === DISCUSSION_SPEAKER_ROLES.wrapUp) return NODES.write;
-        if (role === DISCUSSION_SPEAKER_ROLES.delegate) return expert ? NODES.research : NODES.write;
+        if (role === DISCUSSION_SPEAKER_ROLES.delegate) return researches ? NODES.research : NODES.write;
         return NODES.triage;
     };
     const afterTriage = (state: State) =>
-        state.intent === DISCUSSION_INTENTS.conversational ? NODES.save : (expert ? NODES.research : NODES.write);
+        state.intent === DISCUSSION_INTENTS.conversational ? NODES.save : (researches ? NODES.research : NODES.write);
+    const afterResearch = () => (expert ? NODES.draft : NODES.write);
     const whileSpeakersRemain = (state: State) => (state.queue.length > 0 ? NODES.next : END);
 
     return new StateGraph(TurnState)
@@ -371,7 +403,7 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
         .addConditionalEdges(START, whileSpeakersRemain, [NODES.next, END])
         .addConditionalEdges(NODES.next, afterSpeakerStarts, [NODES.triage, NODES.research, NODES.write])
         .addConditionalEdges(NODES.triage, afterTriage, [NODES.save, NODES.research, NODES.write])
-        .addEdge(NODES.research, NODES.draft)
+        .addConditionalEdges(NODES.research, afterResearch, [NODES.draft, NODES.write])
         .addEdge(NODES.draft, NODES.review)
         .addEdge(NODES.review, NODES.save)
         .addEdge(NODES.write, NODES.save)

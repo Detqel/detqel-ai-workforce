@@ -1,8 +1,10 @@
 import type { ComponentType } from "react";
 import {
   Aws,
+  Bitbucket,
   Cassandra,
   DockerIcon,
+  Gitlab,
   GoogleCloud,
   GoogleDrive,
   MicrosoftAzure,
@@ -14,16 +16,18 @@ import {
   Postgresql,
 } from "@dev.icons/react";
 import { GithubIcon, McpIcon } from "@dev.icons/react/mono";
-import { CodeXml, Database, File, Folder, Globe, Monitor, Server, Webhook } from "lucide-react";
+import { CodeXml, Database, File, Folder, GitBranch, Globe, Monitor, Server, Webhook } from "lucide-react";
 import type { ConnectorStatus } from "@/lib/api/connectors";
 
 type CatalogIconComponent = ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
 
 export const CATALOG_ICON_COMPONENTS = new Map<string, CatalogIconComponent>([
   ["devicon:Aws", Aws],
+  ["devicon:Bitbucket", Bitbucket],
   ["devicon:Cassandra", Cassandra],
   ["devicon:DockerIcon", DockerIcon],
   ["devicon:GithubIcon", GithubIcon],
+  ["devicon:Gitlab", Gitlab],
   ["devicon:GoogleCloud", GoogleCloud],
   ["devicon:GoogleDrive", GoogleDrive],
   ["devicon:McpIcon", McpIcon],
@@ -38,6 +42,7 @@ export const CATALOG_ICON_COMPONENTS = new Map<string, CatalogIconComponent>([
   ["lucide:Database", Database],
   ["lucide:File", File],
   ["lucide:Folder", Folder],
+  ["lucide:GitBranch", GitBranch],
   ["lucide:Globe", Globe],
   ["lucide:Monitor", Monitor],
   ["lucide:Server", Server],

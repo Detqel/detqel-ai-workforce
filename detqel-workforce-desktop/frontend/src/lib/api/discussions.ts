@@ -53,14 +53,18 @@ export type TurnRole = "solo" | "lead" | "addressed" | "delegate" | "wrapUp";
 
 export type ActivityKind =
   | "understanding" | "coordinating" | "assigned" | "searchingKnowledge" | "searchingWeb" | "drafting" | "reviewing" | "writing" | "consolidating"
-  | "writingDocument" | "savingDocument";
+  | "writingDocument" | "savingDocument" | "readingConnector" | "readingKnowledge";
 
 /** One high-level step of an agent's reply. */
 export interface ActivityStep {
   id: string;
   kind: ActivityKind;
   status: "running" | "done" | "failed";
-  detail?: { count?: number; query?: string; names?: string[]; leadName?: string; task?: string; conversational?: boolean; title?: string; fileName?: string };
+  detail?: {
+    count?: number; query?: string; names?: string[]; leadName?: string; task?: string; conversational?: boolean; title?: string; fileName?: string;
+    /** For reading steps: the tool used, the connector or document it read, and a short form of the request. */
+    tool?: string; target?: string; action?: string;
+  };
   startedAt: string;
   durationMs?: number;
 }
@@ -296,4 +300,22 @@ export async function apiUploadSessionKnowledge(
   });
   if (!response.ok) return failure(response, "Could not add the knowledge file");
   return response.json();
+}
+
+/** A document in a discussion's knowledge base, which its agents can search and read. */
+export interface KnowledgeDocument {
+  name: string;
+  size: number;
+}
+
+export async function apiListSessionKnowledge(workspaceId: string, sessionId: string): Promise<KnowledgeDocument[]> {
+  const response = await authorizedFetch(`${workspaceUrl(workspaceId)}/${encodeURIComponent(sessionId)}/knowledge`);
+  if (!response.ok) return failure(response, "Could not load the knowledge documents");
+  const body: { documents: KnowledgeDocument[] } = await response.json();
+  return body.documents;
+}
+
+export async function apiDeleteSessionKnowledge(workspaceId: string, sessionId: string, fileName: string): Promise<void> {
+  const response = await authorizedFetch(`${workspaceUrl(workspaceId)}/${encodeURIComponent(sessionId)}/knowledge/${encodeURIComponent(fileName)}`, { method: "DELETE" });
+  if (!response.ok) return failure(response, "Could not remove the knowledge document");
 }

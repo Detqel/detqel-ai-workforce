@@ -2,7 +2,8 @@ import { AUTHORIZATION_HEADER, BASIC_AUTHORIZATION_PREFIX, BEARER_AUTHORIZATION_
 import { CONNECTOR_AUTHENTICATION, CONNECTOR_TCP_PORT_RANGE, RESERVED_AUTHENTICATION_HEADERS } from "../../../constants/connectionConstants.js";
 import { constants } from "node:fs";
 import { access, realpath, stat } from "node:fs/promises";
-import { isAbsolute, relative, sep } from "node:path";
+import { dirname, isAbsolute, relative, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { AppError } from "../../../shared/errors/app-error.js";
 
 export function requiredString(configuration: Record<string, unknown>, key: string): string {
@@ -96,17 +97,40 @@ export async function allowedExecutable(path: string, allowedPaths: string[]): P
     return executable;
 }
 
+function isWithin(root: string, target: string): boolean {
+    const difference = relative(canonicalComparison(root), canonicalComparison(target));
+    return difference === "" || (!difference.startsWith(`..${sep}`) && difference !== ".." && !isAbsolute(difference));
+}
+
+/**
+ * KIN's own code, configuration and runtime state. A filesystem connector can never reach them, even when an
+ * operator root contains them, so the application's source and secrets are not exposed through a connection.
+ */
+export function applicationDirectories(): string[] {
+    const backendRoot = fileURLToPath(new URL("../../../../", import.meta.url));
+    const directories = [backendRoot];
+    if (process.env.DETQEL_RUNTIME_DIR) directories.push(process.env.DETQEL_RUNTIME_DIR);
+    if (process.env.DETQEL_CONFIG_PATH) directories.push(dirname(process.env.DETQEL_CONFIG_PATH));
+    if (process.env.DETQEL_DESKTOP) directories.push(dirname(process.execPath));
+    return directories.filter(isAbsolute);
+}
+
+async function assertNotApplicationPath(target: string): Promise<void> {
+    for (const directory of applicationDirectories()) {
+        const canonical = await realpath(directory).catch(() => directory);
+        if (isWithin(canonical, target)) throw new AppError(403, "This path belongs to the KIN application and cannot be connected.");
+    }
+}
+
 export async function allowedFilesystemPath(path: string, roots: string[], kind: "file" | "directory"): Promise<string> {
     if (!isAbsolute(path)) throw new AppError(400, "An absolute filesystem path is required.");
     const target = await realpath(path);
+    await assertNotApplicationPath(target);
     const canonicalRoots = await Promise.all(roots.map(async (root) => {
         if (!isAbsolute(root)) throw new AppError(503, "The filesystem allowlist contains a non-absolute path.");
         return realpath(root);
     }));
-    const permitted = canonicalRoots.some((root) => {
-        const difference = relative(canonicalComparison(root), canonicalComparison(target));
-        return difference === "" || (!difference.startsWith(`..${sep}`) && difference !== ".." && !isAbsolute(difference));
-    });
+    const permitted = canonicalRoots.some(root => isWithin(root, target));
     if (!permitted) throw new AppError(403, "The filesystem path is outside the operator-configured roots.");
     const entry = await stat(target);
     if (kind === "file" ? !entry.isFile() : !entry.isDirectory()) throw new AppError(400, `The configured path must be a ${kind}.`);

@@ -16,6 +16,7 @@ export const INITIAL_CONNECTOR_TYPES = [
     { code: CONNECTOR_TYPES.mcp, name: "MCP", description: "Model Context Protocol servers and tools", sortOrder: 1 },
     { code: CONNECTOR_TYPES.environment, name: "Environment", description: "Runtime environments and infrastructure", sortOrder: 2 },
     { code: CONNECTOR_TYPES.enterprise, name: "Enterprise", description: "Business applications and enterprise services", sortOrder: 3 },
+    { code: CONNECTOR_TYPES.repository, name: "Repository", description: "Source code repositories on GitHub, Azure DevOps, GitLab, Bitbucket and Gitea", sortOrder: 4 },
 ];
 export const INITIAL_DOMAINS = ["Retail & E-Commerce", "Technology & SaaS", "Finance & Banking", "Healthcare & Pharma", "Logistics & Supply Chain", "Manufacturing", "Agency & Professional Services"];
 export const CONNECTOR_ICON_KEYS: Readonly<Record<string, string>> = {
@@ -30,6 +31,11 @@ export const CONNECTOR_ICON_KEYS: Readonly<Record<string, string>> = {
     files: "lucide:File",
     folders: "lucide:Folder",
     github: "devicon:GithubIcon",
+    "azure-devops-repos": "devicon:MicrosoftAzure",
+    gitlab: "devicon:Gitlab",
+    "bitbucket-cloud": "devicon:Bitbucket",
+    "bitbucket-data-center": "devicon:Bitbucket",
+    gitea: "lucide:GitBranch",
     aws: "devicon:Aws",
     azure: "devicon:MicrosoftAzure",
     "google-cloud": "devicon:GoogleCloud",

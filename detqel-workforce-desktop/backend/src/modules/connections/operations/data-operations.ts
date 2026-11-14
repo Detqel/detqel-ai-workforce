@@ -5,26 +5,46 @@ import { AppError } from "../../../shared/errors/app-error.js";
 import type { ConnectorOperationRequest, ConnectorOperationResult } from "../../../shared/types/connector-catalog.js";
 import { CONNECTOR_OPERATIONS } from "../../../constants/connectorOperationConstants.js";
 import { allowedFilesystemPath, requiredString } from "../adapters/adapter-configuration.js";
+import { AGENT_FORBIDDEN_SQL, AGENT_TOOL_ERRORS, AGENT_TOOL_LIMITS } from "../../../constants/agentContextConstants.js";
 
 /** A leading-keyword check that admits only read-only SQL for the autonomous query path. */
-const READ_ONLY_SQL = /^\s*(?:select|with|show|explain)\b/i;
-const FORBIDDEN_SQL = /\b(?:insert|update|delete|drop|alter|truncate|create|grant|revoke|merge|call|do)\b/i;
+const READ_ONLY_SQL = /^\s*(?:select|with)\b/i;
+const FORBIDDEN_SQL = /\b(?:insert|update|delete|drop|alter|truncate|create|grant|revoke|merge|call|do|execute|prepare|listen|notify|vacuum|reindex|discard)\b/i;
 
 /**
- * Builds the execute() function for a Postgres connection. A `query` runs only read-only SQL and is rejected
- * if it contains any data-changing keyword. `write`/`update`/`delete` carry caller SQL plus bound parameters
- * and are classified mutating by the dispatcher, so they only run after confirmation.
+ * Checks a query for the read-only path and returns it without a trailing semicolon. It must be one SELECT or WITH
+ * statement that uses no data-changing keyword and none of the functions or catalogs agents may not touch.
+ */
+export function readOnlyStatement(statement: string): string {
+    const trimmed = statement.trim().replace(/;\s*$/, "").trimEnd();
+    if (trimmed.length > AGENT_TOOL_LIMITS.maxSqlCharacters) throw new AppError(400, "The query is too long.");
+    // One statement only; a semicolon could start a second one.
+    if (trimmed.includes(";") || !READ_ONLY_SQL.test(trimmed) || FORBIDDEN_SQL.test(trimmed)) {
+        throw new AppError(400, "Only a single read-only SQL query (SELECT or WITH) runs on the query path.");
+    }
+    if (AGENT_FORBIDDEN_SQL.test(trimmed)) throw new AppError(400, AGENT_TOOL_ERRORS.forbiddenSql);
+    return trimmed;
+}
+
+/**
+ * Builds the execute() function for a Postgres connection. A `query` runs one validated read-only statement in a
+ * READ ONLY transaction, so even a statement that slips past the checks cannot change data, and returns at most
+ * the row cap. `write`/`update`/`delete` carry caller SQL plus bound parameters and are classified mutating by
+ * the dispatcher, so they only run after confirmation.
  */
 export function postgresOperations(sql: Sql): (request: ConnectorOperationRequest) => Promise<ConnectorOperationResult> {
     return async request => {
         const statement = requiredString(request.parameters as Record<string, unknown>, "sql");
         const params = Array.isArray(request.parameters.params) ? request.parameters.params : [];
         if (request.operation === CONNECTOR_OPERATIONS.query) {
-            if (!READ_ONLY_SQL.test(statement) || FORBIDDEN_SQL.test(statement)) {
-                throw new AppError(400, "Only read-only SQL (SELECT/WITH/SHOW/EXPLAIN) runs on the query path.");
-            }
-            const rows = await sql.unsafe(statement, params as never[]);
-            return { data: rows, metadata: { rowCount: rows.length } };
+            const query = readOnlyStatement(statement);
+            const limit = AGENT_TOOL_LIMITS.maxRows;
+            // The statement sits on its own lines so a trailing comment cannot swallow the wrapper.
+            const capped = `SELECT * FROM (\n${query}\n) AS kin_read LIMIT ${limit + 1}`;
+            const rows = await sql.begin("read only", transaction => transaction.unsafe(capped, params as never[])) as unknown as Record<string, unknown>[];
+            const truncated = rows.length > limit;
+            const kept = truncated ? rows.slice(0, limit) : [...rows];
+            return { data: kept, metadata: { rowCount: kept.length, truncated } };
         }
         if (request.operation === CONNECTOR_OPERATIONS.write || request.operation === CONNECTOR_OPERATIONS.update || request.operation === CONNECTOR_OPERATIONS.delete) {
             const rows = await sql.unsafe(statement, params as never[]);

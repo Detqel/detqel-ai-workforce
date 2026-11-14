@@ -13,8 +13,23 @@ interface ActiveConnection {
     workspaceId: string;
 }
 
+/** A live connection an agent may read, without its credentials. */
+export interface ConnectionReader {
+    readonly id: string;
+    readonly name: string;
+    readonly provider: string;
+    readonly catalogCode: string;
+    readonly adapterKey: string;
+    readonly connectorType: string;
+    /** Public settings only; secret fields are never included. */
+    readonly configuration: Record<string, unknown>;
+    readonly metadata: Record<string, unknown>;
+    readonly handle: ConnectorHandle;
+}
+
 export class ConnectionService {
     private readonly active = new Map<string, ActiveConnection>();
+    private readonly reconnecting = new Map<string, Promise<unknown>>();
     private readonly validator = new ConfigurationValidator();
 
     constructor(
@@ -78,6 +93,43 @@ export class ConnectionService {
             createdAt: connection.createdAt,
             updatedAt: connection.updatedAt,
         };
+    }
+
+    /**
+     * A verified live handle for reading a connection, with what describes it. A saved connection that is not live
+     * (after a restart, for example) is re-verified with its stored credentials first. Only connections in the
+     * workspace are returned; credentials never leave this service.
+     */
+    async readerFor(id: string, workspaceId: string): Promise<ConnectionReader> {
+        const connection = await this.owned(id, workspaceId);
+        if (!connection.catalogId) throw new AppError(409, "This connection was created before the catalog and must be recreated to be read.");
+        const catalog = await this.enabledCatalog(connection.catalogId);
+        let active = this.active.get(id);
+        if (!active || active.workspaceId !== workspaceId) {
+            await this.reconnectOnce(id, workspaceId);
+            active = this.active.get(id);
+        }
+        if (!active) throw new AppError(503, "The connection could not be reached. Reconnect it from the Connectors page.");
+        const { publicConfiguration } = this.credentials.split(catalog.configSchema, connection.configuration);
+        return {
+            id: connection.id,
+            name: connection.name,
+            provider: catalog.name,
+            catalogCode: catalog.code,
+            adapterKey: catalog.adapterKey,
+            connectorType: catalog.connectorType,
+            configuration: publicConfiguration,
+            metadata: active.handle.metadata,
+            handle: active.handle,
+        };
+    }
+
+    private reconnectOnce(id: string, workspaceId: string): Promise<unknown> {
+        const running = this.reconnecting.get(id);
+        if (running) return running;
+        const attempt = this.reconnect(id, workspaceId).finally(() => this.reconnecting.delete(id));
+        this.reconnecting.set(id, attempt);
+        return attempt;
     }
 
     async listByWorkspace(workspaceId: string) {

@@ -100,4 +100,14 @@ export const discussionRoutes: FastifyPluginAsync = async (app) => {
         preHandler: write,
         schema: { tags: [API_TAG_NAMES.discussions], summary: "Upload and ingest a session knowledge file" },
     }, controller.addKnowledge.bind(controller));
+
+    app.get("/discussions/workspaces/:workspaceId/sessions/:sessionId/knowledge", {
+        preHandler: read,
+        schema: { tags: [API_TAG_NAMES.discussions], summary: "List the knowledge documents agents can read in a session" },
+    }, controller.listKnowledge.bind(controller));
+
+    app.delete("/discussions/workspaces/:workspaceId/sessions/:sessionId/knowledge/:fileName", {
+        preHandler: write,
+        schema: { tags: [API_TAG_NAMES.discussions], summary: "Remove a knowledge document and its indexed chunks from a session" },
+    }, controller.deleteKnowledge.bind(controller));
 };

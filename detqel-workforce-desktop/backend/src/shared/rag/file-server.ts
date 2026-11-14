@@ -84,6 +84,11 @@ export class FileServer {
         return this.read(location, FILE_SERVER_SESSION_DIRECTORIES.knowledge, fileName);
     }
 
+    /** Removes one knowledge file. Returns false when there was none. */
+    deleteKnowledgeFile(location: SessionLocation, fileName: string): Promise<boolean> {
+        return this.remove(location, FILE_SERVER_SESSION_DIRECTORIES.knowledge, fileName);
+    }
+
     /**
      * Stores a file in a session's artifacts, replacing one with the same name. The same type rules as uploads
      * apply. The write is atomic.
@@ -103,10 +108,14 @@ export class FileServer {
     }
 
     /** Removes one artifact. Returns false when it did not exist. */
-    async deleteArtifact(location: SessionLocation, fileName: string): Promise<boolean> {
+    deleteArtifact(location: SessionLocation, fileName: string): Promise<boolean> {
+        return this.remove(location, FILE_SERVER_SESSION_DIRECTORIES.artifacts, fileName);
+    }
+
+    private async remove(location: SessionLocation, folder: string, fileName: string): Promise<boolean> {
         this.assertSafeFileName(fileName);
         try {
-            await unlink(join(this.sessionDirectory(location), FILE_SERVER_SESSION_DIRECTORIES.artifacts, fileName));
+            await unlink(join(this.sessionDirectory(location), folder, fileName));
             return true;
         } catch (error) {
             if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;

@@ -2,7 +2,7 @@ import test, { afterEach, describe } from "node:test";
 import assert from "node:assert/strict";
 import { chunkText } from "../../src/shared/rag/chunker.js";
 import { MilvusClient } from "../../src/shared/rag/milvus.client.js";
-import { RagService } from "../../src/shared/rag/rag.service.js";
+import { RagService, rerank } from "../../src/shared/rag/rag.service.js";
 import type { LiteLlmClient } from "../../src/shared/agents/litellm.client.js";
 import type { VirtualKeyRegistry } from "../../src/shared/agents/virtual-key.registry.js";
 import { RAG_CHUNK } from "../../src/constants/ragConstants.js";
@@ -79,6 +79,10 @@ function fakeMilvus() {
         async hasCollection(c: string) { return collections.has(c); },
         async createCollection(c: string) { if (!collections.has(c)) collections.set(c, []); },
         async insert(c: string, records: Array<{ id: string; text: string; source: string }>) { collections.get(c)!.push(...records); return records.length; },
+        async deleteSource(c: string, source: string) {
+            const rows = collections.get(c);
+            if (rows) collections.set(c, rows.filter(row => row.source !== source));
+        },
         async search(c: string, _v: number[], topK: number) { return (collections.get(c) ?? []).slice(0, topK).map(r => ({ text: r.text, source: r.source, chunkIndex: 0, score: 1 })); },
         async dropCollection(c: string) { collections.delete(c); },
     } as unknown as MilvusClient;
@@ -112,6 +116,28 @@ describe("RagService", () => {
         await rag.ingestDocument({ workspaceId: "ws", sessionId: "s1", source: "d.txt", text: "content here" });
         await rag.deleteSession("s1");
         assert.equal(collections.size, 0);
+    });
+
+    test("uploading a document again replaces its chunks, and deleting it removes only that document", async () => {
+        const { client, collections } = fakeMilvus();
+        const rag = new RagService(fakeGateway(), fakeKeys(), client);
+        await rag.ingestDocument({ workspaceId: "ws", sessionId: "s1", source: "a.txt", text: "first version" });
+        await rag.ingestDocument({ workspaceId: "ws", sessionId: "s1", source: "b.txt", text: "other document" });
+        await rag.ingestDocument({ workspaceId: "ws", sessionId: "s1", source: "a.txt", text: "second version" });
+        const [rows] = [...collections.values()];
+        assert.deepEqual(rows.map(row => row.text).sort(), ["other document", "second version"]);
+        await rag.deleteDocument("s1", "a.txt");
+        assert.deepEqual([...collections.values()][0].map(row => row.source), ["b.txt"]);
+    });
+
+    test("reranking favours passages that contain the question's terms and drops weak matches", () => {
+        const hits = [
+            { text: "General notes about the company.", source: "a", score: 0.5 },
+            { text: "Invoice INV-2041 was paid on 3 March.", source: "b", score: 0.45 },
+            { text: "Unrelated.", source: "c", score: 0.1 },
+        ];
+        const ranked = rerank("When was invoice INV-2041 paid?", hits, 5);
+        assert.deepEqual(ranked.map(hit => hit.source), ["b", "a"]);
     });
 
     test("retrieve rejects an out-of-range result count", async () => {

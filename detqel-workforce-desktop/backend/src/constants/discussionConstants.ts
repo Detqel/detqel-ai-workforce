@@ -94,6 +94,10 @@ export const DISCUSSION_ACTIVITY_KINDS = {
     assigned: "assigned",
     searchingKnowledge: "searchingKnowledge",
     searchingWeb: "searchingWeb",
+    /** Reading an attached connector with a read-only tool. */
+    readingConnector: "readingConnector",
+    /** Reading or searching the discussion's knowledge documents with a tool. */
+    readingKnowledge: "readingKnowledge",
     /** Expert mode: writing a draft that is checked before it is shown. */
     drafting: "drafting",
     /** Expert mode: checking the draft against the sources while writing the final reply. */

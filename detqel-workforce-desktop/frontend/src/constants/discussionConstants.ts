@@ -64,7 +64,36 @@ export const ACTIVITY_LABELS: Readonly<Record<ActivityKind, { running: (detail: 
     running: (detail) => (detail.names?.length ? `Bringing together ${listNames(detail.names)}'s input` : "Bringing the team's input together"),
     done: (detail) => (detail.names?.length ? `Brought together ${listNames(detail.names)}'s input` : "Brought the team's input together"),
   },
+  readingConnector: {
+    running: (detail) => toolLabel(detail, "running"),
+    done: (detail) => toolLabel(detail, "done"),
+  },
+  readingKnowledge: {
+    running: (detail) => toolLabel(detail, "running"),
+    done: (detail) => toolLabel(detail, "done"),
+  },
 };
+
+/** How each agent reading tool reads in the trace, in progress and finished. Keys are the server's tool names. */
+const TOOL_VERBS: Readonly<Record<string, { running: string; done: string }>> = {
+  search_knowledge: { running: "Searching knowledge documents", done: "Searched knowledge documents" },
+  read_knowledge_document: { running: "Reading", done: "Read" },
+  describe_connector: { running: "Mapping the structure of", done: "Mapped the structure of" },
+  query_database: { running: "Querying", done: "Queried" },
+  read_repository: { running: "Reading", done: "Read" },
+  read_files: { running: "Reading", done: "Read" },
+  fetch_api: { running: "Calling", done: "Called" },
+  list_mcp_tools: { running: "Listing the tools of", done: "Listed the tools of" },
+  call_mcp_tool: { running: "Using", done: "Used" },
+};
+
+/** "Queried Sales DB · SELECT …": the verb, what was read, and a short preview of the request. */
+function toolLabel(detail: StepDetail, phase: "running" | "done"): string {
+  const verbs = TOOL_VERBS[detail.tool ?? ""] ?? { running: "Reading", done: "Read" };
+  const subject = detail.tool === "search_knowledge" ? "" : ` ${detail.target ?? "a connector"}`;
+  const action = detail.action ? ` · ${preview(detail.action)}` : "";
+  return `${verbs[phase]}${subject}${action}`;
+}
 
 /** Formats a reply or document can be exported to, in menu order. */
 export const EXPORT_FORMATS = [
@@ -75,6 +104,12 @@ export const EXPORT_FORMATS = [
 
 /** Largest file the user can add to a discussion's artifacts; it travels as base64 through the desktop bridge. */
 export const ARTIFACT_UPLOAD_MAX_BYTES = 700 * 1024;
+
+/** Largest knowledge document the server accepts. */
+export const KNOWLEDGE_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
+
+/** Knowledge must be text the agents can read; the file picker offers these types. */
+export const KNOWLEDGE_UPLOAD_ACCEPT = ".txt,.md,.markdown,.csv,.tsv,.json,.jsonl,.yaml,.yml,.xml,.html,.htm,.log,.sql,.ts,.tsx,.jsx,.py,.java,.cs,.go,.rb,.php,.rs,.kt,.swift,.c,.h,.cpp,.css,text/*";
 
 /** Longest discussion title the server accepts. */
 export const DISCUSSION_TITLE_MAX_LENGTH = 255;

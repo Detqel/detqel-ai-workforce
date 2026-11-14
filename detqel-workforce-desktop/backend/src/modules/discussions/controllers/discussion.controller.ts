@@ -10,6 +10,7 @@ import {
     connectorParamsSchema,
     createSessionSchema,
     exportSchema,
+    knowledgeParamsSchema,
     messageParamsSchema,
     postMessageSchema,
     renameSessionSchema,
@@ -149,5 +150,19 @@ export class DiscussionController {
         const contents = Buffer.from(body.content, body.encoding);
         const result = await this.service.addKnowledge(workspaceId, sessionId, body.fileName, body.mimeType, contents);
         return reply.status(201).send(result);
+    }
+
+    async listKnowledge(request: FastifyRequest, reply: FastifyReply) {
+        const { workspaceId } = workspaceParamsSchema.parse(request.params);
+        const { sessionId } = sessionIdParamsSchema.parse(request.params);
+        return reply.send({ documents: await this.service.listKnowledge(workspaceId, sessionId) });
+    }
+
+    async deleteKnowledge(request: FastifyRequest, reply: FastifyReply) {
+        const { workspaceId } = workspaceParamsSchema.parse(request.params);
+        const { sessionId, fileName } = knowledgeParamsSchema.parse(request.params);
+        const deleted = await this.service.deleteKnowledge(workspaceId, sessionId, fileName);
+        if (!deleted) return reply.status(404).send({ message: "The knowledge document was not found." });
+        return reply.status(204).send();
     }
 }

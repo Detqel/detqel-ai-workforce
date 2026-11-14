@@ -22,6 +22,24 @@ export interface LiteLlmGatewayConfig {
 export interface ChatMessage {
     readonly role: "system" | "user" | "assistant" | "tool";
     readonly content: string;
+    /** Assistant turns that asked for tools. */
+    readonly toolCalls?: ReadonlyArray<ToolCall>;
+    /** Tool results answer the call with this id. */
+    readonly toolCallId?: string;
+}
+
+/** A function the model may call, described with a JSON Schema for its arguments. */
+export interface ToolDefinition {
+    readonly name: string;
+    readonly description: string;
+    readonly parameters: Readonly<Record<string, unknown>>;
+}
+
+/** A call the model asked for. `arguments` is the raw JSON text the model produced; it is untrusted. */
+export interface ToolCall {
+    readonly id: string;
+    readonly name: string;
+    readonly arguments: string;
 }
 
 export type ReasoningEffort = (typeof LITELLM_REASONING_EFFORTS)[keyof typeof LITELLM_REASONING_EFFORTS];
@@ -34,6 +52,9 @@ export interface ChatCompletionRequest {
     readonly responseFormatJson?: boolean;
     /** How much hidden reasoning the model may spend. Omitted means the provider's default. */
     readonly reasoningEffort?: ReasoningEffort;
+    /** Functions the model may call. A model without function calling answers in text instead. */
+    readonly tools?: ReadonlyArray<ToolDefinition>;
+    readonly toolChoice?: "auto" | "none";
 }
 
 /** Gateway-reported usage for one model call. Cost is the gateway's own figure, not an estimate. */
@@ -49,6 +70,31 @@ export interface ChatCompletionResult {
     readonly content: string;
     readonly tokensUsed: number;
     readonly usage: CallUsage;
+    /** Calls the model asked for instead of, or alongside, a text answer. Empty for a plain answer. */
+    readonly toolCalls: ReadonlyArray<ToolCall>;
+}
+
+function toolCallsOf(value: unknown): ToolCall[] {
+    if (!Array.isArray(value)) return [];
+    return value.flatMap(entry => {
+        if (entry === null || typeof entry !== "object") return [];
+        const call = entry as { id?: unknown; function?: { name?: unknown; arguments?: unknown } };
+        if (typeof call.id !== "string" || typeof call.function?.name !== "string") return [];
+        const args = call.function.arguments;
+        return [{ id: call.id, name: call.function.name, arguments: typeof args === "string" ? args : JSON.stringify(args ?? {}) }];
+    });
+}
+
+function wireMessage(message: ChatMessage): Record<string, unknown> {
+    if (message.role === "tool") return { role: "tool", tool_call_id: message.toolCallId, content: message.content };
+    if (message.role === "assistant" && message.toolCalls?.length) {
+        return {
+            role: "assistant",
+            content: message.content || null,
+            tool_calls: message.toolCalls.map(call => ({ id: call.id, type: "function", function: { name: call.name, arguments: call.arguments } })),
+        };
+    }
+    return { role: message.role, content: message.content };
 }
 
 const numberOrZero = (value: unknown): number => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0);
@@ -190,7 +236,11 @@ export class LiteLlmClient {
     private chatBody(request: ChatCompletionRequest): Record<string, unknown> {
         return {
             model: request.model,
-            messages: request.messages.map(message => ({ role: message.role, content: message.content })),
+            messages: request.messages.map(wireMessage),
+            ...(request.tools?.length ? {
+                tools: request.tools.map(tool => ({ type: "function", function: { name: tool.name, description: tool.description, parameters: tool.parameters } })),
+                tool_choice: request.toolChoice ?? "auto",
+            } : {}),
             ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
             ...(request.maxTokens !== undefined ? { max_tokens: request.maxTokens } : {}),
             ...(request.responseFormatJson ? { response_format: { type: "json_object" } } : {}),
@@ -207,20 +257,23 @@ export class LiteLlmClient {
         const body = this.chatBody(request);
         const { payload, headers } = await this.send(LITELLM_ENDPOINTS.chatCompletions, "POST", virtualKey, body, LITELLM_TIMEOUTS_MS.inference, LITELLM_ERROR_MESSAGES.inferenceFailed, signal) as {
             payload: {
-                choices?: Array<{ message?: { content?: unknown } }>;
+                choices?: Array<{ message?: { content?: unknown; tool_calls?: unknown } }>;
                 usage?: { prompt_tokens?: unknown; completion_tokens?: unknown; total_tokens?: unknown; prompt_tokens_details?: { cached_tokens?: unknown } };
             };
             headers: Headers;
         };
-        const content = payload.choices?.[0]?.message?.content;
-        if (typeof content !== "string") throw new AppError(502, LITELLM_ERROR_MESSAGES.inferenceFailed);
+        const message = payload.choices?.[0]?.message;
+        const toolCalls = toolCallsOf(message?.tool_calls);
+        // A reply that only asks for tools carries no text.
+        const content = typeof message?.content === "string" ? message.content : toolCalls.length > 0 ? "" : null;
+        if (content === null) throw new AppError(502, LITELLM_ERROR_MESSAGES.inferenceFailed);
         const usage: CallUsage = {
             inputTokens: numberOrZero(payload.usage?.prompt_tokens),
             outputTokens: numberOrZero(payload.usage?.completion_tokens),
             cachedTokens: numberOrZero(payload.usage?.prompt_tokens_details?.cached_tokens),
             costUsd: numberOrZero(Number(headers.get(LITELLM_HEADERS.responseCost))),
         };
-        return { content, tokensUsed: numberOrZero(payload.usage?.total_tokens), usage };
+        return { content, tokensUsed: numberOrZero(payload.usage?.total_tokens), usage, toolCalls };
     }
 
     /**
@@ -302,7 +355,7 @@ export class LiteLlmClient {
             cachedTokens: numberOrZero(usage?.prompt_tokens_details?.cached_tokens),
             costUsd: numberOrZero(usage?.cost),
         };
-        return { content, tokensUsed: numberOrZero(usage?.total_tokens), usage: callUsage };
+        return { content, tokensUsed: numberOrZero(usage?.total_tokens), usage: callUsage, toolCalls: [] };
     }
 
     /** Produces embeddings through the gateway using a caller-supplied virtual key. */

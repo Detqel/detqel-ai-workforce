@@ -6,8 +6,10 @@ import {
   Check,
   ChevronRight,
   ClipboardList,
+  Database,
   FileCheck2,
   FilePen,
+  FileSearch,
   Globe,
   Layers,
   Loader2,
@@ -35,6 +37,8 @@ const ICONS: Readonly<Record<ActivityKind, LucideIcon>> = {
   consolidating: Layers,
   writingDocument: FilePen,
   savingDocument: FileCheck2,
+  readingConnector: Database,
+  readingKnowledge: FileSearch,
 };
 
 /** The line describing a step, as it reads right now. */

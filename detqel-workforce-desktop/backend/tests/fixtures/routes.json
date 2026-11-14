@@ -349,6 +349,14 @@
     },
     {
         "method":  "GET",
+        "url":  "/api/discussions/workspaces/:workspaceId/sessions/:sessionId/knowledge"
+    },
+    {
+        "method":  "DELETE",
+        "url":  "/api/discussions/workspaces/:workspaceId/sessions/:sessionId/knowledge/:fileName"
+    },
+    {
+        "method":  "GET",
         "url":  "/api/settings/vyra"
     },
     {

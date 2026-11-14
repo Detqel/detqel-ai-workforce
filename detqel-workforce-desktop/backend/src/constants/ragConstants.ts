@@ -32,6 +32,7 @@ export const RAG_MILVUS_ENDPOINTS = {
     dropCollection: "/v2/vectordb/collections/drop",
     hasCollection: "/v2/vectordb/collections/has",
     insert: "/v2/vectordb/entities/insert",
+    delete: "/v2/vectordb/entities/delete",
     search: "/v2/vectordb/entities/search",
 } as const;
 

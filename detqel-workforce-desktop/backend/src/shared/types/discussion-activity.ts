@@ -16,6 +16,10 @@ export interface DiscussionActivityDetail {
     /** For a document: its title, and the artifact file it was saved as. */
     readonly title?: string;
     readonly fileName?: string;
+    /** For a read: the tool, what it read (a connector or document name) and how (a path, an action or a tool). */
+    readonly tool?: string;
+    readonly target?: string;
+    readonly action?: string;
 }
 
 /** One high-level step of an agent's reply, streamed as it happens and kept with the saved reply. */

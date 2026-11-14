@@ -39,6 +39,8 @@ export const DOCUMENT_LIMITS = {
      * file must stay well under it.
      */
     maxUploadBytes: 700 * 1024,
+    /** Largest knowledge document a discussion accepts. */
+    maxKnowledgeBytes: 5 * 1024 * 1024,
     maxTitleCharacters: 160,
 } as const;
 
@@ -89,6 +91,7 @@ export const DOCUMENT_ERRORS = {
     unknownFormat: "That export format is not supported.",
     emptyDocument: "There is nothing in this reply to export.",
     uploadTooLarge: "This file is too large to add here. Files up to 700 KB can be added to a discussion's artifacts.",
+    knowledgeTooLarge: "This document is too large. Knowledge documents can be up to 5 MB.",
     messageNotFound: "The reply to export was not found in this discussion.",
     namesExhausted: "Too many documents with this name already exist in this discussion.",
 } as const;

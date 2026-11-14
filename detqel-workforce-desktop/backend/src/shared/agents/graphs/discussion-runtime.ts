@@ -1,5 +1,7 @@
 import { createScopedLogger } from "../../logging/logger.js";
-import type { CallUsage, ChatMessage, LiteLlmClient, ReasoningEffort } from "../litellm.client.js";
+import type { CallUsage, ChatMessage, LiteLlmClient, ReasoningEffort, ToolCall, ToolDefinition } from "../litellm.client.js";
+import { AGENT_DATA_POLICY, AGENT_INVESTIGATION_INSTRUCTIONS } from "../../../constants/agentPromptConstants.js";
+import { AGENT_TOOL_LIMITS } from "../../../constants/agentContextConstants.js";
 import type { VirtualKeyRegistry } from "../virtual-key.registry.js";
 import type { PomlLoader } from "../poml/loader.js";
 import { AGENT_RUNTIME_PROCESSES } from "../../../constants/agentRuntimeConstants.js";
@@ -64,10 +66,51 @@ export interface WebContext {
     readonly snippet: string;
 }
 
+/** What one tool call returned: text for the model (already wrapped as untrusted data), and sources to cite. */
+export interface AgentToolResult {
+    readonly content: string;
+    readonly sources: ReadonlyArray<DiscussionSource>;
+}
+
+/** What a tool call is about, for the activity trace. Never contains the data read. */
+export interface AgentToolCallSummary {
+    readonly tool: string;
+    readonly target?: string;
+    readonly action?: string;
+}
+
+/** One reply's tools, with its own reading budget. */
+export interface AgentToolSession {
+    readonly definitions: ReadonlyArray<ToolDefinition>;
+    describe(call: ToolCall): AgentToolCallSummary;
+    execute(call: ToolCall, signal?: AbortSignal): Promise<AgentToolResult>;
+}
+
+/**
+ * The agent's reading tools for a turn: attached connectors and the discussion's knowledge. `cachedContext` is the
+ * CAG part, stable across the session's turns, so it sits in the cacheable prompt prefix.
+ */
+export interface AgentToolbox {
+    readonly cachedContext: string;
+    /** True when the knowledge base was too large to cache and should be searched for each question (RAG). */
+    readonly searchKnowledge: boolean;
+    /** True when there is anything for the agent to read with tools. */
+    readonly hasTools: boolean;
+    start(): AgentToolSession;
+}
+
 /** Retrieval collaborators the expert path draws on. Each is optional. */
 export interface DiscussionCollaborators {
     retrieveKnowledge?(query: string): Promise<RetrievedContext[]>;
     searchWeb?(query: string): Promise<WebContext[]>;
+    toolbox?: AgentToolbox;
+}
+
+/** What an investigation found: evidence for grounding, sources to cite, and its cost. */
+export interface InvestigationResult {
+    readonly blocks: ReadonlyArray<string>;
+    readonly sources: ReadonlyArray<DiscussionSource>;
+    readonly usage: CallUsage;
 }
 
 /** A teammate the lead hands part of the request to. */
@@ -203,13 +246,60 @@ export class DiscussionRuntime {
     /** The grounding instructions for an expert reply, from what the searches found. */
     grounding(blocks: ReadonlyArray<string>): string {
         return blocks.length > 0
-            ? `## Retrieved context\nGround your answer in these sources and cite them by title. If they do not answer the question, say so.\n${blocks.join("\n")}`
+            ? `## Retrieved context\nGround your answer in these sources and cite them by title. If they do not answer the question, say so.\n${AGENT_DATA_POLICY}\n${blocks.join("\n")}`
             : "## Retrieved context\nNothing relevant was retrieved. Answer from your own knowledge and say so plainly.";
     }
 
-    /** Fast mode: writes the reply in one streamed call with light reasoning. */
-    async write(context: TurnContext, onText: (text: string) => void, signal?: AbortSignal): Promise<CompletionOutput> {
-        const instructions = [await this.roleInstructions(context), this.styleInstructions(context), await this.documentInstructions(context)].filter(Boolean).join("\n\n");
+    /**
+     * Lets the agent read what it needs with tools: it is offered the session's reading tools, and each round it
+     * either asks for more reads or stops. `runTool` executes a call (the graph wraps it to report activity). The
+     * loop ends when the model stops calling tools, or at the round or call cap. A model without function calling
+     * simply answers in text on the first round, which ends the loop with no evidence.
+     */
+    async investigate(
+        context: TurnContext,
+        session: AgentToolSession,
+        maxRounds: number,
+        prior: ReadonlyArray<string>,
+        runTool: (call: ToolCall) => Promise<AgentToolResult>,
+        signal?: AbortSignal,
+    ): Promise<InvestigationResult> {
+        const { virtualKey, modelAlias } = await this.keys.resolveProcessKey(context.workspaceId, AGENT_RUNTIME_PROCESSES.orchestration);
+        const known = prior.length ? `\n\n## Already found\n${AGENT_DATA_POLICY}\n${prior.join("\n")}` : "";
+        const messages: ChatMessage[] = await this.messages(context, `${AGENT_INVESTIGATION_INSTRUCTIONS}${known}`);
+        const blocks: string[] = [];
+        const sources: DiscussionSource[] = [];
+        let usage = ZERO_USAGE;
+        let calls = 0;
+        for (let round = 0; round < maxRounds && calls < AGENT_TOOL_LIMITS.maxCalls; round++) {
+            const completion = await this.gateway.chatCompletion(virtualKey, {
+                model: modelAlias,
+                temperature: DISCUSSION_TEMPERATURE,
+                messages,
+                tools: session.definitions,
+                toolChoice: "auto",
+            }, signal);
+            usage = addUsage(usage, completion.usage);
+            const requested = completion.toolCalls.slice(0, Math.min(AGENT_TOOL_LIMITS.maxCallsPerRound, AGENT_TOOL_LIMITS.maxCalls - calls));
+            if (!requested.length) break;
+            messages.push({ role: "assistant", content: completion.content, toolCalls: requested });
+            for (const call of requested) {
+                calls++;
+                const result = await runTool(call);
+                messages.push({ role: "tool", toolCallId: call.id, content: result.content });
+                blocks.push(result.content);
+                for (const source of result.sources) {
+                    if (!sources.some(existing => existing.type === source.type && existing.reference === source.reference)) sources.push(source);
+                }
+            }
+        }
+        logger.info({ workspaceId: context.workspaceId, agentId: context.participant.agentId, calls }, "Agent investigation finished");
+        return { blocks, sources, usage };
+    }
+
+    /** Fast mode: writes the reply in one streamed call with light reasoning, grounded in anything it read. */
+    async write(context: TurnContext, onText: (text: string) => void, signal?: AbortSignal, grounding = ""): Promise<CompletionOutput> {
+        const instructions = [await this.roleInstructions(context), this.styleInstructions(context), await this.documentInstructions(context), grounding].filter(Boolean).join("\n\n");
         return this.complete(context, instructions, { reasoningEffort: DISCUSSION_REASONING.fastAnswer }, signal, onText);
     }
 
@@ -267,6 +357,9 @@ export class DiscussionRuntime {
         const persona = await this.poml.renderAgentPrompt(context.participant.promptRef, { includeGlobalGuidance: true });
         const system = [persona];
         if (context.team) system.push(await this.teamContext(context.team, context.participant));
+        // CAG: stable workspace and discussion context, before anything that changes between turns.
+        const cached = context.collaborators.toolbox?.cachedContext;
+        if (cached) system.push(cached);
         if (context.summary) system.push(`## Memory of earlier discussion\n${context.summary}`);
 
         const history: ChatMessage[] = context.transcript.map(message => ({

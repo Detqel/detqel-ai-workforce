@@ -1,6 +1,7 @@
 import test, { describe } from "node:test";
 import assert from "node:assert/strict";
-import { DiscussionRuntime, type DiscussionParticipant, type TurnContext } from "../../src/shared/agents/graphs/discussion-runtime.js";
+import { DiscussionRuntime, type AgentToolSession, type DiscussionParticipant, type TurnContext } from "../../src/shared/agents/graphs/discussion-runtime.js";
+import { AGENT_TOOL_LIMITS } from "../../src/constants/agentContextConstants.js";
 import type { LiteLlmClient, ChatCompletionRequest } from "../../src/shared/agents/litellm.client.js";
 import type { VirtualKeyRegistry } from "../../src/shared/agents/virtual-key.registry.js";
 import type { PomlLoader } from "../../src/shared/agents/poml/loader.js";
@@ -238,5 +239,68 @@ describe("DiscussionRuntime.summarize", () => {
         assert.equal(requests[0].reasoningEffort, DISCUSSION_REASONING.summary);
         const prompt = requests[0].messages[0].content;
         assert.ok(prompt.includes("Old.") && prompt.includes("User: Q") && prompt.includes("Ana: A"));
+    });
+});
+
+/** A gateway whose replies, one per call, are lists of tool calls; an empty list ends the investigation. */
+function toolGateway(rounds: Array<Array<{ name: string; arguments: string }>>) {
+    const requests: ChatCompletionRequest[] = [];
+    const gateway = {
+        async chatCompletion(_key: string, request: ChatCompletionRequest) {
+            // The request's messages are copied, since the runtime keeps appending to the same array.
+            requests.push({ ...request, messages: [...request.messages] });
+            const calls = rounds[requests.length - 1] ?? [];
+            return { content: "", tokensUsed: 12, usage: USAGE, toolCalls: calls.map((call, index) => ({ id: `c${requests.length}-${index}`, ...call })) };
+        },
+    } as unknown as LiteLlmClient;
+    return { gateway, requests };
+}
+
+function toolSession() {
+    const executed: string[] = [];
+    const session: AgentToolSession = {
+        definitions: [{ name: "query_database", description: "Query", parameters: { type: "object" } }],
+        describe: call => ({ tool: call.name }),
+        async execute(call) {
+            executed.push(call.arguments);
+            return { content: `<untrusted_data>${call.arguments}</untrusted_data>`, sources: [{ type: "connection", title: "CRM", reference: "conn:query" }] };
+        },
+    };
+    return { session, executed };
+}
+
+describe("DiscussionRuntime.investigate", () => {
+    test("runs the calls the model asks for, feeds results back, and stops when it asks for none", async () => {
+        const { gateway, requests } = toolGateway([[{ name: "query_database", arguments: "{\"sql\":\"A\"}" }, { name: "query_database", arguments: "{\"sql\":\"B\"}" }], []]);
+        const { session, executed } = toolSession();
+        const cached = { cachedContext: "CACHED-BRIEF", searchKnowledge: false, hasTools: true, start: () => session };
+        const result = await new DiscussionRuntime(gateway, keys, poml).investigate(context({ collaborators: { toolbox: cached } }), session, 6, [], call => session.execute(call));
+        assert.equal(requests.length, 2);
+        assert.deepEqual(executed, ["{\"sql\":\"A\"}", "{\"sql\":\"B\"}"]);
+        assert.deepEqual(requests[0].tools, session.definitions);
+        assert.ok(requests[0].messages[0].content.includes("CACHED-BRIEF"), "the cached context sits in the system prefix");
+        const second = requests[1].messages;
+        assert.deepEqual(second.slice(-3).map(message => message.role), ["assistant", "tool", "tool"]);
+        assert.equal(second.at(-1)!.toolCallId, "c1-1");
+        assert.equal(result.blocks.length, 2);
+        assert.deepEqual(result.sources.map(source => source.reference), ["conn:query"], "repeated sources are listed once");
+        assert.equal(result.usage.inputTokens, USAGE.inputTokens * 2);
+    });
+
+    test("stops at the round cap even if the model keeps asking", async () => {
+        const forever = Array.from({ length: 10 }, (_, index) => [{ name: "query_database", arguments: `{"n":${index}}` }]);
+        const { gateway, requests } = toolGateway(forever);
+        const { session, executed } = toolSession();
+        await new DiscussionRuntime(gateway, keys, poml).investigate(context(), session, 2, [], call => session.execute(call));
+        assert.equal(requests.length, 2);
+        assert.equal(executed.length, 2);
+    });
+
+    test("caps the calls taken from one round", async () => {
+        const many = Array.from({ length: AGENT_TOOL_LIMITS.maxCallsPerRound + 3 }, (_, index) => ({ name: "query_database", arguments: `{"n":${index}}` }));
+        const { gateway } = toolGateway([many, []]);
+        const { session, executed } = toolSession();
+        await new DiscussionRuntime(gateway, keys, poml).investigate(context(), session, 6, [], call => session.execute(call));
+        assert.equal(executed.length, AGENT_TOOL_LIMITS.maxCallsPerRound);
     });
 });

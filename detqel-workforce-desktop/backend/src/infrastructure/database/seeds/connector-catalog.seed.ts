@@ -1,4 +1,12 @@
-import { CONNECTOR_ADAPTER_KEYS, CONNECTOR_AUTHENTICATION, CONNECTOR_TCP_PORT_RANGE, CONNECTOR_TYPES, MCP_TRANSPORTS } from "../../../constants/connectionConstants.js";
+import {
+    BITBUCKET_AUTHENTICATION,
+    CONNECTOR_ADAPTER_KEYS,
+    CONNECTOR_AUTHENTICATION,
+    CONNECTOR_TCP_PORT_RANGE,
+    CONNECTOR_TYPES,
+    MCP_TRANSPORTS,
+    REPOSITORY_NAME_PATTERN,
+} from "../../../constants/connectionConstants.js";
 import { CONNECTOR_ICON_KEYS } from "../../../constants/databaseSeedConstants.js";
 import type { ConfigurationProperty, ConfigurationSchema } from "../../../shared/types/connector-catalog.js";
 import type { NewConnectorCatalog } from "../schema/connector-catalog.js";
@@ -78,6 +86,20 @@ function enterpriseHttpSchema(endpointTitle: string, endpointDescription: string
     }, ["endpoint", "authentication", "token", "expectedResponseProperty"]);
 }
 
+const REPOSITORY_CATEGORIES = { hosted: "Hosted platforms", selfHosted: "Self-hosted servers" } as const;
+
+function urlField(title: string, description: string): ConfigurationProperty {
+    return { ...textField(title, description), format: "uri" };
+}
+
+function repositoryNameField(title: string, description?: string): ConfigurationProperty {
+    return { ...textField(title, description), pattern: REPOSITORY_NAME_PATTERN, maxLength: 100 };
+}
+
+function tokenField(title: string, description: string): ConfigurationProperty {
+    return { ...secretField(title), description };
+}
+
 const mcpStdioSchema = objectSchema({
     serverName: textField("Server name"),
     transport: { type: "string", title: "Transport", enum: [MCP_TRANSPORTS.stdio] },
@@ -154,12 +176,72 @@ export const INITIAL_CONNECTOR_CATALOG: NewConnectorCatalog[] = [
         configSchema: objectSchema({ path: textField("Absolute folder path") }, ["path"]), isEnabled: true,
     },
     {
-        code: "github", name: "GitHub", connectorType: CONNECTOR_TYPES.data, category: "Developer tools", adapterKey: CONNECTOR_ADAPTER_KEYS.github,
-        description: "Verify a GitHub token against the supplied authenticated user API endpoint.",
+        code: "github", name: "GitHub", connectorType: CONNECTOR_TYPES.repository, category: REPOSITORY_CATEGORIES.hosted, adapterKey: CONNECTOR_ADAPTER_KEYS.github,
+        description: "Read a GitHub.com or GitHub Enterprise Server repository: files, branches, commits and pull requests.",
         configSchema: objectSchema({
-            endpoint: { ...textField("User API endpoint", "Complete authenticated user API URL for your GitHub service."), format: "uri" },
-            token: secretField("Access token"),
-        }, ["endpoint", "token"]), isEnabled: true,
+            apiUrl: urlField("API URL", "Leave empty for GitHub.com. For GitHub Enterprise Server enter https://<host>/api/v3."),
+            owner: repositoryNameField("Owner", "User or organization that owns the repository."),
+            repository: repositoryNameField("Repository"),
+            token: tokenField("Access token", "Fine-grained or classic personal access token with read access to contents, metadata and pull requests."),
+        }, ["owner", "repository", "token"]), isEnabled: true,
+    },
+    {
+        code: "azure-devops-repos", name: "Azure DevOps Repos", connectorType: CONNECTOR_TYPES.repository, category: REPOSITORY_CATEGORIES.hosted, adapterKey: CONNECTOR_ADAPTER_KEYS.azureDevops,
+        description: "Read an Azure Repos Git repository in Azure DevOps Services or Azure DevOps Server.",
+        configSchema: objectSchema({
+            organizationUrl: urlField("Organization URL", "https://dev.azure.com/<organization> for Azure DevOps Services, or https://<server>/<collection> for Azure DevOps Server."),
+            project: textField("Project"),
+            repository: textField("Repository"),
+            token: tokenField("Personal access token", "Needs the Code (Read) scope."),
+        }, ["organizationUrl", "project", "repository", "token"]), isEnabled: true,
+    },
+    {
+        code: "gitlab", name: "GitLab", connectorType: CONNECTOR_TYPES.repository, category: REPOSITORY_CATEGORIES.hosted, adapterKey: CONNECTOR_ADAPTER_KEYS.gitlab,
+        description: "Read a GitLab.com or self-managed GitLab project: files, branches, commits and merge requests.",
+        configSchema: objectSchema({
+            serverUrl: urlField("Server URL", "Leave empty for GitLab.com, or enter your self-managed GitLab address."),
+            projectPath: { ...textField("Project path", "Full path of the project, such as group/subgroup/project."), pattern: "^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+$" },
+            token: tokenField("Access token", "Personal, group or project access token with the read_api scope."),
+        }, ["projectPath", "token"]), isEnabled: true,
+    },
+    {
+        code: "bitbucket-cloud", name: "Bitbucket Cloud", connectorType: CONNECTOR_TYPES.repository, category: REPOSITORY_CATEGORIES.hosted, adapterKey: CONNECTOR_ADAPTER_KEYS.bitbucketCloud,
+        description: "Read a bitbucket.org repository: files, branches, commits and pull requests.",
+        configSchema: {
+            ...objectSchema({
+                workspace: repositoryNameField("Workspace", "Workspace ID shown in the repository URL."),
+                repository: repositoryNameField("Repository", "Repository slug shown in the repository URL."),
+                authentication: {
+                    type: "string", title: "Authentication",
+                    enum: [BITBUCKET_AUTHENTICATION.apiToken, BITBUCKET_AUTHENTICATION.accessToken],
+                    enumNames: ["API token with Atlassian account email", "Repository or workspace access token"],
+                },
+                email: { ...textField("Atlassian account email"), format: "email", "x-visibleWhen": { authentication: BITBUCKET_AUTHENTICATION.apiToken } },
+                token: tokenField("Token", "API token with repository read scopes, or a repository or workspace access token."),
+            }, ["workspace", "repository", "authentication", "token"]),
+            allOf: [{ if: { properties: { authentication: { const: BITBUCKET_AUTHENTICATION.apiToken } }, required: ["authentication"] }, then: { required: ["email"] } }],
+        },
+        isEnabled: true,
+    },
+    {
+        code: "bitbucket-data-center", name: "Bitbucket Data Center", connectorType: CONNECTOR_TYPES.repository, category: REPOSITORY_CATEGORIES.selfHosted, adapterKey: CONNECTOR_ADAPTER_KEYS.bitbucketDataCenter,
+        description: "Read a repository on a Bitbucket Data Center or Bitbucket Server instance.",
+        configSchema: objectSchema({
+            serverUrl: urlField("Server URL", "Base address of your Bitbucket instance, such as https://bitbucket.example.com."),
+            projectKey: { ...textField("Project key", "Project key, or ~username for a personal repository."), pattern: "^~?[A-Za-z0-9_-]+$" },
+            repository: repositoryNameField("Repository", "Repository slug shown in the repository URL."),
+            token: tokenField("HTTP access token", "Personal, project or repository HTTP access token with repository read permission."),
+        }, ["serverUrl", "projectKey", "repository", "token"]), isEnabled: true,
+    },
+    {
+        code: "gitea", name: "Gitea / Forgejo", connectorType: CONNECTOR_TYPES.repository, category: REPOSITORY_CATEGORIES.selfHosted, adapterKey: CONNECTOR_ADAPTER_KEYS.gitea,
+        description: "Read a repository on a Gitea or Forgejo server, including Codeberg.",
+        configSchema: objectSchema({
+            serverUrl: urlField("Server URL", "Base address of the server, such as https://gitea.example.com or https://codeberg.org."),
+            owner: repositoryNameField("Owner", "User or organization that owns the repository."),
+            repository: repositoryNameField("Repository"),
+            token: tokenField("Access token", "Access token with the read:repository scope."),
+        }, ["serverUrl", "owner", "repository", "token"]), isEnabled: true,
     },
     {
         code: "aws", name: "AWS", connectorType: CONNECTOR_TYPES.enterprise, category: "Cloud platforms", adapterKey: "aws",

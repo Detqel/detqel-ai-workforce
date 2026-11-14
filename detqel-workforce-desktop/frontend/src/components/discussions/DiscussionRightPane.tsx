@@ -16,18 +16,25 @@ import {
   Sparkles,
   Link as LinkIcon,
   Loader2,
+  Trash2,
 } from "lucide-react";
+import { formatFileSize } from "@/lib/download";
 import { pageIds } from "@/lib/navigation";
 import { useNavigation } from "@/context/NavigationContext";
 import type { DiscussionTarget } from "@/lib/discussionStore";
 import { connectorsApi, type ConnectorRecord } from "@/lib/api/connectors";
 import {
   apiAttachSessionConnector,
+  apiDeleteSessionKnowledge,
   apiDetachSessionConnector,
   apiListSessionConnectors,
+  apiListSessionKnowledge,
   apiUploadSessionKnowledge,
+  type KnowledgeDocument,
 } from "@/lib/api/discussions";
+import { KNOWLEDGE_UPLOAD_ACCEPT, KNOWLEDGE_UPLOAD_MAX_BYTES } from "@/constants/discussionConstants";
 import { useToast } from "@/context/ToastContext";
+import { useConfirm } from "@/context/ConfirmContext";
 import { SessionArtifacts } from "./SessionArtifacts";
 
 interface DiscussionRightPaneProps {
@@ -51,7 +58,8 @@ export const DiscussionRightPane: React.FC<DiscussionRightPaneProps> = ({
   const toast = useToast();
   const [activeTab, setActiveTab] = useState<"artifacts" | "knowledge" | "connectors">("artifacts");
   const [isCopied, setIsCopied] = useState(false);
-  const [knowledgeDocs, setKnowledgeDocs] = useState<string[]>([]);
+  const confirm = useConfirm();
+  const [knowledgeDocs, setKnowledgeDocs] = useState<KnowledgeDocument[]>([]);
   const [connectors, setConnectors] = useState<ConnectorRecord[]>([]);
   const [attachedConnectorIds, setAttachedConnectorIds] = useState<Set<string>>(new Set());
   const [isLoadingConnectors, setIsLoadingConnectors] = useState(false);
@@ -71,21 +79,48 @@ export const DiscussionRightPane: React.FC<DiscussionRightPaneProps> = ({
     return () => { active = false; };
   }, [workspaceId, activeSessionId]);
 
+  // Load the session's knowledge documents from the server, so the list survives reloads and session switches.
+  useEffect(() => {
+    let active = true;
+    if (!workspaceId || !activeSessionId) {
+      Promise.resolve().then(() => { if (active) setKnowledgeDocs([]); });
+      return () => { active = false; };
+    }
+    apiListSessionKnowledge(workspaceId, activeSessionId)
+      .then((documents) => { if (active) setKnowledgeDocs(documents); })
+      .catch(() => { if (active) setKnowledgeDocs([]); });
+    return () => { active = false; };
+  }, [workspaceId, activeSessionId]);
+
   const handleUploadKnowledge = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
     if (!workspaceId || !activeSessionId) { toast.error("Open a discussion before adding knowledge."); return; }
+    if (file.size > KNOWLEDGE_UPLOAD_MAX_BYTES) { toast.error(`"${file.name}" is larger than ${formatFileSize(KNOWLEDGE_UPLOAD_MAX_BYTES)}.`); return; }
     setIsUploading(true);
     try {
       const content = await file.text();
       const result = await apiUploadSessionKnowledge(workspaceId, activeSessionId, { fileName: file.name, mimeType: file.type || "text/plain", content, encoding: "utf8" });
-      setKnowledgeDocs((prev) => [...prev, file.name]);
+      // Uploading a document with the same name replaces it.
+      setKnowledgeDocs((prev) => [...prev.filter((doc) => doc.name !== file.name), { name: file.name, size: file.size }].sort((left, right) => left.name.localeCompare(right.name)));
       toast.success(`Added "${file.name}" (${result.chunks} chunk${result.chunks === 1 ? "" : "s"} indexed).`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not add the knowledge file.");
     } finally {
       setIsUploading(false);
+    }
+  };
+
+  const removeKnowledge = async (name: string) => {
+    if (!workspaceId || !activeSessionId) return;
+    const confirmed = await confirm({ title: "Remove knowledge", message: `Remove "${name}" from this discussion's knowledge? Agents will no longer read it.`, variant: "danger", confirmText: "Remove" });
+    if (!confirmed) return;
+    try {
+      await apiDeleteSessionKnowledge(workspaceId, activeSessionId, name);
+      setKnowledgeDocs((prev) => prev.filter((doc) => doc.name !== name));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not remove the knowledge document.");
     }
   };
 
@@ -289,7 +324,7 @@ export const DiscussionRightPane: React.FC<DiscussionRightPaneProps> = ({
               <label className={`inline-flex items-center gap-1 text-[11px] font-bold text-primary cursor-pointer ${isUploading || !activeSessionId ? "opacity-40 pointer-events-none" : "hover:underline"}`}>
                 {isUploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <UploadCloud className="h-3 w-3" />}
                 <span>Upload</span>
-                <input type="file" className="hidden" onChange={handleUploadKnowledge} disabled={isUploading || !activeSessionId} />
+                <input type="file" accept={KNOWLEDGE_UPLOAD_ACCEPT} className="hidden" onChange={handleUploadKnowledge} disabled={isUploading || !activeSessionId} />
               </label>
             </div>
 
@@ -297,22 +332,30 @@ export const DiscussionRightPane: React.FC<DiscussionRightPaneProps> = ({
               <div className="text-center p-6 text-xs text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
                 <BookOpen className="h-6 w-6 mx-auto mb-2 text-slate-300 dark:text-slate-600" />
                 <p className="font-semibold text-slate-600 dark:text-slate-400">No knowledge indexed for this discussion</p>
-                <p className="text-[11px] text-slate-400 mt-1">Upload a document to ground this discussion. Executable and script files are rejected for safety.</p>
+                <p className="text-[11px] text-slate-400 mt-1">Upload text, Markdown, CSV, JSON or code files up to {formatFileSize(KNOWLEDGE_UPLOAD_MAX_BYTES)}. Agents search and read them when they answer.</p>
               </div>
             ) : (
               <div className="space-y-2">
-                {knowledgeDocs.map((name, index) => (
+                {knowledgeDocs.map((doc) => (
                   <div
-                    key={`${name}-${index}`}
+                    key={doc.name}
                     className="p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-slate-900 shadow-xs flex items-center justify-between gap-2"
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <FileText className="h-3.5 w-3.5 text-primary shrink-0" />
-                      <h4 className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">{name}</h4>
+                      <div className="min-w-0">
+                        <h4 className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate" title={doc.name}>{doc.name}</h4>
+                        <span className="text-[10px] text-slate-400 block">{formatFileSize(doc.size)}</span>
+                      </div>
                     </div>
-                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 shrink-0">
-                      Indexed
-                    </span>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">
+                        Indexed
+                      </span>
+                      <button type="button" onClick={() => void removeKnowledge(doc.name)} title="Remove" aria-label={`Remove ${doc.name}`} className="p-1 text-slate-400 hover:text-red-500 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -339,7 +382,7 @@ export const DiscussionRightPane: React.FC<DiscussionRightPaneProps> = ({
                 </button>
               </div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                AI agents in discussions use authorized connectors to perform tasks and inspect infrastructure.
+                Agents read attached connectors when they answer. Reads are read-only, and credentials and key files are never shown to them.
               </p>
             </div>
 

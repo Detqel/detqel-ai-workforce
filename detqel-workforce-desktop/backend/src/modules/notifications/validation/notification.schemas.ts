@@ -14,7 +14,7 @@ export const createNotificationSchema = z.object({
     workspaceId: z.string().uuid().optional(),
     title: z.string().min(1).max(255),
     message: z.string().min(1),
-    type: z.enum(["info", "success", "warning", "alert"]).default("info"),
+    type: z.enum(["info", "success", "warning", "alert", "download"]).default("info"),
     link: z.string().max(255).optional(),
 });
 export const markAllReadSchema = z.object({

@@ -14,7 +14,9 @@ export const updateConnectionSchema = z.object({
     name: z.string().trim().min(1).max(CONNECTION_FIELD_LIMITS.name).optional(),
     dataStream: z.string().trim().max(CONNECTION_FIELD_LIMITS.dataStream).nullable().optional(),
     configuration: z.record(z.unknown()).optional(),
+    replaceCredentials: z.boolean().optional(),
 }).strict()
+    .refine(value => !value.replaceCredentials || value.configuration !== undefined, "Replacement credentials require configuration")
     .refine(value => Object.keys(value).length > 0, "At least one field is required");
 
 export const catalogQuerySchema = z.object({

@@ -4,6 +4,7 @@
 import { randomBytes } from "node:crypto";
 import { chmod, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { parse } from "dotenv";
+import { resolve } from "node:path";
 import { DESKTOP_CONFIGURATION, DESKTOP_PLATFORM, DESKTOP_PROTECTED_ENVIRONMENT_KEYS } from "../constants/desktopConstants.js";
 
 export interface DesktopConfigurationResult {
@@ -11,12 +12,27 @@ export interface DesktopConfigurationResult {
     generatedKeys: string[];
 }
 
-export async function loadDesktopConfiguration(configPath: string): Promise<DesktopConfigurationResult> {
+export async function loadDesktopConfiguration(configPath: string, installationConfigPath: string = configPath): Promise<DesktopConfigurationResult> {
     const contents = await readFile(configPath, "utf8");
     for (const [key, value] of Object.entries(parse(contents))) {
         // Blank template entries mean "not configured", so they must not shadow the fallbacks below.
         if (value !== "" && !DESKTOP_PROTECTED_ENVIRONMENT_KEYS.includes(key) && process.env[key] === undefined) {
             process.env[key] = value;
+        }
+    }
+
+    const credentialKey = DESKTOP_CONFIGURATION.installationCredentialKey;
+    let installationKeyGenerated = false;
+    if (resolve(installationConfigPath) !== resolve(configPath)) {
+        const installationContents = await readFile(installationConfigPath, "utf8");
+        const installationKey = parse(installationContents)[credentialKey];
+        if (installationKey) {
+            process.env[credentialKey] = installationKey;
+        } else {
+            const key = randomBytes(DESKTOP_CONFIGURATION.generatedSecrets[credentialKey]).toString(DESKTOP_CONFIGURATION.generatedSecretEncoding);
+            await saveConfigurationValues(installationConfigPath, installationContents, { [credentialKey]: key });
+            process.env[credentialKey] = key;
+            installationKeyGenerated = true;
         }
     }
 
@@ -36,7 +52,7 @@ export async function loadDesktopConfiguration(configPath: string): Promise<Desk
     if (!process.env[DESKTOP_CONFIGURATION.productKey] && embeddedProductKey) {
         process.env[DESKTOP_CONFIGURATION.productKey] = embeddedProductKey;
     }
-    return { generatedKeys: Object.keys(generated) };
+    return { generatedKeys: [...Object.keys(generated), ...(installationKeyGenerated ? [credentialKey] : [])] };
 }
 
 /** Fills blank `KEY=` lines in place, appends the rest, and replaces the file atomically. */

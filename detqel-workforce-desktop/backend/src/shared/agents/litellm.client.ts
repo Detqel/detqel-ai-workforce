@@ -1,4 +1,5 @@
 import { AppError } from "../errors/app-error.js";
+import { DOCUMENT_IMAGE_ERRORS, DOCUMENT_RENDER_LIMITS } from "../../constants/documentImageConstants.js";
 import { createScopedLogger } from "../logging/logger.js";
 import {
     LITELLM_ENDPOINTS,
@@ -109,7 +110,7 @@ interface StreamUsage {
 }
 
 interface StreamChunk {
-    choices?: Array<{ delta?: { content?: unknown } }>;
+    choices?: Array<{ delta?: { content?: unknown }; finish_reason?: string | null }>;
     usage?: StreamUsage | null;
     error?: unknown;
 }
@@ -125,6 +126,7 @@ export interface EmbeddingsResult {
 }
 
 export interface RegisterModelParams {
+    readonly mode?: "image_generation";
     /** Deployment id chosen by the application, so a registration can later be replaced or removed by id. */
     readonly deploymentId: string;
     /** Stable alias the gateway exposes to callers (mapped to the provider model below). */
@@ -167,6 +169,29 @@ export class LiteLlmClient {
         if (!this.baseUrl || !this.config.masterKey) throw new AppError(503, LITELLM_ERROR_MESSAGES.gatewayUnconfigured);
     }
 
+    /** Image inference uses a model-scoped capability key, never a provider or administrative key. */
+    async generateImage(virtualKey: string, request: { model: string; prompt: string; provider: "openai" | "google"; aspectRatio: "3:2" | "1:1" | "2:3" }, signal?: AbortSignal): Promise<{ contents: Buffer; usage: CallUsage }> {
+        this.assertConfigured();
+        const settings = request.provider === "openai"
+            ? { size: request.aspectRatio === "1:1" ? "1024x1024" : request.aspectRatio === "2:3" ? "1024x1536" : "1536x1024", quality: "high", output_format: "png" }
+            : { imageConfig: { aspectRatio: request.aspectRatio, imageSize: "2K", imageOutputOptions: { mimeType: "image/png" } } };
+        const response = await this.dispatch(LITELLM_ENDPOINTS.imageGenerations, "POST", virtualKey,
+            { model: request.model, prompt: request.prompt, n: 1, ...settings }, DOCUMENT_RENDER_LIMITS.imageTimeoutMs, DOCUMENT_IMAGE_ERRORS.generationFailed, signal);
+        let payload: unknown;
+        try { payload = JSON.parse(await this.readBoundedBody(response, DOCUMENT_RENDER_LIMITS.imageResponseBytes)); }
+        catch (error) { if (error instanceof AppError) throw error; throw new AppError(502, DOCUMENT_IMAGE_ERRORS.generationFailed); }
+        const value = payload as { data?: Array<{ b64_json?: unknown }>; usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number } };
+        const encoded = value?.data?.length === 1 ? value.data[0].b64_json : undefined;
+        // Remote URLs are deliberately not downloaded: only inline bytes from the managed gateway are accepted.
+        if (typeof encoded !== "string" || !encoded || encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) throw new AppError(502, DOCUMENT_IMAGE_ERRORS.generationFailed);
+        const contents = Buffer.from(encoded, "base64");
+        if (!contents.length || contents.length > DOCUMENT_RENDER_LIMITS.imageBytes) throw new AppError(502, DOCUMENT_IMAGE_ERRORS.invalidImage);
+        return { contents, usage: {
+            inputTokens: numberOrZero(value.usage?.input_tokens), outputTokens: numberOrZero(value.usage?.output_tokens), cachedTokens: 0,
+            costUsd: numberOrZero(Number(response.headers.get(LITELLM_HEADERS.responseCost))),
+        } };
+    }
+
     /** True when the gateway reports readiness. Never throws for an unhealthy gateway; returns false. */
     async isHealthy(signal?: AbortSignal): Promise<boolean> {
         this.assertConfigured();
@@ -188,7 +213,7 @@ export class LiteLlmClient {
                 ...(params.providerApiKey ? { api_key: params.providerApiKey } : {}),
                 ...(params.apiBase ? { api_base: params.apiBase } : {}),
             },
-            model_info: { id: params.deploymentId },
+            model_info: { id: params.deploymentId, ...(params.mode ? { mode: params.mode } : {}) },
         };
         await this.adminRequest(LITELLM_ENDPOINTS.modelNew, body, signal);
         logger.info({ modelAlias: params.modelAlias, deploymentId: params.deploymentId, providerModel: params.providerModel }, "Registered gateway model");
@@ -257,12 +282,14 @@ export class LiteLlmClient {
         const body = this.chatBody(request);
         const { payload, headers } = await this.send(LITELLM_ENDPOINTS.chatCompletions, "POST", virtualKey, body, LITELLM_TIMEOUTS_MS.inference, LITELLM_ERROR_MESSAGES.inferenceFailed, signal) as {
             payload: {
-                choices?: Array<{ message?: { content?: unknown; tool_calls?: unknown } }>;
+                choices?: Array<{ message?: { content?: unknown; tool_calls?: unknown }; finish_reason?: string | null }>;
                 usage?: { prompt_tokens?: unknown; completion_tokens?: unknown; total_tokens?: unknown; prompt_tokens_details?: { cached_tokens?: unknown } };
             };
             headers: Headers;
         };
         const message = payload.choices?.[0]?.message;
+        const finishReason = payload.choices?.[0]?.finish_reason;
+        if (finishReason === "length" || finishReason === "content_filter") throw new AppError(502, "The model stopped before completing its response. An incomplete document was not handed over.");
         const toolCalls = toolCallsOf(message?.tool_calls);
         // A reply that only asks for tools carries no text.
         const content = typeof message?.content === "string" ? message.content : toolCalls.length > 0 ? "" : null;
@@ -317,6 +344,7 @@ export class LiteLlmClient {
                 logger.error({ path: LITELLM_ENDPOINTS.chatCompletions }, "Gateway reported an error during a streamed completion");
                 throw new AppError(502, LITELLM_ERROR_MESSAGES.inferenceFailed);
             }
+            if (chunk.choices?.some(choice => choice.finish_reason === "length" || choice.finish_reason === "content_filter")) throw new AppError(502, "The model stopped before completing its response. An incomplete document was not handed over.");
             const text = chunk.choices?.[0]?.delta?.content;
             if (typeof text === "string" && text.length > 0) {
                 content += text;
@@ -462,7 +490,7 @@ export class LiteLlmClient {
         return response;
     }
 
-    private async readBoundedBody(response: Response): Promise<string> {
+    private async readBoundedBody(response: Response, limit: number = LITELLM_RESPONSE_LIMIT_BYTES): Promise<string> {
         if (response.body === null) return "";
         const reader = response.body.getReader();
         const chunks: Uint8Array[] = [];
@@ -472,7 +500,7 @@ export class LiteLlmClient {
                 const chunk = await reader.read();
                 if (chunk.done) break;
                 length += chunk.value.byteLength;
-                if (length > LITELLM_RESPONSE_LIMIT_BYTES) {
+                if (length > limit) {
                     await reader.cancel();
                     throw new AppError(502, LITELLM_ERROR_MESSAGES.oversizedResponse);
                 }

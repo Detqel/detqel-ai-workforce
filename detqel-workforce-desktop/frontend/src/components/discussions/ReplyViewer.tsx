@@ -3,6 +3,7 @@
 import React, { useEffect, useRef } from "react";
 import { ChevronLeft, ChevronRight, ClipboardList, FileText, X } from "lucide-react";
 import { MarkdownContent } from "@/components/ui/markdown-content";
+import type { DocumentAssetContext } from "@/components/ui/document-asset-image";
 import { IconOnlyButton } from "@/components/ui/icon-only-button";
 import type { ExportFormat } from "@/lib/api/discussions";
 import { AgentActivity } from "./AgentActivity";
@@ -11,6 +12,7 @@ import { MessageSources } from "./MessageSources";
 import { documentOf, handoffTask, isSaved, type ChatMessage } from "./discussionView";
 
 interface ReplyViewerProps {
+  assetContext?: DocumentAssetContext;
   /** The replies the viewer moves between, in order: a turn's handoffs, or a single document. */
   replies: ChatMessage[];
   /** The one shown; null keeps the viewer closed. */
@@ -25,7 +27,7 @@ interface ReplyViewerProps {
  * sources. A reply still being written updates live. Arrow keys or the buttons move between replies; Escape
  * closes.
  */
-export function ReplyViewer({ replies, openId, onNavigate, onClose, onExport }: ReplyViewerProps) {
+export function ReplyViewer({ replies, openId, onNavigate, onClose, onExport, assetContext }: ReplyViewerProps) {
   const dialog = useRef<HTMLDivElement>(null);
   const index = replies.findIndex((message) => message.id === openId);
   const message = index >= 0 ? replies[index] : null;
@@ -104,7 +106,7 @@ export function ReplyViewer({ replies, openId, onNavigate, onClose, onExport }: 
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3 text-xs text-slate-800 dark:text-slate-200">
           {message.activity && message.activity.length > 0 && <AgentActivity steps={message.activity} live={Boolean(message.streaming)} />}
-          {message.content ? <MarkdownContent content={message.content} /> : <p className="text-slate-400">The reply is on its way…</p>}
+          {message.content ? <MarkdownContent content={message.content} assetContext={assetContext} /> : <p className="text-slate-400">The reply is on its way…</p>}
           {message.sources && <MessageSources sources={message.sources} idPrefix={message.id} />}
         </div>
 

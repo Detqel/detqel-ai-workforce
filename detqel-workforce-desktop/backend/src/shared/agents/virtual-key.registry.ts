@@ -1,4 +1,5 @@
 import { AppError } from "../errors/app-error.js";
+import { DOCUMENT_IMAGE_PROCESS } from "../../constants/documentImageConstants.js";
 import { createScopedLogger } from "../logging/logger.js";
 import type { SecretCipher } from "../security/secret-cipher.js";
 import type { LiteLlmClient } from "./litellm.client.js";
@@ -70,11 +71,22 @@ export class VirtualKeyRegistry {
     }
 
     /** Returns the decrypted virtual key and model alias for a process, failing fast when not provisioned. */
-    async resolveProcessKey(workspaceId: string, processId: AgentRuntimeProcessId): Promise<{ virtualKey: string; modelAlias: string }> {
+    async resolveProcessKey(workspaceId: string, processId: AgentRuntimeProcessId | typeof DOCUMENT_IMAGE_PROCESS): Promise<{ virtualKey: string; modelAlias: string }> {
         const record = await this.repository.findByProcess(workspaceId, processId);
         if (!record) throw new AppError(409, AGENT_RUNTIME_ERRORS.noConfiguredModel);
         const virtualKey = this.cipher.decrypt(record.encryptedKey, keyContext(workspaceId, processId));
         return { virtualKey, modelAlias: record.modelAlias };
+    }
+
+    /** Image capability is provisioned on demand, independently of text-only agent processes. */
+    async provisionDocumentImages(workspaceId: string, model: ConfiguredProviderModel, fingerprint: string, signal?: AbortSignal): Promise<void> {
+        const existing = await this.repository.findByProcess(workspaceId, DOCUMENT_IMAGE_PROCESS);
+        if (existing?.configFingerprint === fingerprint) return;
+        const modelAlias = `${VIRTUAL_KEY_ALIAS_PREFIX}-${workspaceId}-${DOCUMENT_IMAGE_PROCESS}`;
+        if (existing) await this.gateway.deleteVirtualKey(existing.gatewayKeyId, signal);
+        await this.gateway.deleteModel(modelAlias, signal);
+        await this.gateway.registerModel({ ...model, deploymentId: modelAlias, modelAlias, mode: "image_generation" }, signal);
+        await this.mintProcessKey(workspaceId, DOCUMENT_IMAGE_PROCESS, modelAlias, fingerprint, signal);
     }
 
     /** Revokes every virtual key for a workspace on the gateway and removes the stored references. */
@@ -96,6 +108,10 @@ export class VirtualKeyRegistry {
                 logger.warn({ workspaceId, processId }, "Previous gateway key revocation did not confirm");
             });
         }
+        await this.mintProcessKey(workspaceId, processId, modelAlias, fingerprint, signal);
+    }
+
+    private async mintProcessKey(workspaceId: string, processId: string, modelAlias: string, fingerprint: string, signal?: AbortSignal): Promise<void> {
         const minted = await this.gateway.generateVirtualKey({
             allowedModels: [modelAlias],
             keyAlias: `${VIRTUAL_KEY_ALIAS_PREFIX}:${workspaceId}:${processId}`,

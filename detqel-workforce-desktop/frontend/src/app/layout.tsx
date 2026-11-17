@@ -26,7 +26,7 @@ export const metadata: Metadata = APPLICATION_METADATA;
 
 import { WorkspaceProvider } from "@/context/WorkspaceContext";
 import { ThemeProvider } from "@/context/ThemeContext";
-import { ToastProvider } from "@/context/ToastContext";
+import { NotificationProvider } from "@/context/NotificationContext";
 import { ConfirmProvider } from "@/context/ConfirmContext";
 
 export default function RootLayout({
@@ -49,13 +49,11 @@ export default function RootLayout({
       </head>
       <body className="min-h-full flex flex-col antialiased selection:bg-[#8a2be2] dark:selection:bg-[#FFA500] selection:text-white dark:selection:text-slate-950 bg-white dark:bg-[#0f172a] text-slate-900 dark:text-slate-100 transition-colors duration-200">
         <ThemeProvider>
-          <ToastProvider>
-            <ConfirmProvider>
-              <DesktopGate><WorkspaceProvider>
-                {children}
-              </WorkspaceProvider></DesktopGate>
-            </ConfirmProvider>
-          </ToastProvider>
+          <DesktopGate><WorkspaceProvider>
+            <NotificationProvider>
+              <ConfirmProvider>{children}</ConfirmProvider>
+            </NotificationProvider>
+          </WorkspaceProvider></DesktopGate>
         </ThemeProvider>
       </body>
     </html>

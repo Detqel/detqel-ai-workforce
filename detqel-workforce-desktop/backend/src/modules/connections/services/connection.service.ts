@@ -6,7 +6,7 @@ import type { IConnectionRepository } from "../repositories/connection.repositor
 import type { IConnectorCatalogRepository } from "../repositories/connector-catalog.repository.js";
 import { ConfigurationValidator } from "../validation/configuration.validator.js";
 import type { CreateConnectionInput, UpdateConnectionInput } from "../validation/connection.schemas.js";
-import type { ConnectionCredentialsService } from "./connection-credentials.service.js";
+import { ConnectionCredentialsUnavailableError, type ConnectionCredentialsService } from "./connection-credentials.service.js";
 
 interface ActiveConnection {
     handle: ConnectorHandle;
@@ -71,10 +71,16 @@ export class ConnectionService {
     private async serialize(connection: Connection) {
         let configuration: Record<string, unknown> = {};
         let configuredSecretFields: string[] = [];
+        let credentialError: string | null = null;
         if (connection.catalogId) {
             const catalog = await this.getCatalog(connection.catalogId);
             configuration = this.credentials.split(catalog.configSchema, connection.configuration).publicConfiguration;
-            configuredSecretFields = Object.keys(this.credentials.decrypt(connection.credentialReference, connection.workspaceId));
+            try {
+                configuredSecretFields = Object.keys(this.credentials.decrypt(connection.credentialReference, connection.workspaceId));
+            } catch (error) {
+                if (!(error instanceof ConnectionCredentialsUnavailableError)) throw error;
+                credentialError = error.message;
+            }
         }
         return {
             id: connection.id,
@@ -84,9 +90,10 @@ export class ConnectionService {
             provider: connection.provider,
             connectionType: connection.connectionType,
             dataStream: connection.dataStream,
-            status: connection.catalogId && connection.status === "connected" && !this.active.has(connection.id) ? "disconnected" : connection.status,
+            status: credentialError ? "error" : connection.catalogId && connection.status === "connected" && !this.active.has(connection.id) ? "disconnected" : connection.status,
             configuration,
             configuredSecretFields,
+            credentialError,
             verifiedAt: connection.verifiedAt,
             verificationMetadata: connection.verificationMetadata,
             lastSyncedAt: connection.lastSyncedAt,
@@ -235,7 +242,7 @@ export class ConnectionService {
         }
         if (!existing.catalogId) throw new AppError(409, "Legacy connections must be recreated from the catalog to configure a provider");
         const catalog = await this.enabledCatalog(existing.catalogId);
-        const storedSecrets = this.credentials.decrypt(existing.credentialReference, workspaceId);
+        const storedSecrets = input.replaceCredentials ? {} : this.credentials.decrypt(existing.credentialReference, workspaceId);
         const configuration = this.validator.visibleConfiguration(catalog.configSchema, {
             ...storedSecrets,
             ...input.configuration,

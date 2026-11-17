@@ -9,6 +9,7 @@ import type {
     DiscussionCollaborators,
     DiscussionParticipant,
     DiscussionRuntime,
+    DocumentRequest,
     TeamContext,
     TranscriptMessage,
 } from "../../../shared/agents/graphs/discussion-runtime.js";
@@ -97,11 +98,6 @@ export interface DownloadableFile {
     readonly fileName: string;
     readonly mimeType: string;
     readonly contentBase64: string;
-}
-
-/** An exported reply: the file to download, and the artifact it was saved as. */
-export interface ExportedReply extends DownloadableFile {
-    readonly artifact: SessionArtifact;
 }
 
 /** An agent still due to reply in the current turn. */
@@ -214,7 +210,7 @@ export class DiscussionService {
         return renamed;
     }
 
-    /** The files kept in a discussion: documents agents wrote, exported replies, and files the user added. */
+    /** The files kept in a discussion: documents agents wrote and files the user added. */
     async listArtifacts(workspaceId: string, sessionId: string): Promise<SessionArtifact[]> {
         const session = await this.getSession(workspaceId, sessionId);
         const files = await this.fileServer.listArtifacts(this.locationOf(session));
@@ -224,7 +220,18 @@ export class DiscussionService {
     async downloadArtifact(workspaceId: string, sessionId: string, fileName: string): Promise<DownloadableFile> {
         const session = await this.getSession(workspaceId, sessionId);
         const contents = await this.fileServer.readArtifact(this.locationOf(session), fileName);
+        if (extname(fileName).toLowerCase() === ".md") {
+            const info = { title: fileName.slice(0, -3), subtitle: session.title, author: session.title, exportedAt: exportTimestamp() };
+            const file = await this.exporter.export("md", info, contents.toString("utf8"), source => this.fileServer.readDocumentAsset(this.locationOf(session), source));
+            return { fileName, mimeType: file.mimeType, contentBase64: file.contents.toString("base64") };
+        }
         return { fileName, mimeType: mimeTypeOf(fileName), contentBase64: contents.toString("base64") };
+    }
+
+    async downloadDocumentAsset(workspaceId: string, sessionId: string, assetName: string): Promise<DownloadableFile> {
+        const session = await this.getSession(workspaceId, sessionId);
+        const contents = await this.fileServer.readDocumentAsset(this.locationOf(session), "kin-asset:" + assetName);
+        return { fileName: assetName, mimeType: "image/png", contentBase64: contents.toString("base64") };
     }
 
     async deleteArtifact(workspaceId: string, sessionId: string, fileName: string): Promise<boolean> {
@@ -240,11 +247,10 @@ export class DiscussionService {
     }
 
     /**
-     * Exports one agent reply (a handoff, a document, or any answer) as Markdown, Word, or PDF. The file is saved
-     * in the discussion's artifacts, replacing an earlier export of the same reply in that format, and returned
-     * for download.
+     * Exports one agent reply (a handoff, a document, or any answer) for download as Markdown, Word, or PDF.
+     * Exporting never adds another artifact to the discussion.
      */
-    async exportMessage(workspaceId: string, sessionId: string, messageId: string, format: DocumentFormat): Promise<ExportedReply> {
+    async exportMessage(workspaceId: string, sessionId: string, messageId: string, format: DocumentFormat): Promise<DownloadableFile> {
         const session = await this.getSession(workspaceId, sessionId);
         const message = (await this.unit.discussions.listMessages(sessionId))
             .find(candidate => candidate.id === messageId && candidate.role === DISCUSSION_MESSAGE_ROLES.assistant);
@@ -259,27 +265,25 @@ export class DiscussionService {
             author: speaker,
             exportedAt: exportTimestamp(),
         };
-        const file = await this.exporter.export(format, info, message.content);
+        const file = await this.exporter.export(format, info, message.content, source => this.fileServer.readDocumentAsset(this.locationOf(session), source));
         const stem = fileStem(title, speaker, session.title);
         if (!stem) throw new AppError(400, DOCUMENT_ERRORS.emptyDocument);
         // A short id keeps exports of different replies with the same title apart.
         const fileName = `${stem} - ${message.id.slice(0, 8)}.${file.extension}`;
-        const stored = await this.fileServer.storeArtifact(this.locationOf(session), fileName, file.mimeType, file.contents);
-        return { fileName, mimeType: file.mimeType, contentBase64: file.contents.toString("base64"), artifact: toArtifact(stored) };
+        return { fileName, mimeType: file.mimeType, contentBase64: file.contents.toString("base64") };
     }
 
-    /** Converts a Markdown artifact (a document an agent wrote) into Word or PDF, saved beside it. */
-    async exportArtifact(workspaceId: string, sessionId: string, fileName: string, format: DocumentFormat): Promise<ExportedReply> {
+    /** Converts a Markdown artifact for download without saving a second artifact. */
+    async exportArtifact(workspaceId: string, sessionId: string, fileName: string, format: DocumentFormat): Promise<DownloadableFile> {
         const session = await this.getSession(workspaceId, sessionId);
         if (extname(fileName).toLowerCase() !== `.${DOCUMENT_FORMATS.markdown}`) throw new AppError(400, DOCUMENT_ERRORS.unknownFormat);
         const location = this.locationOf(session);
         const markdown = (await this.fileServer.readArtifact(location, fileName)).toString("utf8");
         const stem = fileName.slice(0, -extname(fileName).length);
         const info: DocumentInfo = { title: stem, subtitle: session.title, author: session.title, exportedAt: exportTimestamp() };
-        const file = await this.exporter.export(format, info, markdown);
+        const file = await this.exporter.export(format, info, markdown, source => this.fileServer.readDocumentAsset(location, source));
         const target = `${stem}.${file.extension}`;
-        const stored = await this.fileServer.storeArtifact(location, target, file.mimeType, file.contents);
-        return { fileName: target, mimeType: file.mimeType, contentBase64: file.contents.toString("base64"), artifact: toArtifact(stored) };
+        return { fileName: target, mimeType: file.mimeType, contentBase64: file.contents.toString("base64") };
     }
 
     private locationOf(session: ChatSession) {
@@ -287,15 +291,22 @@ export class DiscussionService {
     }
 
     /** Saves a document an agent wrote, under a name from its title that no other artifact in the discussion has. */
-    private async saveDocument(session: ChatSession, title: string, content: string, plan: SpeakerPlan): Promise<{ fileName: string }> {
+    private async saveDocument(session: ChatSession, title: string, content: string, plan: SpeakerPlan, document: DocumentRequest | undefined, signal?: AbortSignal) {
         const location = this.locationOf(session);
         const stem = fileStem(title, plan.participant.name);
         if (!stem) throw new AppError(400, DOCUMENT_ERRORS.emptyDocument);
+        const info: DocumentInfo = { title, subtitle: session.title, author: plan.participant.name, exportedAt: exportTimestamp() };
+        const completed = await this.exporter.createDocument(info, content, {
+            workspaceId: session.workspaceId, imageCount: document?.imageCount ?? 0, signal,
+            storeAsset: contents => this.fileServer.storeDocumentAsset(location, contents),
+            resolveAsset: source => this.fileServer.readDocumentAsset(location, source),
+        });
         for (const fileName of numberedNames(stem, DOCUMENT_FORMATS.markdown)) {
             if (await this.fileServer.hasArtifact(location, fileName)) continue;
-            await this.fileServer.storeArtifact(location, fileName, DOCUMENT_MIME_TYPES.md, Buffer.from(content.trim() + "\n", "utf8"));
+            signal?.throwIfAborted();
+            if (!await this.fileServer.storeArtifactIfAbsent(location, fileName, DOCUMENT_MIME_TYPES.md, Buffer.from(completed.markdown.trim() + "\n", "utf8"))) continue;
             logger.info({ sessionId: session.id, agentId: plan.participant.agentId }, "Saved a document an agent wrote");
-            return { fileName };
+            return { fileName, content: completed.markdown, usage: completed.usage };
         }
         throw new AppError(409, DOCUMENT_ERRORS.namesExhausted);
     }
@@ -525,19 +536,22 @@ export class DiscussionService {
     ): Promise<void> {
         const stop = () => slot.controller.abort();
         signal.addEventListener("abort", stop, { once: true });
-        const expert = settings.capabilityMode === DISCUSSION_CAPABILITY_MODES.expert;
-        const toolbox = await this.toolboxFor(session);
-        const collaborators: DiscussionCollaborators = {
-            // Expert replies search the knowledge base up front (RAG) unless it is small enough to sit whole in the
-            // cached prefix (CAG). Web search runs on the expert path only.
-            retrieveKnowledge: expert && toolbox?.searchKnowledge
-                ? query => this.knowledge.search(session.workspaceId, session.id, query, DISCUSSION_LIMITS.expertRetrievalTopK)
-                : undefined,
-            searchWeb: expert && settings.webEnabled ? query => this.webSearch.search(session.workspaceId, query, DISCUSSION_LIMITS.expertWebResults) : undefined,
-            ...(toolbox ? { toolbox } : {}),
-        };
+        if (signal.aborted) stop();
         let finished = false;
         try {
+            const expert = settings.capabilityMode === DISCUSSION_CAPABILITY_MODES.expert;
+            const toolbox = await this.toolboxFor(session);
+            const collaborators: DiscussionCollaborators = {
+                documentImages: await this.exporter.imageCapability(session.workspaceId),
+                // Expert replies search the knowledge base up front (RAG) unless it is small enough to sit whole in the
+                // cached prefix (CAG). Web search runs on the expert path only.
+                retrieveKnowledge: expert && toolbox?.searchKnowledge
+                    ? query => this.knowledge.search(session.workspaceId, session.id, query, DISCUSSION_LIMITS.expertRetrievalTopK)
+                    : undefined,
+                searchWeb: expert && settings.webEnabled ? query => this.webSearch.search(session.workspaceId, query, DISCUSSION_LIMITS.expertWebResults) : undefined,
+                ...(toolbox ? { toolbox } : {}),
+            };
+            slot.controller.signal.throwIfAborted();
             await runDiscussionTurn(this.runtime, {
                 workspaceId: session.workspaceId,
                 team: table.kind === "team" ? table.team : null,
@@ -548,7 +562,7 @@ export class DiscussionService {
                 ports: {
                     memory: () => this.memory(session),
                     saveReply: (reply, remaining, pendingDocument) => this.saveReply(session, turnId, settings, reply, remaining, pendingDocument),
-                    saveDocument: (title, content, plan) => this.saveDocument(session, title, content, plan),
+                    saveDocument: (title, content, plan, request, signal) => this.saveDocument(session, title, content, plan, request, signal),
                 },
             }, queue, emit, slot.controller.signal);
             finished = true;

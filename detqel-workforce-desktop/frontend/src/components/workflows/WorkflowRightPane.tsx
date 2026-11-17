@@ -1,5 +1,6 @@
 "use client";
 
+import { useFileDownload } from "@/hooks/useFileDownload";
 import React, { useState } from "react";
 import {
   Play,
@@ -62,6 +63,7 @@ export const WorkflowRightPane: React.FC<WorkflowRightPaneProps> = ({
   onClearLogs,
   runResult,
 }) => {
+  const download = useFileDownload();
   const [activeTab, setActiveTab] = useState<"execute" | "logs" | "results" | "export">("execute");
   const [inputPayload, setInputPayload] = useState<string>(
     JSON.stringify({ env: "production", triggerBy: "user", payload: {} }, null, 2)
@@ -91,12 +93,7 @@ export const WorkflowRightPane: React.FC<WorkflowRightPaneProps> = ({
       edges,
     };
     const blob = new Blob([JSON.stringify(spec, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${workflowName.toLowerCase().replaceAll(/\s+/g, "_")}_workflow.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    download(blob, `${workflowName.toLowerCase().replaceAll(/\s+/g, "_")}_workflow.json`);
   };
 
   const handleDownloadYAML = () => {
@@ -116,23 +113,13 @@ export const WorkflowRightPane: React.FC<WorkflowRightPaneProps> = ({
       ),
     ];
     const blob = new Blob([lines.join("\n")], { type: "text/yaml" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${workflowName.toLowerCase().replaceAll(/\s+/g, "_")}_workflow.yaml`;
-    a.click();
-    URL.revokeObjectURL(url);
+    download(blob, `${workflowName.toLowerCase().replaceAll(/\s+/g, "_")}_workflow.yaml`);
   };
 
   const handleDownloadResults = () => {
     if (!runResult) return;
     const blob = new Blob([JSON.stringify(runResult, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `run_results_${Date.now()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    download(blob, `run_results_${Date.now()}.json`);
   };
 
   const handleCopySpec = (type: string) => {

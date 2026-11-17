@@ -822,6 +822,31 @@ fn start_backend(
         std::fs::set_permissions(&runtime_dir, std::fs::Permissions::from_mode(0o700))?;
     }
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    // Development and installed builds share managed storage, so credentials must share its installation key.
+    let config_dir = app.path().app_config_dir()?;
+    std::fs::create_dir_all(&config_dir)?;
+    let installation_config = config_dir.join("backend.env");
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&installation_config)
+    {
+        Ok(mut file) => {
+            let template = if tauri::is_dev() {
+                manifest.join("../backend/.env.example")
+            } else {
+                resources.join("backend/.env.example")
+            };
+            file.write_all(&std::fs::read(template)?)?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error.into()),
+    }
     let (node, entry, working_dir, config_path) = if tauri::is_dev() {
         let backend = manifest.join("../backend");
         let node = manifest.join(DEVELOPMENT_BINARY_DIRECTORY).join(format!(
@@ -836,26 +861,6 @@ fn start_backend(
             backend.join(".env"),
         )
     } else {
-        let config_dir = app.path().app_config_dir()?;
-        std::fs::create_dir_all(&config_dir)?;
-        let config = config_dir.join("backend.env");
-        // create_new avoids overwriting user configuration, including on upgrades.
-        match std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&config)
-        {
-            Ok(mut file) => {
-                file.write_all(&std::fs::read(resources.join("backend/.env.example"))?)?;
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
-                }
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(error) => return Err(error.into()),
-        }
         (
             std::env::current_exe()?.with_file_name(format!(
                 "{NODE_BINARY_NAME}{}",
@@ -863,7 +868,7 @@ fn start_backend(
             )),
             resources.join("backend/dist/desktop-entry.js"),
             resources.join("backend"),
-            config,
+            installation_config.clone(),
         )
     };
     let token = {
@@ -884,6 +889,7 @@ fn start_backend(
         .env_remove("NODE_OPTIONS")
         .env_remove("NODE_PATH")
         .env("DETQEL_CONFIG_PATH", config_path)
+        .env("DETQEL_INSTALLATION_CONFIG_PATH", installation_config)
         .env("DETQEL_RUNTIME_DIR", runtime_dir)
         .env(APP_VERSION_ENV, app.package_info().version.to_string())
         .env(DESKTOP_LOG_DIRECTORY_ENV, logs.directory())

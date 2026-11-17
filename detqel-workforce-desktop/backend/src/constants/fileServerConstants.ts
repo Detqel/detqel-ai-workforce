@@ -2,7 +2,7 @@
  * The file server is the on-disk home for per-session knowledge-base uploads and chat artifacts. Its base path
  * is platform-resolved (and env-overridable) so the same logical layout works on Windows, macOS, and Linux.
  * The tree is: <base>/<workspaceId>/<scope>/<sessionId>/{chat,knowledge,artifacts}. Uploaded files are stored under the
- * session's knowledge directory; documents and exports under its artifacts directory. The whole tree is created
+ * session's knowledge directory; documents and uploaded files under its artifacts directory. The whole tree is created
  * with owner-only permissions.
  */
 export const FILE_SERVER_ENV_OVERRIDE = "DETQEL_FILE_SERVER_ROOT";
@@ -27,6 +27,7 @@ export const FILE_SERVER_SESSION_DIRECTORIES = {
     knowledge: "knowledge",
     /** Documents agents wrote, replies the user exported, and files the user added to the discussion. */
     artifacts: "artifacts",
+    documentAssets: "document-assets",
 } as const;
 
 export const FILE_SERVER_FILE_MODES = { directory: 0o700, file: 0o600 } as const;

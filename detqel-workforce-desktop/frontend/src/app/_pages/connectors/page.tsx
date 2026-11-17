@@ -23,8 +23,7 @@ export default function ConnectorsPage() {
   useEffect(() => {
     let active = true;
     const controller = new AbortController();
-    setTypesLoading(true);
-    setTypesError(null);
+    queueMicrotask(() => { if (active) { setTypesLoading(true); setTypesError(null); } });
     connectorTypesApi.list(undefined, controller.signal).then(items => {
       if (active) setTypes(items);
     }).catch(cause => {
@@ -51,6 +50,7 @@ function ConnectionsWorkspace({ workspaceId, workspaceLoading, types, typesLoadi
   const [connectors, setConnectors] = useState<ConnectorRecord[]>([]);
   const [loading, setLoading] = useState(Boolean(workspaceId));
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadVersion, setReloadVersion] = useState(0);
   const [catalogType, setCatalogType] = useState<LookupItem | null>(null);
   const [form, setForm] = useState<ConnectionForm | null>(null);
@@ -63,11 +63,11 @@ function ConnectionsWorkspace({ workspaceId, workspaceLoading, types, typesLoadi
     if (!workspaceId) return;
     let active = true;
     const controller = new AbortController();
-    setLoading(true);
+    queueMicrotask(() => { if (active) setLoading(true); });
     connectorsApi.list({ workspaceId }, controller.signal).then(items => {
-      if (active) setConnectors(items);
+      if (active) { setConnectors(items); setLoadError(null); }
     }).catch(cause => {
-      if (active) setError(cause instanceof Error ? cause.message : "Unable to load connections");
+      if (active) setLoadError(cause instanceof Error ? cause.message : "Unable to load connections");
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; controller.abort(); };
   }, [workspaceId, reloadVersion]);
@@ -105,8 +105,9 @@ function ConnectionsWorkspace({ workspaceId, workspaceLoading, types, typesLoadi
     <div className="min-h-[calc(100vh-60px)] w-full space-y-6 bg-slate-50/60 px-6 py-6 text-slate-900 transition-colors select-none sm:px-8 sm:py-8 xl:px-10 dark:bg-[#0e1422] dark:text-slate-100">
       <div className="flex items-center justify-between"><OptionMenu primary label="Choose connector type" placeholder="Add New Connection" icon={<Plus className="h-4 w-4" />} disabled={!workspaceId} loading={typesLoading} error={typesError} onRetry={reloadTypes} options={types.map(type => ({ value: type.code, label: type.name, description: type.description }))} onSelect={code => { const type = types.find(item => item.code === code); if (type) setCatalogType(type); }} /></div>
       {!workspaceLoading && !workspaceId && <p role="status" className="text-sm text-slate-500 dark:text-slate-400">Select a workspace to manage connections.</p>}
+      {loadError && <div role="alert" className="flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-xs text-red-600 dark:border-red-900 dark:bg-red-950/30 dark:text-red-400"><span>{loadError}</span><SecondaryButton value="Try again" onClick={() => setReloadVersion(value => value + 1)} /></div>}
       {error && <div role="alert" className="flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-xs text-red-600 dark:border-red-900 dark:bg-red-950/30 dark:text-red-400"><span>{error}</span><SecondaryButton value="Try again" onClick={() => { setError(null); setReloadVersion(value => value + 1); }} /></div>}
-      <ConnectorTable connectors={connectors} types={types} loading={loading || workspaceLoading} actionId={actionId} onEdit={connector => setForm({ connector })} onReconnect={connector => { void changeConnectionState(connector, "reconnect"); }} onDisconnect={connector => { void changeConnectionState(connector, "disconnect"); }} onDelete={connector => { setDeleteError(null); setDeleting(connector); }} />
+      <ConnectorTable connectors={connectors} types={types} loading={loading || workspaceLoading} loadError={loadError} actionId={actionId} onEdit={connector => setForm({ connector })} onReconnect={connector => { void changeConnectionState(connector, "reconnect"); }} onDisconnect={connector => { void changeConnectionState(connector, "disconnect"); }} onDelete={connector => { setDeleteError(null); setDeleting(connector); }} />
       {catalogType && workspaceId && <ConnectorCatalogModal workspaceId={workspaceId} type={catalogType} onClose={() => setCatalogType(null)} onSelect={entry => { setCatalogType(null); setForm({ catalogId: entry.id }); }} />}
       {form && workspaceId && <ConnectionModal workspaceId={workspaceId} catalogId={form.catalogId} connector={form.connector} onClose={() => setForm(null)} onSaved={saveRecord} />}
       <ConfirmationModal isOpen={Boolean(deleting)} onClose={() => { if (!deletingBusy) setDeleting(null); }} onConfirm={deleteConnection} title="Delete connection" message={'Delete “' + (deleting?.name ?? "") + '” from this workspace?'} confirmText="Delete connection" cancelText="Cancel" isLoading={deletingBusy} error={deleteError} />

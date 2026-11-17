@@ -26,7 +26,7 @@ export interface PendingTurn {
     readonly capabilityMode: string;
     readonly webEnabled: boolean;
     /** A document the user asked for in this turn that is not written yet, and the agent who will write it. */
-    readonly document?: { readonly title: string; readonly ownerAgentId: string } | null;
+    readonly document?: { readonly title: string; readonly ownerAgentId: string; readonly imageCount?: number } | null;
 }
 
 /**

@@ -2,8 +2,8 @@ import { join } from "node:path";
 
 /**
  * Documents are agent replies kept as files: a document an agent was asked to write, or any reply the user
- * exports. Markdown is the source; Word and PDF are rendered from it. Every file lands in the session's
- * artifacts folder on the file server, so a discussion keeps what it produced.
+ * exports. Markdown is the canonical source, with discussion-scoped image assets. Word and PDF are rendered
+ * from the same prepared content and returned for download without adding duplicate artifacts.
  */
 export const DOCUMENT_FORMATS = { markdown: "md", word: "docx", pdf: "pdf" } as const;
 export type DocumentFormat = (typeof DOCUMENT_FORMATS)[keyof typeof DOCUMENT_FORMATS];
@@ -58,7 +58,7 @@ export const PDF_LAYOUT = {
     colors: { text: "#0f172a", muted: "#64748b", rule: "#cbd5e1", codeBackground: "#f1f5f9", tableHeader: "#f8fafc", link: "#6d28d9", quoteBar: "#a78bfa" },
 } as const;
 
-/** Exported Word documents use these fonts; Word substitutes when one is missing, so no font file is needed. */
+/** Word's text font families. Equations are embedded as typeset artwork, independent of reader math fonts. */
 export const DOCX_FONTS = { body: "Calibri", code: "Consolas", math: "Cambria Math" } as const;
 export const DOCX_LAYOUT = { bodySizeHalfPoints: 21, codeSizeHalfPoints: 18, smallSizeHalfPoints: 17, mutedColor: "64748B", ruleColor: "CBD5E1", codeShading: "F1F5F9", headerShading: "F8FAFC" } as const;
 
@@ -70,7 +70,7 @@ export function pdfFontCandidates(platform: NodeJS.Platform, environment: NodeJS
     if (platform === "win32") {
         const fonts = environment.SystemRoot ? join(environment.SystemRoot, "Fonts") : null;
         const at = (...names: string[]) => (fonts ? names.map(name => join(fonts, name)) : []);
-        return { regular: at("segoeui.ttf", "arial.ttf"), bold: at("segoeuib.ttf", "arialbd.ttf"), italic: at("segoeuii.ttf", "ariali.ttf"), mono: at("consola.ttf", "cour.ttf") };
+        return { regular: at("segoeui.ttf"), bold: at("segoeuib.ttf"), italic: at("segoeuii.ttf"), mono: at("consola.ttf") };
     }
     if (platform === "darwin") {
         const supplemental = "/System/Library/Fonts/Supplemental";

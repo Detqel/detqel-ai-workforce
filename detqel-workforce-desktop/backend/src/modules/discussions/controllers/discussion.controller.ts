@@ -9,6 +9,7 @@ import {
     attachConnectorSchema,
     connectorParamsSchema,
     createSessionSchema,
+    documentAssetParamsSchema,
     exportSchema,
     knowledgeParamsSchema,
     messageParamsSchema,
@@ -86,7 +87,7 @@ export class DiscussionController {
         const { workspaceId } = workspaceParamsSchema.parse(request.params);
         const { sessionId, messageId } = messageParamsSchema.parse(request.params);
         const { format } = exportSchema.parse(request.body);
-        return reply.status(201).send(await this.service.exportMessage(workspaceId, sessionId, messageId, format));
+        return reply.send(await this.service.exportMessage(workspaceId, sessionId, messageId, format));
     }
 
     async listArtifacts(request: FastifyRequest, reply: FastifyReply) {
@@ -101,6 +102,12 @@ export class DiscussionController {
         const body = uploadArtifactSchema.parse(request.body);
         const artifact = await this.service.uploadArtifact(workspaceId, sessionId, body.fileName, body.mimeType, Buffer.from(body.contentBase64, "base64"));
         return reply.status(201).send(artifact);
+    }
+
+    async downloadDocumentAsset(request: FastifyRequest, reply: FastifyReply) {
+        const { workspaceId } = workspaceParamsSchema.parse(request.params);
+        const { sessionId, assetName } = documentAssetParamsSchema.parse(request.params);
+        return reply.header("Cache-Control", "private, no-store").send(await this.service.downloadDocumentAsset(workspaceId, sessionId, assetName));
     }
 
     async downloadArtifact(request: FastifyRequest, reply: FastifyReply) {
@@ -119,7 +126,7 @@ export class DiscussionController {
         const { workspaceId } = workspaceParamsSchema.parse(request.params);
         const { sessionId, fileName } = artifactParamsSchema.parse(request.params);
         const { format } = exportSchema.parse(request.body);
-        return reply.status(201).send(await this.service.exportArtifact(workspaceId, sessionId, fileName, format));
+        return reply.send(await this.service.exportArtifact(workspaceId, sessionId, fileName, format));
     }
 
     async attachConnector(request: FastifyRequest, reply: FastifyReply) {

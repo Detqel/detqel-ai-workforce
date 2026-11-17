@@ -3,6 +3,12 @@ import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { AppError } from "../../../shared/errors/app-error.js";
 import type { ConfigurationSchema } from "../../../shared/types/connector-catalog.js";
 
+export class ConnectionCredentialsUnavailableError extends AppError {
+    constructor() {
+        super(409, "Saved credentials are unavailable. Edit this connection and re-enter its credentials to reconnect.");
+    }
+}
+
 export class ConnectionCredentialsService {
     private readonly key: Buffer;
 
@@ -33,14 +39,16 @@ export class ConnectionCredentialsService {
     decrypt(envelope: string | null, workspaceId: string): Record<string, unknown> {
         if (envelope === null) return {};
         const [prefix, version, iv, tag, ciphertext, extra] = envelope.split(CONNECTOR_CRYPTO.envelopeSeparator);
-        if (prefix !== CONNECTOR_CRYPTO.envelopePrefix || version !== CONNECTOR_CRYPTO.envelopeVersion || !iv || !tag || !ciphertext || extra) throw new AppError(409, "This legacy connection must be reconfigured before it can reconnect");
+        if (prefix !== CONNECTOR_CRYPTO.envelopePrefix || version !== CONNECTOR_CRYPTO.envelopeVersion || !iv || !tag || !ciphertext || extra !== undefined) throw new ConnectionCredentialsUnavailableError();
         try {
             const decipher = createDecipheriv(CONNECTOR_CRYPTO.algorithm, this.key, Buffer.from(iv, CONNECTOR_CRYPTO.encoding));
             decipher.setAAD(Buffer.from(workspaceId));
             decipher.setAuthTag(Buffer.from(tag, CONNECTOR_CRYPTO.encoding));
-            return JSON.parse(Buffer.concat([decipher.update(Buffer.from(ciphertext, CONNECTOR_CRYPTO.encoding)), decipher.final()]).toString("utf8")) as Record<string, unknown>;
+            const secrets: unknown = JSON.parse(Buffer.concat([decipher.update(Buffer.from(ciphertext, CONNECTOR_CRYPTO.encoding)), decipher.final()]).toString("utf8"));
+            if (!secrets || typeof secrets !== "object" || Array.isArray(secrets)) throw new ConnectionCredentialsUnavailableError();
+            return secrets as Record<string, unknown>;
         } catch {
-            throw new AppError(500, "Stored connector credentials could not be decrypted");
+            throw new ConnectionCredentialsUnavailableError();
         }
     }
 }

@@ -23,6 +23,7 @@ export const renameSessionSchema = z.object({
 export const messageParamsSchema = z.object({ sessionId: z.string().uuid(), messageId: z.string().uuid() });
 
 export const artifactParamsSchema = z.object({ sessionId: z.string().uuid(), fileName: z.string().min(1).max(255) });
+export const documentAssetParamsSchema = z.object({ sessionId: z.string().uuid(), assetName: z.string().regex(/^[a-f0-9]{64}\.png$/) });
 
 export const knowledgeParamsSchema = artifactParamsSchema;
 

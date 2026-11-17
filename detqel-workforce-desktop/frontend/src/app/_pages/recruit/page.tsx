@@ -1,5 +1,7 @@
 "use client";
 
+import { useToast } from "@/context/ToastContext";
+
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useWorkspace } from "@/context/WorkspaceContext";
 import {
@@ -129,7 +131,7 @@ export default function RecruitPage() {
   const [selectedTab, setSelectedTab] = useState<string>("leadership-orchestration");
   const [searchQuery, setSearchQuery] = useState("");
   const [inspectingAgent, setInspectingAgent] = useState<MarketplaceAgent | null>(null);
-  const [toast, setToast] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const toast = useToast();
 
   // Load marketplace templates from backend API
   const loadMarketplaceTemplates = useCallback(async () => {
@@ -217,13 +219,6 @@ export default function RecruitPage() {
   useEffect(() => {
     fetchRecruitedAgents();
   }, [fetchRecruitedAgents]);
-
-  // Auto-dismiss toast
-  useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(null), 4000);
-    return () => clearTimeout(timer);
-  }, [toast]);
 
   // Set of normalized recruited names for fast O(1) lookup
   const recruitedNamesSet = useMemo(() => {
@@ -356,10 +351,7 @@ export default function RecruitPage() {
   const handleRecruit = useCallback(
     async (agent: MarketplaceAgent) => {
       if (!currentWorkspace?.id) {
-        setToast({
-          type: "error",
-          text: "Please select an active workspace to recruit agents.",
-        });
+        toast.error("Please select an active workspace to recruit agents.");
         return;
       }
 
@@ -398,16 +390,10 @@ export default function RecruitPage() {
           return next;
         });
 
-        setToast({
-          type: "success",
-          text: `${agent.name} (${agent.role}) has been recruited into ${currentWorkspace.name}.`,
-        });
+        toast.success(`${agent.name} (${agent.role}) has been recruited into ${currentWorkspace.name}.`);
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : "Failed to recruit agent";
-        setToast({
-          type: "error",
-          text: message,
-        });
+        toast.error(message);
       } finally {
         setRecruitingAgentIds((prev) => {
           const next = new Set(prev);
@@ -416,16 +402,13 @@ export default function RecruitPage() {
         });
       }
     },
-    [currentWorkspace, user?.id]
+    [currentWorkspace, user?.id, toast]
   );
 
   // Recruit multiple agents in batch
   const handleBatchRecruit = useCallback(async () => {
     if (!currentWorkspace?.id) {
-      setToast({
-        type: "error",
-        text: "Please select an active workspace to recruit agents.",
-      });
+      toast.error("Please select an active workspace to recruit agents.");
       return;
     }
 
@@ -478,21 +461,15 @@ export default function RecruitPage() {
     if (newAgents.length > 0) {
       setRecruitedAgents((prev) => [...newAgents, ...prev]);
       setSelectedAgentIds(new Set());
-      setToast({
-        type: "success",
-        text: `Successfully recruited ${recruitedSuccessful} ${
+      toast.success(`Successfully recruited ${recruitedSuccessful} ${
           recruitedSuccessful === 1 ? "agent" : "agents"
-        } into ${currentWorkspace.name}.`,
-      });
+        } into ${currentWorkspace.name}.`);
     } else {
-      setToast({
-        type: "error",
-        text: "Failed to recruit selected agents. Please check server status.",
-      });
+      toast.error("Failed to recruit selected agents. Please check server status.");
     }
 
     setIsBatchRecruiting(false);
-  }, [currentWorkspace, selectedAgentIds, isAgentRecruited, user?.id, marketplaceAgents]);
+  }, [currentWorkspace, selectedAgentIds, isAgentRecruited, user?.id, marketplaceAgents, toast]);
 
   const SectionIcon = MARKETPLACE_ICON_MAP[activeSectionMetadata.iconName] ?? Sparkles;
   const sectionStyle =
@@ -500,25 +477,6 @@ export default function RecruitPage() {
 
   return (
     <div className="w-full px-6 sm:px-8 xl:px-10 py-6 sm:py-8 space-y-6 select-none bg-slate-50/60 dark:bg-[#0e1422] text-slate-900 dark:text-slate-100 transition-colors min-h-full pb-24">
-      {/* Toast Alert */}
-      {toast && (
-        <div
-          role="alert"
-          className={`fixed top-5 right-5 z-50 flex items-center gap-2.5 px-4 py-3 rounded-2xl shadow-xl border animate-in slide-in-from-top-3 duration-200 ${
-            toast.type === "success"
-              ? "bg-emerald-900 text-white border-emerald-700"
-              : "bg-rose-900 text-white border-rose-700"
-          }`}
-        >
-          {toast.type === "success" ? (
-            <CheckCircle2 className="w-4 h-4 text-emerald-300 shrink-0" />
-          ) : (
-            <AlertCircle className="w-4 h-4 text-rose-300 shrink-0" />
-          )}
-          <span className="text-xs font-semibold">{toast.text}</span>
-        </div>
-      )}
-
       {/* Header with Search, Tab Navigation & Stats */}
       <MarketplaceHeader
         workspaceName={currentWorkspace?.name}

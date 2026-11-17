@@ -79,9 +79,10 @@ async function main(): Promise<void> {
     }
     report(DESKTOP_STARTUP_STEP_IDS.backendRuntime, DESKTOP_STARTUP_STATUS.running, null);
     const configPath = process.env[DESKTOP_ENVIRONMENT_KEYS.configurationPath];
+    const installationConfigPath = process.env[DESKTOP_ENVIRONMENT_KEYS.installationConfigurationPath];
     const runtimeDirectory = process.env[DESKTOP_ENVIRONMENT_KEYS.runtimeDirectory];
-    if (!configPath || !runtimeDirectory) throw new Error("Desktop configuration paths are missing");
-    const { generatedKeys } = await loadDesktopConfiguration(configPath);
+    if (!configPath || !installationConfigPath || !runtimeDirectory) throw new Error("Desktop configuration paths are missing");
+    const { generatedKeys } = await loadDesktopConfiguration(configPath, installationConfigPath);
     if (generatedKeys.length) await writeDesktopLog("desktop.configuration.secrets-generated", { keys: generatedKeys });
     process.env[DESKTOP_ENVIRONMENT_KEYS.host] = LOOPBACK_HOST;
     process.env[DESKTOP_ENVIRONMENT_KEYS.port] = String(DESKTOP_STARTUP_SETTINGS.initialApiPort);

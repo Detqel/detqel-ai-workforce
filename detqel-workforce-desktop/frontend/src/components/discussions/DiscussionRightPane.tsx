@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import { useFileDownload } from "@/hooks/useFileDownload";
+import React, { useState, useEffect, useRef } from "react";
 import {
-  Download,
   UploadCloud,
   FileText,
   FileJson,
@@ -11,8 +11,6 @@ import {
   BookOpen,
   Plug,
   ExternalLink,
-  Database,
-  Layers,
   Sparkles,
   Link as LinkIcon,
   Loader2,
@@ -42,7 +40,7 @@ interface DiscussionRightPaneProps {
   workspaceId?: string;
   activeSessionId?: string;
   messages: Array<{ role: string; content: string; sender?: string; timestamp: string }>;
-  /** Changes whenever the chat saved a document or an export, so the artifacts list reloads. */
+  /** Changes whenever the chat saved a document, so the artifacts list reloads. */
   artifactsVersion: number;
   onClose?: () => void;
 }
@@ -56,28 +54,21 @@ export const DiscussionRightPane: React.FC<DiscussionRightPaneProps> = ({
 }) => {
   const { navigate } = useNavigation();
   const toast = useToast();
+  const download = useFileDownload();
   const [activeTab, setActiveTab] = useState<"artifacts" | "knowledge" | "connectors">("artifacts");
   const [isCopied, setIsCopied] = useState(false);
   const confirm = useConfirm();
   const [knowledgeDocs, setKnowledgeDocs] = useState<KnowledgeDocument[]>([]);
   const [connectors, setConnectors] = useState<ConnectorRecord[]>([]);
   const [attachedConnectorIds, setAttachedConnectorIds] = useState<Set<string>>(new Set());
-  const [isLoadingConnectors, setIsLoadingConnectors] = useState(false);
+  const [connectorLoad, setConnectorLoad] = useState<{ scope: string; loading: boolean; error: string | null }>({ scope: "", loading: false, error: null });
+  const [connectorVersion, setConnectorVersion] = useState(0);
+  const [connectorAction, setConnectorAction] = useState<string | null>(null);
+  const connectorScope = JSON.stringify([workspaceId, activeSessionId]);
+  const connectorScopeRef = useRef(connectorScope);
+  const isLoadingConnectors = connectorLoad.scope !== connectorScope || connectorLoad.loading;
+  const visibleConnectors = connectorLoad.scope === connectorScope ? connectors : [];
   const [isUploading, setIsUploading] = useState(false);
-
-  // Load which connectors are attached to the current session.
-  useEffect(() => {
-    let active = true;
-    if (!workspaceId || !activeSessionId) {
-      // Clear asynchronously so this is not a synchronous setState in the effect body.
-      Promise.resolve().then(() => { if (active) setAttachedConnectorIds(new Set()); });
-      return () => { active = false; };
-    }
-    apiListSessionConnectors(workspaceId, activeSessionId)
-      .then((ids) => { if (active) setAttachedConnectorIds(new Set(ids)); })
-      .catch(() => { if (active) setAttachedConnectorIds(new Set()); });
-    return () => { active = false; };
-  }, [workspaceId, activeSessionId]);
 
   // Load the session's knowledge documents from the server, so the list survives reloads and session switches.
   useEffect(() => {
@@ -125,47 +116,65 @@ export const DiscussionRightPane: React.FC<DiscussionRightPaneProps> = ({
   };
 
   const toggleConnector = async (connectionId: string) => {
+    if (connectorAction || isLoadingConnectors || connectorLoad.error) return;
     if (!workspaceId || !activeSessionId) { toast.error("Open a discussion before attaching connectors."); return; }
     const attached = attachedConnectorIds.has(connectionId);
+    const scope = connectorScope;
+    setConnectorAction(connectionId);
     try {
       if (attached) {
         await apiDetachSessionConnector(workspaceId, activeSessionId, connectionId);
+        if (connectorScopeRef.current !== scope) return;
         setAttachedConnectorIds((prev) => { const next = new Set(prev); next.delete(connectionId); return next; });
         toast.info("Connector detached from this discussion.");
       } else {
         await apiAttachSessionConnector(workspaceId, activeSessionId, connectionId);
+        if (connectorScopeRef.current !== scope) return;
         setAttachedConnectorIds((prev) => new Set(prev).add(connectionId));
         toast.success("Connector attached to this discussion.");
       }
     } catch (error) {
+      if (connectorScopeRef.current !== scope) return;
       toast.error(error instanceof Error ? error.message : "Could not update the connector.");
+    } finally {
+      setConnectorAction(null);
     }
   };
 
-  // Fetch real connectors for this workspace
+  // Load inventory and attachment state together; an unsuccessful request is never an empty workspace.
   useEffect(() => {
-    if (!workspaceId) {
-      setConnectors([]);
-      return;
-    }
     let active = true;
-    setIsLoadingConnectors(true);
-    connectorsApi
-      .list({ workspaceId })
-      .then((items) => {
-        if (active) setConnectors(items || []);
-      })
-      .catch(() => {
-        if (active) setConnectors([]);
+    const controller = new AbortController();
+    connectorScopeRef.current = connectorScope;
+    Promise.resolve().then(async () => {
+      if (!active) return;
+      setConnectorLoad({ scope: connectorScope, loading: true, error: null });
+      if (!workspaceId) {
+        setConnectors([]);
+        setAttachedConnectorIds(new Set());
+        return;
+      }
+      const [items, ids] = await Promise.all([
+        connectorsApi.list({ workspaceId }, controller.signal),
+        activeSessionId ? apiListSessionConnectors(workspaceId, activeSessionId) : Promise.resolve<string[]>([]),
+      ]);
+      if (active) {
+        setConnectors(items);
+        setAttachedConnectorIds(new Set(ids));
+      }
+    })
+      .catch((error: unknown) => {
+        if (active) setConnectorLoad({ scope: connectorScope, loading: false, error: error instanceof Error ? error.message : "Could not load discussion connectors." });
       })
       .finally(() => {
-        if (active) setIsLoadingConnectors(false);
+        if (active) setConnectorLoad(state => ({ ...state, loading: false }));
       });
 
     return () => {
       active = false;
+      controller.abort();
     };
-  }, [workspaceId]);
+  }, [workspaceId, activeSessionId, connectorScope, connectorVersion, activeTab]);
 
   // Handle Export as Markdown
   const handleExportMarkdown = () => {
@@ -177,12 +186,7 @@ export const DiscussionRightPane: React.FC<DiscussionRightPaneProps> = ({
       )
       .join("\n");
     const blob = new Blob([header + body], { type: "text/markdown;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `Discussion-${activeTarget?.name || "Session"}-${Date.now()}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
+    download(blob, `Discussion-${activeTarget?.name || "Session"}-${Date.now()}.md`);
   };
 
   // Handle Export as JSON
@@ -195,12 +199,7 @@ export const DiscussionRightPane: React.FC<DiscussionRightPaneProps> = ({
     const blob = new Blob([JSON.stringify(data, null, 2)], {
       type: "application/json;charset=utf-8",
     });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `Discussion-${activeTarget?.name || "Session"}-${Date.now()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    download(blob, `Discussion-${activeTarget?.name || "Session"}-${Date.now()}.json`);
   };
 
   // Copy Transcript to Clipboard
@@ -364,7 +363,7 @@ export const DiscussionRightPane: React.FC<DiscussionRightPaneProps> = ({
         ) : (
           <div className="space-y-4">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-              Connected Operational Tools ({connectors.length})
+              Operational Tools ({isLoadingConnectors || connectorLoad.error ? "—" : visibleConnectors.length})
             </span>
 
             <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs space-y-2">
@@ -390,15 +389,20 @@ export const DiscussionRightPane: React.FC<DiscussionRightPaneProps> = ({
               <div className="flex items-center justify-center p-6">
                 <Loader2 className="h-5 w-5 animate-spin text-primary" />
               </div>
-            ) : connectors.length === 0 ? (
+            ) : connectorLoad.error ? (
+              <div role="alert" className="space-y-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-600 dark:border-red-900 dark:bg-red-950/30 dark:text-red-400">
+                <p>{connectorLoad.error}</p>
+                <button type="button" onClick={() => setConnectorVersion(value => value + 1)} className="font-semibold underline cursor-pointer">Try again</button>
+              </div>
+            ) : visibleConnectors.length === 0 ? (
               <div className="text-center p-6 text-xs text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
                 <Plug className="h-6 w-6 mx-auto mb-2 text-slate-300 dark:text-slate-600" />
-                <p className="font-semibold text-slate-600 dark:text-slate-400">No active connectors</p>
+                <p className="font-semibold text-slate-600 dark:text-slate-400">No configured connectors</p>
                 <p className="text-[11px] text-slate-400 mt-1">No operational connectors configured for this workspace.</p>
               </div>
             ) : (
               <div className="space-y-2">
-                {connectors.map((conn) => (
+                {visibleConnectors.map((conn) => (
                   <div
                     key={conn.id}
                     className="flex items-center justify-between p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-slate-900 shadow-xs"
@@ -414,13 +418,14 @@ export const DiscussionRightPane: React.FC<DiscussionRightPaneProps> = ({
                         <span className="text-[10px] text-slate-400 block truncate">
                           {conn.provider} • {conn.connectionType}
                         </span>
+                        {conn.credentialError && <p className="mt-1 text-[10px] text-red-600 dark:text-red-400">{conn.credentialError}</p>}
                       </div>
                     </div>
 
                     <button
                       type="button"
                       onClick={() => toggleConnector(conn.id)}
-                      disabled={!activeSessionId}
+                      disabled={!activeSessionId || Boolean(connectorAction) || Boolean(conn.credentialError && !attachedConnectorIds.has(conn.id))}
                       title={attachedConnectorIds.has(conn.id) ? "Detach from this discussion" : "Attach to this discussion"}
                       className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold shrink-0 border transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${attachedConnectorIds.has(conn.id) ? "bg-primary-muted border-primary text-primary" : "border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"}`}
                     >

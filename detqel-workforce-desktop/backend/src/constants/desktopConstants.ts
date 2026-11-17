@@ -35,6 +35,7 @@ export const DESKTOP_PLATFORM = { windows: "win32", production: "production", en
 export const DESKTOP_FILES = { infrastructureAssets: "../infrastructure/", backendEnvironment: "backend.env", windowsSystemDirectory: "System32", whoamiExecutable: "whoami.exe", permissionsExecutable: "icacls.exe" } as const;
 export const DESKTOP_ENVIRONMENT_KEYS = {
     configurationPath: "DETQEL_CONFIG_PATH", runtimeDirectory: "DETQEL_RUNTIME_DIR", enabled: "DETQEL_DESKTOP",
+    installationConfigurationPath: "DETQEL_INSTALLATION_CONFIG_PATH",
     host: "HOST", port: "PORT", nodeEnvironment: "NODE_ENV", nodeOptions: "NODE_OPTIONS", nodePath: "NODE_PATH",
     windowsSystemRoot: "SystemRoot", litellmBaseUrl: "LITELLM_BASE_URL", litellmApiKey: "LITELLM_API_KEY",
     milvusAddress: "MILVUS_ADDRESS", milvusToken: "MILVUS_TOKEN", databaseUrl: "DATABASE_URL",
@@ -46,6 +47,7 @@ export const DESKTOP_PROTECTED_ENVIRONMENT_KEYS: readonly string[] = [
 ];
 // Installed copies start from the bundled template; these fill what a per-machine installation cannot ship.
 export const DESKTOP_CONFIGURATION = {
+    installationCredentialKey: "CONNECTOR_ENCRYPTION_KEY",
     generatedSecrets: { AUTH_SESSION_SECRET: SESSION_CRYPTO.keyBytes, CONNECTOR_ENCRYPTION_KEY: CONNECTOR_CRYPTO.keyBytes },
     generatedSecretEncoding: "base64",
     defaults: {

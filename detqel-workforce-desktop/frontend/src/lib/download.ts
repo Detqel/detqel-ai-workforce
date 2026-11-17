@@ -1,17 +1,28 @@
 import type { DownloadableFile } from "@/lib/api/discussions";
 
-/** Saves a file the server returned (base64 content) through the browser's download. */
-export function saveDownload(file: DownloadableFile): void {
-  const bytes = Uint8Array.from(atob(file.contentBase64), (character) => character.charCodeAt(0));
-  const url = URL.createObjectURL(new Blob([bytes], { type: file.mimeType }));
+export interface DownloadReceipt { fileName: string; size: number }
+
+/** Saves base64 content returned by the server through the browser's download. */
+export function saveDownload(file: DownloadableFile): DownloadReceipt {
+  const bytes = Uint8Array.from(atob(file.contentBase64), character => character.charCodeAt(0));
+  return saveBlobDownload(new Blob([bytes], { type: file.mimeType }), file.fileName);
+}
+
+/** Shared save path for document, transcript, workflow, and result downloads. */
+export function saveBlobDownload(blob: Blob, fileName: string): DownloadReceipt {
+  const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = file.fileName;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  // Revoked after the click has been handled, so the download can start.
-  setTimeout(() => URL.revokeObjectURL(url), 0);
+  try {
+    anchor.href = url;
+    anchor.download = fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    return { fileName, size: blob.size };
+  } finally {
+    anchor.remove();
+    // Keep the URL alive while the browser begins the download.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
 }
 
 /** Reads a file the user picked as base64, for upload in a JSON request. */

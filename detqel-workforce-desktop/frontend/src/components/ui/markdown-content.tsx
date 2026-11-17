@@ -1,7 +1,8 @@
 "use client";
 
-import React, { memo } from "react";
-import ReactMarkdown, { type Components } from "react-markdown";
+import React, { memo, useMemo } from "react";
+import ReactMarkdown, { defaultUrlTransform, type Components } from "react-markdown";
+import { DocumentAssetImage, type DocumentAssetContext } from "./document-asset-image";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex, { type Options as KatexOptions } from "rehype-katex";
@@ -65,13 +66,24 @@ const COMPONENTS: Components = {
 interface MarkdownContentProps {
   content: string;
   className?: string;
+  assetContext?: DocumentAssetContext;
 }
 
 /** Renders an agent reply: GitHub-flavoured Markdown (tables, task lists, strikethrough) with LaTeX math. */
-export const MarkdownContent = memo(function MarkdownContent({ content, className }: MarkdownContentProps) {
+export const MarkdownContent = memo(function MarkdownContent({ content, className, assetContext }: MarkdownContentProps) {
+  const components = useMemo<Components>(() => ({
+    ...COMPONENTS,
+    img: ({ src, alt }) => {
+      if (typeof src === "string" && /^kin-asset:[a-f0-9]{64}\.png$/.test(src)) {
+        return assetContext ? <DocumentAssetImage key={assetContext.workspaceId + assetContext.sessionId + src} source={src} caption={alt ?? ""} context={assetContext} />
+          : <span role="alert" className="text-xs text-rose-600">Open this document in its discussion to load its images.</span>;
+      }
+      return typeof src === "string" && src ? <a href={defaultUrlTransform(src)} target="_blank" rel="noopener noreferrer" className="text-primary underline">{alt || "Image reference"}</a> : null;
+    },
+  }), [assetContext]);
   return (
     <div className={`min-w-0 break-words [&_.katex-display]:my-2 [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden [&_.katex-display]:py-1 ${className ?? ""}`}>
-      <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={COMPONENTS}>
+      <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={components} urlTransform={(url, key) => key === "src" && /^kin-asset:[a-f0-9]{64}\.png$/.test(url) ? url : defaultUrlTransform(url)}>
         {prepareMarkdown(content)}
       </ReactMarkdown>
     </div>

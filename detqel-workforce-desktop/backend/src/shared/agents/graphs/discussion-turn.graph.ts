@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { AppError } from "../../errors/app-error.js";
 import { Annotation, END, START, StateGraph, type LangGraphRunnableConfig } from "@langchain/langgraph";
 import type { CallUsage } from "../litellm.client.js";
 import {
@@ -79,7 +80,7 @@ export interface TurnPorts {
      */
     saveReply(reply: SpokenReply, remaining: ReadonlyArray<SpeakerPlan>, pendingDocument: TurnDocument | null): Promise<ReadonlyArray<TurnStreamEvent>>;
     /** Saves a document in the discussion's artifacts and returns the file name it was saved under. */
-    saveDocument(title: string, content: string, plan: SpeakerPlan): Promise<{ fileName: string }>;
+    saveDocument(title: string, content: string, plan: SpeakerPlan, document?: DocumentRequest, signal?: AbortSignal): Promise<{ fileName: string; content: string; usage: CallUsage }>;
 }
 
 export interface TurnSettings {
@@ -334,8 +335,8 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
         const { result, step } = await track(state, config,
             document ? DISCUSSION_ACTIVITY_KINDS.writingDocument : wrappingUp ? DISCUSSION_ACTIVITY_KINDS.consolidating : DISCUSSION_ACTIVITY_KINDS.writing,
             document ? { ...names, title: document.title } : wrappingUp ? names : undefined,
-            () => runtime.write(contextFor(state), streamText(state, config), config.signal, state.grounding));
-        return { content: result.content, usage: addUsage(state.usage, result.usage), steps: [...state.steps, step] };
+            () => runtime.write(contextFor(state), document ? () => {} : streamText(state, config), config.signal, state.grounding));
+        return { content: result.content, draftText: document ? result.content : "", usage: addUsage(state.usage, result.usage), steps: [...state.steps, step] };
     }
 
     async function draft(state: State, config: LangGraphRunnableConfig): Promise<Partial<State>> {
@@ -346,9 +347,9 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
 
     async function review(state: State, config: LangGraphRunnableConfig): Promise<Partial<State>> {
         const { result, step } = await track(state, config, DISCUSSION_ACTIVITY_KINDS.reviewing, { count: state.sources.length },
-            () => runtime.review(contextFor(state), state.grounding, state.draftText, streamText(state, config), config.signal));
-        // An empty review keeps the draft rather than leaving the user without a reply.
-        return { content: result.content.trim() ? result.content : state.draftText, usage: addUsage(state.usage, result.usage), steps: [...state.steps, step] };
+            () => runtime.review(contextFor(state), state.grounding, state.draftText, documentFor(state) ? () => {} : streamText(state, config), config.signal));
+        if (!result.content.trim()) throw new AppError(502, "The document review did not produce a complete answer. The unchecked draft was not handed over.");
+        return { content: result.content, usage: addUsage(state.usage, result.usage), steps: [...state.steps, step] };
     }
 
     async function save(state: State, config: LangGraphRunnableConfig): Promise<Partial<State>> {
@@ -358,18 +359,22 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
         const plan = state.current as SpeakerPlan;
         const document = documentFor(state);
         let steps = state.steps;
+        let content = state.content;
+        let usage = state.usage;
         if (document) {
-            const { step } = await track(state, config, DISCUSSION_ACTIVITY_KINDS.savingDocument, { title: document.title },
-                () => environment.ports.saveDocument(document.title, state.content, plan), saved => ({ fileName: saved.fileName }));
+            const { result, step } = await track(state, config, DISCUSSION_ACTIVITY_KINDS.savingDocument, { title: document.title, count: document.imageCount },
+                () => environment.ports.saveDocument(document.title, state.content, plan, document, config.signal), saved => ({ fileName: saved.fileName }));
             steps = [...steps, step];
+            content = result.content;
+            usage = addUsage(usage, result.usage);
         }
         // A document asked for but not written yet (its owner is still due) is kept for the rest of the turn.
         const pendingDocument = document ? null : state.document;
         const events = await environment.ports.saveReply({
             plan,
-            content: state.content,
+            content,
             sources: state.sources,
-            usage: state.usage,
+            usage,
             steps,
         }, remaining, pendingDocument);
         // Saved records go out through the same stream as the activity, so the client sees them in order.
@@ -406,7 +411,7 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
         .addConditionalEdges(NODES.research, afterResearch, [NODES.draft, NODES.write])
         .addEdge(NODES.draft, NODES.review)
         .addEdge(NODES.review, NODES.save)
-        .addEdge(NODES.write, NODES.save)
+        .addConditionalEdges(NODES.write, state => documentFor(state) ? NODES.review : NODES.save, [NODES.review, NODES.save])
         .addConditionalEdges(NODES.save, whileSpeakersRemain, [NODES.next, END])
         .compile();
 }

@@ -1,13 +1,13 @@
 "use client";
 
+import { useToast } from "@/context/ToastContext";
+
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Users,
   Plus,
   Sparkles,
   Search,
-  CheckCircle2,
-  AlertCircle,
   Loader2,
   Shield,
   Layers,
@@ -67,14 +67,7 @@ export default function TeamsPage() {
   const [selectedSectionFilter, setSelectedSectionFilter] = useState<string>("all");
 
   // Notifications
-  const [toast, setToast] = useState<{ type: "success" | "error"; text: string } | null>(null);
-
-  // Auto-dismiss toast
-  useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(null), 4000);
-    return () => clearTimeout(timer);
-  }, [toast]);
+  const toast = useToast();
 
   // Fetch teams & recruited agents
   const fetchData = useCallback(async () => {
@@ -90,12 +83,12 @@ export default function TeamsPage() {
       setTeams(teamsData);
       setRecruitedAgents(agentsData);
     } catch {
-      setToast({ type: "error", text: "Failed to load team data." });
+      toast.error("Failed to load team data.");
     } finally {
       setIsLoadingTeams(false);
       setIsLoadingAgents(false);
     }
-  }, [currentWorkspace?.id]);
+  }, [currentWorkspace?.id, toast]);
 
   useEffect(() => {
     fetchData();
@@ -123,11 +116,11 @@ export default function TeamsPage() {
 
     try {
       await apiDeleteTeam(team.id, currentWorkspace.id);
-      setToast({ type: "success", text: `Squad "${team.name}" has been disbanded.` });
+      toast.success(`Squad "${team.name}" has been disbanded.`);
       fetchData();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to delete team.";
-      setToast({ type: "error", text: msg });
+      toast.error(msg);
     }
   };
 
@@ -141,14 +134,11 @@ export default function TeamsPage() {
         userId: user?.id,
       });
       const team = teams.find((t) => t.id === teamId);
-      setToast({
-        type: "success",
-        text: `${agent.customName || agent.template?.name} assigned to "${team?.name}".`,
-      });
+      toast.success(`${agent.customName || agent.template?.name} assigned to "${team?.name}".`);
       fetchData();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to assign agent to team.";
-      setToast({ type: "error", text: msg });
+      toast.error(msg);
     }
   };
 
@@ -156,11 +146,11 @@ export default function TeamsPage() {
   const handleRemoveMember = async (teamId: string, agentId: string) => {
     try {
       await apiRemoveTeamMember(teamId, agentId);
-      setToast({ type: "success", text: "Agent removed from squad." });
+      toast.success("Agent removed from squad.");
       fetchData();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to remove agent.";
-      setToast({ type: "error", text: msg });
+      toast.error(msg);
     }
   };
 
@@ -219,24 +209,6 @@ export default function TeamsPage() {
 
   return (
     <div className="min-h-screen w-full bg-[#f8f9fc] dark:bg-[#0b0f19] text-slate-900 dark:text-slate-100 transition-colors select-none p-4 sm:p-6 lg:p-8 space-y-8">
-      {/* Toast Notification */}
-      {toast && (
-        <div
-          className={`fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-xl text-xs font-semibold backdrop-blur-md animate-in slide-in-from-bottom duration-200 ${
-            toast.type === "success"
-              ? "bg-emerald-600/90 text-white shadow-emerald-500/20"
-              : "bg-red-600/90 text-white shadow-red-500/20"
-          }`}
-        >
-          {toast.type === "success" ? (
-            <CheckCircle2 className="h-4 w-4 shrink-0" />
-          ) : (
-            <AlertCircle className="h-4 w-4 shrink-0" />
-          )}
-          <span>{toast.text}</span>
-        </div>
-      )}
-
       {/* Top Workspace Header & Telemetry Bar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-200/80 dark:border-slate-800">
         <div>
@@ -560,10 +532,7 @@ export default function TeamsPage() {
         workspaceId={currentWorkspace?.id || ""}
         userId={user?.id}
         onAgentCreated={(newAgent) => {
-          setToast({
-            type: "success",
-            text: `Agent "${newAgent.customName || "Custom Specialist"}" created and recruited to your team.`,
-          });
+          toast.success(`Agent "${newAgent.customName || "Custom Specialist"}" created and recruited to your team.`);
           fetchData();
         }}
       />

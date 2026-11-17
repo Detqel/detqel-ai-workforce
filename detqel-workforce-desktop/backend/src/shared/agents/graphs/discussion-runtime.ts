@@ -1,10 +1,13 @@
 import { createScopedLogger } from "../../logging/logger.js";
+import { AppError } from "../../errors/app-error.js";
+import { z } from "zod";
 import type { CallUsage, ChatMessage, LiteLlmClient, ReasoningEffort, ToolCall, ToolDefinition } from "../litellm.client.js";
 import { AGENT_DATA_POLICY, AGENT_INVESTIGATION_INSTRUCTIONS } from "../../../constants/agentPromptConstants.js";
 import { AGENT_TOOL_LIMITS } from "../../../constants/agentContextConstants.js";
 import type { VirtualKeyRegistry } from "../virtual-key.registry.js";
 import type { PomlLoader } from "../poml/loader.js";
 import { AGENT_RUNTIME_PROCESSES } from "../../../constants/agentRuntimeConstants.js";
+import { DOCUMENT_IMAGE_ERRORS, DOCUMENT_RENDER_LIMITS } from "../../../constants/documentImageConstants.js";
 import { POML_DISCUSSION_IDS } from "../../../constants/pomlConstants.js";
 import { DOCUMENT_LIMITS } from "../../../constants/documentConstants.js";
 import {
@@ -17,7 +20,6 @@ import {
     DISCUSSION_SOURCE_TYPES,
     DISCUSSION_SPEAKER_ROLES,
     DISCUSSION_TEMPERATURE,
-    DISCUSSION_TRIAGE_KEYS,
     type DiscussionCapabilityMode,
     type DiscussionIntent,
     type DiscussionResponseMode,
@@ -25,6 +27,12 @@ import {
 } from "../../../constants/discussionConstants.js";
 
 const logger = createScopedLogger("discussion-runtime");
+const triagePlanSchema = z.object({
+    intent: z.enum([DISCUSSION_INTENTS.conversational, DISCUSSION_INTENTS.task]),
+    reply: z.string().max(16_000),
+    document: z.object({ title: z.string().trim().min(1).max(DOCUMENT_LIMITS.maxTitleCharacters), imageCount: z.number().int().min(0).max(DOCUMENT_RENDER_LIMITS.figures) }).strict().nullable(),
+    delegate: z.array(z.object({ name: z.string().trim().min(1).max(160), task: z.string().trim().min(1).max(DISCUSSION_LIMITS.maxAssignmentCharacters) }).strict()).max(DISCUSSION_LIMITS.maxDelegates),
+}).strict();
 
 /** An agent taking part in a discussion. Its persona is the POML prompt named by promptRef. */
 export interface DiscussionParticipant {
@@ -101,6 +109,7 @@ export interface AgentToolbox {
 
 /** Retrieval collaborators the expert path draws on. Each is optional. */
 export interface DiscussionCollaborators {
+    readonly documentImages?: { readonly supported: boolean; readonly model?: string };
     retrieveKnowledge?(query: string): Promise<RetrievedContext[]>;
     searchWeb?(query: string): Promise<WebContext[]>;
     toolbox?: AgentToolbox;
@@ -148,6 +157,7 @@ export interface TurnContext {
 /** A document the user asked for in this turn. */
 export interface DocumentRequest {
     readonly title: string;
+    readonly imageCount?: number;
 }
 
 export interface TriageResult {
@@ -209,13 +219,20 @@ export class DiscussionRuntime {
         const delegation = context.speakerRole === DISCUSSION_SPEAKER_ROLES.lead && context.team
             ? await this.render(POML_DISCUSSION_IDS.delegationLead, { maxDelegates: String(DISCUSSION_LIMITS.maxDelegates) })
             : await this.render(POML_DISCUSSION_IDS.delegationNone);
-        const instructions = [await this.render(POML_DISCUSSION_IDS.triage), delegation, await this.roleInstructions(context)].filter(Boolean).join("\n\n");
+        const capability = context.collaborators.documentImages;
+        const imageInstructions = capability ? capability.supported
+            ? "Document image generation is available through " + capability.model + ". Plan actual generated images when requested or useful."
+            : "The configured provider cannot generate images. Set imageCount to zero when images are not requested. If the user requires images, preserve that requirement with a positive imageCount; the application will explain the unsupported capability. Never silently replace required images with diagram code or omit them."
+            : "";
+        const instructions = [await this.render(POML_DISCUSSION_IDS.triage), imageInstructions, delegation, await this.roleInstructions(context)].filter(Boolean).join("\n\n");
         const completion = await this.complete(context, instructions, {
             reasoningEffort: DISCUSSION_REASONING.triage,
             responseFormatJson: true,
             maxTokens: DISCUSSION_LIMITS.triageMaxTokens,
         }, signal);
-        return { ...this.parseTriage(completion.content), usage: completion.usage };
+        const plan = this.parseTriage(completion.content);
+        if (plan.document?.imageCount && capability?.supported === false) throw new AppError(422, DOCUMENT_IMAGE_ERRORS.unsupportedProvider);
+        return { ...plan, usage: completion.usage };
     }
 
     /** Searches the session's knowledge base for the request. Empty when no knowledge search is available. */
@@ -393,44 +410,30 @@ export class DiscussionRuntime {
     }
 
     private documentInstructions(context: TurnContext): Promise<string> | string {
-        return context.document ? this.render(POML_DISCUSSION_IDS.document, { title: context.document.title }) : "";
+        if (!context.document) return "";
+        const prompt = this.render(POML_DISCUSSION_IDS.document, { title: context.document.title, imageCount: String(context.document.imageCount ?? 0) });
+        return context.collaborators.documentImages?.supported === false
+            ? prompt.then(text => text + "\nThe configured provider has no image generation capability. This document has no required generated figures. Do not invent generation requests or replace images with diagram code; preserve any existing authenticated discussion image references if they are needed.")
+            : prompt;
     }
 
     private styleInstructions(context: TurnContext): string {
         return `## Response style\n${DISCUSSION_RESPONSE_SHAPING[context.responseMode]} ${DISCUSSION_CAPABILITY_SHAPING[context.capabilityMode]}`;
     }
 
-    /**
-     * Reads the triage JSON. A malformed object is treated as a task with no handoffs, so the full answer step
-     * still produces a reply; the raw model output is never shown to the user as an answer.
-     */
+    /** Invalid plans fail explicitly rather than silently dropping a document or its image requirements. */
     private parseTriage(raw: string): Omit<TriageResult, "usage"> {
         let value: unknown;
         try {
             value = JSON.parse(raw.trim().replace(/^```(?:json)?\s*|\s*```$/g, ""));
         } catch {
-            logger.warn({ length: raw.length }, "Triage returned unreadable JSON; answering as a task");
-            return { intent: DISCUSSION_INTENTS.task, reply: null, handoffs: [], document: null };
+            throw new AppError(502, "The model returned an unreadable discussion plan. No incomplete document was created.");
         }
-        const record = value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-        const reply = typeof record[DISCUSSION_TRIAGE_KEYS.reply] === "string" ? (record[DISCUSSION_TRIAGE_KEYS.reply] as string).trim() : "";
-        // A conversational verdict without a reply would leave the user unanswered, so it is answered as a task.
-        const intent = record[DISCUSSION_TRIAGE_KEYS.intent] === DISCUSSION_INTENTS.conversational && reply ? DISCUSSION_INTENTS.conversational : DISCUSSION_INTENTS.task;
-        const rawHandoffs = Array.isArray(record[DISCUSSION_TRIAGE_KEYS.delegate]) ? record[DISCUSSION_TRIAGE_KEYS.delegate] as unknown[] : [];
-        const handoffs = intent === DISCUSSION_INTENTS.task ? rawHandoffs.flatMap(entry => {
-            if (entry === null || typeof entry !== "object") return [];
-            const item = entry as Record<string, unknown>;
-            const name = typeof item[DISCUSSION_TRIAGE_KEYS.name] === "string" ? (item[DISCUSSION_TRIAGE_KEYS.name] as string).trim() : "";
-            const task = typeof item[DISCUSSION_TRIAGE_KEYS.task] === "string" ? (item[DISCUSSION_TRIAGE_KEYS.task] as string).trim().slice(0, DISCUSSION_LIMITS.maxAssignmentCharacters) : "";
-            return name && task ? [{ name, task }] : [];
-        }) : [];
-        // A document is only written for a task; a conversational reply is never saved as one.
-        const rawDocument = record[DISCUSSION_TRIAGE_KEYS.document];
-        const title = rawDocument !== null && typeof rawDocument === "object" && typeof (rawDocument as Record<string, unknown>)[DISCUSSION_TRIAGE_KEYS.title] === "string"
-            ? ((rawDocument as Record<string, unknown>)[DISCUSSION_TRIAGE_KEYS.title] as string).replace(/\s+/g, " ").trim().slice(0, DOCUMENT_LIMITS.maxTitleCharacters)
-            : "";
-        const document = intent === DISCUSSION_INTENTS.task && title ? { title } : null;
-        return { intent, reply: intent === DISCUSSION_INTENTS.conversational ? reply : null, handoffs, document };
+        const parsed = triagePlanSchema.safeParse(value);
+        if (!parsed.success) throw new AppError(502, "The model returned an invalid document or discussion plan. No requirements were discarded.");
+        const plan = parsed.data;
+        if (plan.intent === DISCUSSION_INTENTS.conversational && (!plan.reply.trim() || plan.document || plan.delegate.length)) throw new AppError(502, "The model returned an inconsistent discussion plan.");
+        return { intent: plan.intent, reply: plan.intent === DISCUSSION_INTENTS.conversational ? plan.reply.trim() : null, handoffs: plan.delegate, document: plan.document };
     }
 
     private render(id: string, variables?: Readonly<Record<string, string>>): Promise<string> {

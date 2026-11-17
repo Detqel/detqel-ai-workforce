@@ -70,7 +70,7 @@ interface DiscussionChatWindowProps {
   isRightPaneOpen: boolean;
   onToggleRightPane: () => void;
   onMessagesUpdate: (messages: ChatMessage[]) => void;
-  /** A document or export was saved in the discussion's artifacts. */
+  /** A document was saved in the discussion's artifacts. */
   onArtifactsChanged: () => void;
 }
 
@@ -135,18 +135,16 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
   }, [messages, viewingId]);
   const closeViewer = useCallback(() => setViewingId(null), []);
 
-  /** Exports a saved reply, downloads it, and keeps the file in the discussion's artifacts. */
+  /** Exports a saved reply for download. */
   const exportReply = useCallback(async (message: ChatMessage, format: ExportFormat) => {
     if (!workspaceId || !activeSessionId) return;
     try {
       const file = await apiExportDiscussionMessage(workspaceId, activeSessionId, message.id, format);
-      saveDownload(file);
-      onArtifactsChanged();
-      toast.success(`Exported ${file.fileName}. It is also saved in this discussion's artifacts.`);
+      toast.download(saveDownload(file));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not export the reply.");
     }
-  }, [workspaceId, activeSessionId, onArtifactsChanged, toast]);
+  }, [workspaceId, activeSessionId, toast]);
 
   const mounted = useRef(true);
   const abortRef = useRef<AbortController | null>(null);
@@ -584,7 +582,7 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
               {msg.role === "assistant" ? (
                 msg.content || !msg.streaming ? (
                   <div className={msg.streaming ? "[&>div>*:last-child]:after:content-['▍'] [&>div>*:last-child]:after:ml-0.5 [&>div>*:last-child]:after:animate-pulse [&>div>*:last-child]:after:text-primary" : undefined}>
-                    <MarkdownContent content={msg.content} />
+                    <MarkdownContent content={msg.content} assetContext={workspaceId && activeSessionId ? { workspaceId, sessionId: activeSessionId } : undefined} />
                   </div>
                 ) : null
               ) : (
@@ -633,7 +631,7 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
       <div ref={messagesEndRef} />
     </div>
 
-      <ReplyViewer replies={viewerReplies} openId={viewingId} onNavigate={setViewingId} onClose={closeViewer} onExport={exportReply} />
+      <ReplyViewer replies={viewerReplies} openId={viewingId} onNavigate={setViewingId} onClose={closeViewer} onExport={exportReply} assetContext={workspaceId && activeSessionId ? { workspaceId, sessionId: activeSessionId } : undefined} />
 
       {/* Voice Recognition Active Bar (when listening) */}
       {isRecording && (

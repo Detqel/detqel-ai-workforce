@@ -9,7 +9,7 @@ export const userNotifications = pgTable("user_notifications", {
         .references(() => workspaces.id, { onDelete: "cascade" }),
     title: varchar("title", { length: 255 }).notNull(),
     message: text("message").notNull(),
-    type: varchar("type", { length: 50 }).notNull().default("info"), // info | success | warning | alert
+    type: varchar("type", { length: 50 }).notNull().default("info"), // info | success | warning | alert | download
     isRead: boolean("is_read").notNull().default(false),
     link: varchar("link", { length: 255 }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),

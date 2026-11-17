@@ -299,7 +299,7 @@ export interface UserNotification {
   workspaceId?: string | null;
   title: string;
   message: string;
-  type: "info" | "success" | "warning" | "alert";
+  type: "info" | "success" | "warning" | "alert" | "download";
   isRead: boolean;
   link?: string | null;
   createdAt: string;
@@ -318,20 +318,31 @@ export async function apiGetUserNotifications(params: {
   workspaceId?: string;
   unreadOnly?: boolean;
 }): Promise<NotificationsResponse> {
-  try {
-    const query = new URLSearchParams();
-    query.set("userId", params.userId);
-    if (params.workspaceId) query.set("workspaceId", params.workspaceId);
-    if (params.unreadOnly) query.set("unreadOnly", "true");
+  const query = new URLSearchParams({ userId: params.userId });
+  if (params.workspaceId) query.set("workspaceId", params.workspaceId);
+  if (params.unreadOnly) query.set("unreadOnly", "true");
+  const res = await authorizedFetch(
+    `${API_BASE_URL}${API_PATHS.notifications}?${query.toString()}`
+  );
+  if (!res.ok) throw new Error("Could not load notifications.");
+  return res.json();
+}
 
-    const res = await authorizedFetch(`${API_BASE_URL}${API_PATHS.notifications}?${query.toString()}`);
-    if (!res.ok) {
-      return { notifications: [], unreadCount: 0 };
-    }
-    return res.json();
-  } catch {
-    return { notifications: [], unreadCount: 0 };
-  }
+/** Records feedback in the same account notification history used by the bell. */
+export async function apiCreateUserNotification(data: {
+  userId: string;
+  workspaceId?: string;
+  title: string;
+  message: string;
+  type: UserNotification["type"];
+}): Promise<UserNotification> {
+  const res = await authorizedFetch(`${API_BASE_URL}${API_PATHS.notifications}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("Could not save the notification.");
+  return res.json();
 }
 
 /**

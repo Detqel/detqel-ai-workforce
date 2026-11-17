@@ -23,7 +23,7 @@
     "build:backend": "npm run build --workspace backend",
     "icons:generate": "tauri icon frontend/public/images/detqel-kin-logo.png --fit contain -o src-tauri/icons",
     "check": "npm run typecheck --workspace backend && npm run typecheck --workspace frontend && cargo fmt --manifest-path src-tauri/Cargo.toml -- --check",
-    "test": "npm test --workspace backend && node --test tests/*.test.mjs",
+    "test": "npm test --workspace backend && node --test tests/*.test.mjs && npm run test:notifications",
     "db:setup": "npm run db:setup --workspace backend",
     "db:migrate": "npm run db:migrate --workspace backend",
     "db:generate": "npm run db:generate --workspace backend --",
@@ -31,7 +31,8 @@
     "db:studio": "npm run db:studio --workspace backend --",
     "tauri": "tauri",
     "smoke:backend": "node scripts/smoke-backend.mjs",
-    "smoke:native": "node scripts/smoke-native.mjs"
+    "smoke:native": "node scripts/smoke-native.mjs",
+    "test:notifications": "node --import tsx --test tests/notification-store.test.ts tests/download.test.ts"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",

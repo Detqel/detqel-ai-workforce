@@ -751,7 +751,7 @@ describe("DiscussionService", () => {
             assert.deepEqual([...files.artifacts.get(session.id)!.keys()], ["Launch Plan.md"]);
         });
 
-        test("a handoff exports as Markdown, Word, and PDF, each saved in the artifacts", async () => {
+        test("a handoff exports as Markdown, Word, and PDF without creating artifacts", async () => {
             const files = spyFileServer();
             const fake = fakeRuntime(context => context.speakerRole === DISCUSSION_SPEAKER_ROLES.lead
                 ? { intent: DISCUSSION_INTENTS.task, reply: null, handoffs: [{ name: "Ana", task: "Size it" }] }
@@ -770,10 +770,8 @@ describe("DiscussionService", () => {
                 const pdf = await service.exportMessage(WORKSPACE, session.id, handoff.id, "pdf");
                 assert.equal(Buffer.from(pdf.contentBase64, "base64").subarray(0, 5).toString("latin1"), "%PDF-");
             }
-            assert.ok(files.artifacts.get(session.id)!.has(word.fileName));
-            // Exporting again replaces the earlier file rather than piling up copies.
             await service.exportMessage(WORKSPACE, session.id, handoff.id, "md");
-            assert.equal([...files.artifacts.get(session.id)!.keys()].filter(name => name.endsWith(".md")).length, 1);
+            assert.deepEqual(await service.listArtifacts(WORKSPACE, session.id), [], "downloads never become saved artifacts");
         });
 
         test("only an agent reply in this discussion can be exported", async () => {
@@ -786,14 +784,30 @@ describe("DiscussionService", () => {
             await assert.rejects(() => service.exportMessage(OTHER_WORKSPACE, session.id, replies(events)[0].id, "md"), /not found/);
         });
 
-        test("a Markdown document converts to Word beside it; other files cannot be converted", async () => {
+        test("converting a document downloads the chosen format without adding or overwriting artifacts", async () => {
             const files = spyFileServer();
             const { service } = build({ runtime: fakeRuntime(asksForDocument("Brief")).runtime, fs: files.fs });
             const session = await service.createSession({ workspaceId: WORKSPACE, agentId: solo.agentId, createdBy: USER });
             await collect(await service.startMessage(turn(session.id, "Write a brief")));
-            const word = await service.exportArtifact(WORKSPACE, session.id, "Brief.md", "docx");
-            assert.equal(word.fileName, "Brief.docx");
+            // A separately uploaded file must not be overwritten by an export of the same name.
+            await service.uploadArtifact(WORKSPACE, session.id, "Brief.docx", "application/octet-stream", Buffer.from("original upload"));
+            const original = await service.downloadArtifact(WORKSPACE, session.id, "Brief.md");
+            const before = (await service.listArtifacts(WORKSPACE, session.id)).map(file => file.fileName).sort();
+            for (const format of ["md", "docx", ...(process.platform === "win32" ? ["pdf"] : [])] as const) {
+                for (let repeat = 0; repeat < 2; repeat++) {
+                    const file = await service.exportArtifact(WORKSPACE, session.id, "Brief.md", format as "md" | "docx" | "pdf");
+                    assert.equal(file.fileName, "Brief." + format);
+                    const bytes = Buffer.from(file.contentBase64, "base64");
+                    assert.ok(bytes.length > 0);
+                    if (format === "docx") assert.equal(bytes.subarray(0, 2).toString("latin1"), "PK");
+                    if (format === "pdf") assert.equal(bytes.subarray(0, 5).toString("latin1"), "%PDF-");
+                    assert.deepEqual((await service.listArtifacts(WORKSPACE, session.id)).map(item => item.fileName).sort(), before);
+                }
+            }
+            assert.equal((await service.downloadArtifact(WORKSPACE, session.id, "Brief.md")).contentBase64, original.contentBase64);
+            assert.equal(Buffer.from((await service.downloadArtifact(WORKSPACE, session.id, "Brief.docx")).contentBase64, "base64").toString(), "original upload");
             await assert.rejects(() => service.exportArtifact(WORKSPACE, session.id, "Brief.docx", "pdf"), /not supported/);
+            await assert.rejects(() => service.exportArtifact(OTHER_WORKSPACE, session.id, "Brief.md", "pdf"), /not found/);
         });
 
         test("added files are kept, size-limited, downloadable, and removable", async () => {

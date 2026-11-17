@@ -35,6 +35,7 @@ import { OLLAMA_EMBEDDING_MODEL, OLLAMA_GATEWAY_BASE_URL } from "../constants/do
 import { AgentModelProvisioner } from "../shared/agents/agent-model.provisioner.js";
 import { WorkspaceWebSearch } from "../shared/agents/tools/workspace-web-search.js";
 import { DocumentExporter } from "../shared/documents/document-exporter.js";
+import { DocumentImageService } from "../shared/documents/document-image.service.js";
 import type { IUnitOfWork } from "../shared/contracts/unit-of-work.js";
 import { LicensePortalClient, type PortalClientMetadata } from "../shared/licensing/license-portal.client.js";
 import { LicenseTokenVerifier } from "../shared/licensing/license-token.verifier.js";
@@ -113,7 +114,8 @@ function createDiscussionService(unit: IUnitOfWork, config: Environment, setting
     const webSearch = new WorkspaceWebSearch(workspaceId => settings.resolveWebSearchKey(workspaceId));
     const knowledge = new SessionKnowledge(fileServer, rag);
     const toolboxes = new DiscussionToolboxFactory(connectorAccess, knowledge);
-    return new DiscussionService(unit, runtime, fileServer, rag, models, participants, webSearch, new DocumentExporter(), knowledge, toolboxes);
+    const documentImages = new DocumentImageService(gateway, keys, workspaceId => settings.resolveAgentModelConfiguration(workspaceId), config.CONNECTOR_ENCRYPTION_KEY);
+    return new DiscussionService(unit, runtime, fileServer, rag, models, participants, webSearch, new DocumentExporter(documentImages), knowledge, toolboxes);
 }
 export type ApplicationServices = ReturnType<typeof createServices>;
 declare module "fastify" {

@@ -14,6 +14,7 @@ export interface ConnectorRecord {
   status: ConnectorStatus;
   configuration: Record<string, unknown>;
   configuredSecretFields: string[];
+  credentialError: string | null;
   verificationMetadata: Record<string, unknown> | null;
   verifiedAt: string | null;
   lastSyncedAt: string | null;
@@ -30,6 +31,7 @@ export interface ConnectorInput {
 }
 
 export interface ConnectorUpdate {
+  replaceCredentials?: boolean;
   name?: string;
   dataStream?: string | null;
   configuration?: Record<string, unknown>;

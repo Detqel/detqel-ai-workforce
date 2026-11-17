@@ -6,6 +6,7 @@
 export const LITELLM_ENDPOINTS = {
     chatCompletions: "/v1/chat/completions",
     embeddings: "/v1/embeddings",
+    imageGenerations: "/v1/images/generations",
     health: "/health/readiness",
     modelNew: "/model/new",
     modelDelete: "/model/delete",

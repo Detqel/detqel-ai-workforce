@@ -21,39 +21,33 @@ import { useWorkspace } from "@/context/WorkspaceContext";
 import { useTheme } from "@/context/ThemeContext";
 import { useNavigation } from "@/context/NavigationContext";
 import { defaultPageId, pageIds, sidebarPages } from "@/lib/navigation";
-import {
-  apiGetUserNotifications,
-  apiMarkNotificationRead,
-  apiMarkAllNotificationsRead,
-  type UserNotification,
-} from "@/lib/api";
+import { useNotifications } from "@/context/NotificationContext";
+import { NotificationCenter } from "@/components/notifications/NotificationCenter";
 import { IconOnlyButton } from "@/components/ui/icon-only-button";
 import { licenseSummary } from "@/lib/license-display";
 
 /** Re-evaluates the days remaining while the app stays open, so the count drops at midnight. */
 const LICENSE_CLOCK_INTERVAL_MS = 60_000;
+const subscribeMount = () => () => {};
+const clientMounted = () => true;
+const serverMounted = () => false;
 
 export const Sidebar: React.FC = () => {
   const { activePageId, navigate } = useNavigation();
-  const { user, currentWorkspace, logout } = useWorkspace();
+  const { user, logout } = useWorkspace();
   const { theme, setTheme } = useTheme();
 
   // Collapsed by default as requested: "By default collapsed to display only icons"
   const [isCollapsed, setIsCollapsed] = React.useState(true);
   const [userMenuOpen, setUserMenuOpen] = React.useState(false);
-  const [alertMenuOpen, setAlertMenuOpen] = React.useState(false);
+  const { unreadCount, isCenterOpen: alertMenuOpen, openCenter, closeCenter } = useNotifications();
   const [now, setNow] = React.useState(() => Date.now());
 
   React.useEffect(() => {
     const clock = setInterval(() => setNow(Date.now()), LICENSE_CLOCK_INTERVAL_MS);
     return () => clearInterval(clock);
   }, []);
-  const [isMounted, setIsMounted] = React.useState(false);
-
-  // Dynamic user notifications
-  const [notifications, setNotifications] = React.useState<UserNotification[]>([]);
-  const [unreadCount, setUnreadCount] = React.useState<number>(0);
-  const [loadingNotifications, setLoadingNotifications] = React.useState<boolean>(false);
+  const isMounted = React.useSyncExternalStore(subscribeMount, clientMounted, serverMounted);
 
   const userMenuRef = React.useRef<HTMLDivElement>(null);
   const userButtonRef = React.useRef<HTMLButtonElement>(null);
@@ -61,59 +55,16 @@ export const Sidebar: React.FC = () => {
   const alertButtonRef = React.useRef<HTMLButtonElement>(null);
 
   React.useEffect(() => {
-    setIsMounted(true);
-  }, []);
-
-  // Fetch dynamic user-linked notifications from DB
-  const fetchNotifications = React.useCallback(async () => {
-    if (!user?.id) {
-      setNotifications([]);
-      setUnreadCount(0);
-      return;
-    }
-    setLoadingNotifications(true);
-    try {
-      const res = await apiGetUserNotifications({
-        userId: user.id,
-        workspaceId: currentWorkspace?.id,
-      });
-      setNotifications(res.notifications || []);
-      setUnreadCount(res.unreadCount || 0);
-    } catch {
-      setNotifications([]);
-      setUnreadCount(0);
-    } finally {
-      setLoadingNotifications(false);
-    }
-  }, [user?.id, currentWorkspace?.id]);
-
-  React.useEffect(() => {
-    fetchNotifications();
-  }, [fetchNotifications]);
-
-  const handleMarkAllRead = async () => {
-    if (!user?.id) return;
-    await apiMarkAllNotificationsRead({
-      userId: user.id,
-      workspaceId: currentWorkspace?.id,
-    });
-    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
-    setUnreadCount(0);
-  };
-
-  const handleNotificationClick = async (notif: UserNotification) => {
-    if (!notif.isRead) {
-      await apiMarkNotificationRead(notif.id);
-      setNotifications((prev) =>
-        prev.map((n) => (n.id === notif.id ? { ...n, isRead: true } : n))
-      );
-      setUnreadCount((prev) => Math.max(0, prev - 1));
-    }
-    if (notif.link) {
-      navigate(notif.link);
-      setAlertMenuOpen(false);
-    }
-  };
+    if (!alertMenuOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeCenter();
+        alertButtonRef.current?.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [alertMenuOpen, closeCenter]);
 
   React.useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -130,7 +81,7 @@ export const Sidebar: React.FC = () => {
         !alertMenuRef.current.contains(target) &&
         !alertButtonRef.current?.contains(target)
       ) {
-        setAlertMenuOpen(false);
+        closeCenter();
       }
     }
 
@@ -138,7 +89,7 @@ export const Sidebar: React.FC = () => {
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, []);
+  }, [closeCenter]);
 
   const displayName = isMounted && user?.name ? user.name : LEGACY_DEMO_ACCOUNT.name;
   const avatarLetter = (displayName[0] || "A").toUpperCase();
@@ -407,10 +358,12 @@ export const Sidebar: React.FC = () => {
             ref={alertButtonRef}
             type="button"
             onClick={() => {
-              setAlertMenuOpen((prev) => !prev);
+              if (alertMenuOpen) closeCenter(); else openCenter();
               setUserMenuOpen(false);
             }}
-            aria-label="Notifications"
+            aria-label={"Notifications" + (unreadCount > 0 ? ", " + unreadCount + " unread" : "")}
+            aria-expanded={alertMenuOpen}
+            aria-haspopup="dialog"
             title="Notifications"
             className="relative group flex items-center h-9 w-full rounded-xl text-xs font-semibold whitespace-nowrap bg-transparent border-none shadow-none text-[#8a2be2] dark:text-[#FFA500]/80 hover:text-[#7823c9] dark:hover:text-[#FFA500] hover:bg-purple-50/60 dark:hover:bg-[#FFA500]/15 transition-all duration-300 cursor-pointer"
           >
@@ -439,77 +392,9 @@ export const Sidebar: React.FC = () => {
             )}
           </button>
 
-          {/* Dynamic Notifications Popover (No mock items, dynamic fetch from DB) */}
           {alertMenuOpen && (
-            <div
-              ref={alertMenuRef}
-              className={`absolute ${
-                isCollapsed
-                  ? "left-full ml-3 bottom-0"
-                  : "bottom-full left-0 mb-3"
-              } w-72 rounded-2xl bg-white dark:bg-[#182234] border border-slate-200 dark:border-[#223048] shadow-2xl p-3 z-50 animate-in fade-in slide-in-from-bottom-2 duration-150`}
-            >
-              <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-[#223048]">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-bold text-slate-900 dark:text-slate-100">Notifications</span>
-                  {unreadCount > 0 && (
-                    <span className="px-1.5 py-0.5 rounded-full bg-purple-50 dark:bg-[#FFA500]/15 text-[10px] font-semibold text-[#8a2be2] dark:text-[#FFA500]">
-                      {unreadCount} unread
-                    </span>
-                  )}
-                </div>
-                {unreadCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={handleMarkAllRead}
-                    className="text-[10px] font-semibold text-[#8a2be2] dark:text-[#FFA500] hover:text-[#7823c9] dark:hover:text-[#FFA500]/80 transition-colors cursor-pointer"
-                  >
-                    Mark all as read
-                  </button>
-                )}
-              </div>
-
-              {loadingNotifications ? (
-                <div className="py-6 flex items-center justify-center">
-                  <div className="w-5 h-5 rounded-full border-2 border-[#8a2be2] dark:border-[#FFA500] border-t-transparent animate-spin" />
-                </div>
-              ) : notifications.length === 0 ? (
-                <div className="py-6 px-3 text-center flex flex-col items-center justify-center space-y-2">
-                  <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-[#151f32] flex items-center justify-center text-slate-400 dark:text-slate-400">
-                    <Bell className="w-4 h-4" />
-                  </div>
-                  <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">No notifications</div>
-                  <div className="text-[10px] text-slate-400 dark:text-slate-500 max-w-[190px] leading-tight">
-                    Notifications linked to your account will appear here.
-                  </div>
-                </div>
-              ) : (
-                <div className="py-2 space-y-1.5 max-h-64 overflow-y-auto">
-                  {notifications.map((notif) => (
-                    <div
-                      key={notif.id}
-                      onClick={() => handleNotificationClick(notif)}
-                      className={`p-2.5 rounded-xl border text-slate-700 dark:text-slate-300 cursor-pointer transition-colors ${
-                        notif.isRead
-                          ? "bg-slate-50/70 dark:bg-[#151f32]/60 border-slate-100 dark:border-[#223048]"
-                          : "bg-purple-50/50 dark:bg-[#FFA500]/10 border-purple-100/80 dark:border-[#FFA500]/30"
-                      } hover:bg-purple-50/80 dark:hover:bg-[#1e2a40]`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold text-xs text-slate-900 dark:text-slate-100 truncate">
-                          {notif.title}
-                        </span>
-                        {!notif.isRead && (
-                          <span className="w-1.5 h-1.5 rounded-full bg-[#8a2be2] dark:bg-[#FFA500] shrink-0" />
-                        )}
-                      </div>
-                      <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5 line-clamp-2">
-                        {notif.message}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
+            <div ref={alertMenuRef} className={"absolute z-50 " + (isCollapsed ? "left-full ml-3 bottom-0" : "bottom-full left-0 mb-3")}>
+              <NotificationCenter onNavigate={navigate} onClose={() => { closeCenter(); alertButtonRef.current?.focus(); }} />
             </div>
           )}
         </div>
@@ -521,7 +406,7 @@ export const Sidebar: React.FC = () => {
             type="button"
             onClick={() => {
               setUserMenuOpen((prev) => !prev);
-              setAlertMenuOpen(false);
+              closeCenter();
             }}
             aria-label="User profile and options"
             title={displayName}

@@ -158,3 +158,12 @@ input[type="radio"]:not(:disabled) {
 .animate-shake {
   animation: shake 0.4s ease-in-out;
 }
+/* Shared notification entrance respects the system motion preference. */
+@keyframes kin-activity-enter {
+  from { opacity: 0; transform: translateY(12px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.kin-activity-toast { animation: kin-activity-enter 220ms cubic-bezier(0.16, 1, 0.3, 1); }
+@media (prefers-reduced-motion: reduce) {
+  .kin-activity-toast { animation: none; }
+}

@@ -57,7 +57,7 @@ export const ACTIVITY_LABELS: Readonly<Record<ActivityKind, { running: (detail: 
     done: (detail) => `Wrote “${detail.title ?? "the document"}”`,
   },
   savingDocument: {
-    running: () => "Saving to this discussion's artifacts",
+    running: detail => detail.count ? `Generating ${detail.count} document image${detail.count === 1 ? "" : "s"}, preparing layout, and saving` : "Preparing final layout and saving the document",
     done: (detail) => `Saved as ${detail.fileName ?? "a document"} in artifacts`,
   },
   consolidating: {

@@ -59,7 +59,7 @@ export default function DiscussionsPage() {
   const [historyVersion, setHistoryVersion] = useState(0);
   const [initialUsage, setInitialUsage] = useState<SessionUsage>(EMPTY_USAGE);
   const [initialPendingAgentIds, setInitialPendingAgentIds] = useState<string[]>([]);
-  // Bumped whenever the chat saves a document or an export, so the artifacts list reloads.
+  // Bumped whenever the chat saves a document, so the artifacts list reloads.
   const [artifactsVersion, setArtifactsVersion] = useState(0);
   const handleArtifactsChanged = useCallback(() => setArtifactsVersion((version) => version + 1), []);
 

@@ -169,7 +169,7 @@ export async function apiRenameDiscussionSession(workspaceId: string, sessionId:
 
 export type ExportFormat = "md" | "docx" | "pdf";
 
-/** A file kept in a discussion: a document an agent wrote, an exported reply, or a file the user added. */
+/** A file kept in a discussion: a document an agent wrote or a file the user added. */
 export interface SessionArtifact {
   fileName: string;
   mimeType: string;
@@ -186,7 +186,14 @@ export interface DownloadableFile {
 
 const artifactsUrl = (workspaceId: string, sessionId: string) => `${workspaceUrl(workspaceId)}/${encodeURIComponent(sessionId)}/artifacts`;
 
-/** Exports one agent reply; the file is also kept in the discussion's artifacts. */
+export async function apiDownloadDocumentAsset(workspaceId: string, sessionId: string, assetName: string, signal?: AbortSignal): Promise<DownloadableFile> {
+  if (!/^[a-f0-9]{64}\.png$/.test(assetName)) throw new Error("The document image reference is invalid.");
+  const response = await authorizedFetch(`${workspaceUrl(workspaceId)}/${encodeURIComponent(sessionId)}/document-assets/${assetName}`, { signal });
+  if (!response.ok) return failure(response, "Could not load the document image");
+  return response.json();
+}
+
+/** Exports one agent reply for download without adding an artifact. */
 export async function apiExportDiscussionMessage(workspaceId: string, sessionId: string, messageId: string, format: ExportFormat): Promise<DownloadableFile> {
   const response = await authorizedFetch(`${workspaceUrl(workspaceId)}/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}/export`, {
     method: "POST",
@@ -209,7 +216,7 @@ export async function apiDownloadSessionArtifact(workspaceId: string, sessionId:
   return response.json();
 }
 
-/** Converts a Markdown document in the artifacts to Word or PDF; the result is kept beside it. */
+/** Converts a Markdown document to Word or PDF for download. */
 export async function apiExportSessionArtifact(workspaceId: string, sessionId: string, fileName: string, format: ExportFormat): Promise<DownloadableFile> {
   const response = await authorizedFetch(`${artifactsUrl(workspaceId, sessionId)}/${encodeURIComponent(fileName)}/export`, {
     method: "POST",

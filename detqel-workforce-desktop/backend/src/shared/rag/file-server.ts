@@ -1,6 +1,8 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
+import { DOCUMENT_ASSET_PATTERN, DOCUMENT_IMAGE_ERRORS, DOCUMENT_RENDER_LIMITS } from "../../constants/documentImageConstants.js";
 import { homedir } from "node:os";
-import { chmod, mkdir, readFile, readdir, rename, rm, unlink, writeFile, stat } from "node:fs/promises";
+import { chmod, mkdir, readFile, readdir, rename, rm, unlink, writeFile, stat, realpath, lstat, open, link } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
 import { extname, join, resolve } from "node:path";
 import { AppError } from "../errors/app-error.js";
 import { createScopedLogger } from "../logging/logger.js";
@@ -99,12 +101,67 @@ export class FileServer {
         return stored;
     }
 
+    /** Publishes a complete new artifact atomically without overwriting a concurrently uploaded file. */
+    async storeArtifactIfAbsent(location: SessionLocation, fileName: string, mimeType: string, contents: Buffer): Promise<StoredFile | null> {
+        this.assertSafeFileName(fileName);
+        this.assertAllowedType(fileName, mimeType);
+        const directory = join(this.sessionDirectory(location), FILE_SERVER_SESSION_DIRECTORIES.artifacts);
+        await this.makeHardenedDirectory(directory);
+        const target = join(directory, fileName);
+        const temporary = join(directory, `${FILE_SERVER_TEMP.prefix}${randomBytes(FILE_SERVER_TEMP.randomBytes).toString(FILE_SERVER_TEMP.encoding)}${FILE_SERVER_TEMP.suffix}`);
+        const temporaryFile = await open(temporary, "wx", FILE_SERVER_FILE_MODES.file);
+        try {
+            await temporaryFile.writeFile(contents);
+            await temporaryFile.close();
+            if (process.platform !== DESKTOP_PLATFORM.windows) await chmod(temporary, FILE_SERVER_FILE_MODES.file);
+            try { await link(temporary, target); }
+            catch (error) { if ((error as NodeJS.ErrnoException).code === "EEXIST") return null; throw error; }
+            return { name: fileName, path: target, size: contents.byteLength };
+        } finally { await temporaryFile.close().catch(() => undefined); await unlink(temporary).catch(() => undefined); }
+    }
+
     listArtifacts(location: SessionLocation): Promise<StoredFile[]> {
         return this.list(location, FILE_SERVER_SESSION_DIRECTORIES.artifacts);
     }
 
     readArtifact(location: SessionLocation, fileName: string): Promise<Buffer> {
         return this.read(location, FILE_SERVER_SESSION_DIRECTORIES.artifacts, fileName);
+    }
+
+    /** Content-addressed assets stay out of the list of handed-over documents. */
+    async storeDocumentAsset(location: SessionLocation, contents: Buffer): Promise<string> {
+        if (!contents.length || contents.length > DOCUMENT_RENDER_LIMITS.imageBytes) throw new AppError(422, DOCUMENT_IMAGE_ERRORS.invalidImage);
+        const name = createHash("sha256").update(contents).digest("hex") + ".png";
+        await this.store(location, FILE_SERVER_SESSION_DIRECTORIES.documentAssets, name, "image/png", contents);
+        return "kin-asset:" + name;
+    }
+
+    async readDocumentAsset(location: SessionLocation, source: string): Promise<Buffer> {
+        const match = DOCUMENT_ASSET_PATTERN.exec(source);
+        if (!match) throw new AppError(400, DOCUMENT_IMAGE_ERRORS.unavailableAsset);
+        const target = join(this.sessionDirectory(location), FILE_SERVER_SESSION_DIRECTORIES.documentAssets, match[1]);
+        try {
+            const base = await realpath(this.base);
+            const physical = await realpath(target);
+            const expected = join(base, location.workspaceId, location.scope, location.sessionId, FILE_SERVER_SESSION_DIRECTORIES.documentAssets, match[1]);
+            const equal = process.platform === "win32" ? physical.toLowerCase() === expected.toLowerCase() : physical === expected;
+            if (!equal || (await lstat(target)).isSymbolicLink()) throw new Error("Invalid asset location");
+            const handle = await open(target, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+            const chunks: Buffer[] = [];
+            let length = 0;
+            try {
+                const info = await handle.stat();
+                if (!info.isFile() || info.size > DOCUMENT_RENDER_LIMITS.imageBytes) throw new Error("Asset size limit");
+                for await (const chunk of handle.createReadStream({ autoClose: false, start: 0, end: DOCUMENT_RENDER_LIMITS.imageBytes })) {
+                    length += (chunk as Buffer).length;
+                    if (length > DOCUMENT_RENDER_LIMITS.imageBytes) throw new Error("Asset size limit");
+                    chunks.push(chunk as Buffer);
+                }
+            } finally { await handle.close(); }
+            const contents = Buffer.concat(chunks);
+            if (contents.length > DOCUMENT_RENDER_LIMITS.imageBytes || createHash("sha256").update(contents).digest("hex") + ".png" !== match[1]) throw new Error("Asset integrity mismatch");
+            return contents;
+        } catch { throw new AppError(404, DOCUMENT_IMAGE_ERRORS.unavailableAsset); }
     }
 
     /** Removes one artifact. Returns false when it did not exist. */

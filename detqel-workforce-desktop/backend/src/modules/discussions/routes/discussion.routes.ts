@@ -33,13 +33,18 @@ export const discussionRoutes: FastifyPluginAsync = async (app) => {
 
     app.post("/discussions/workspaces/:workspaceId/sessions/:sessionId/messages/:messageId/export", {
         preHandler: write,
-        schema: { tags: [API_TAG_NAMES.discussions], summary: "Export an agent reply as Markdown, Word, or PDF and keep it in the session's artifacts" },
+        schema: { tags: [API_TAG_NAMES.discussions], summary: "Download an agent reply as Markdown, Word, or PDF" },
     }, controller.exportMessage.bind(controller));
 
     app.get("/discussions/workspaces/:workspaceId/sessions/:sessionId/artifacts", {
         preHandler: read,
         schema: { tags: [API_TAG_NAMES.discussions], summary: "List the files kept in a discussion" },
     }, controller.listArtifacts.bind(controller));
+
+    app.get("/discussions/workspaces/:workspaceId/sessions/:sessionId/document-assets/:assetName", {
+        preHandler: read,
+        schema: { tags: [API_TAG_NAMES.discussions], summary: "Load an embedded image belonging to this discussion" },
+    }, controller.downloadDocumentAsset.bind(controller));
 
     app.post("/discussions/workspaces/:workspaceId/sessions/:sessionId/artifacts", {
         preHandler: write,

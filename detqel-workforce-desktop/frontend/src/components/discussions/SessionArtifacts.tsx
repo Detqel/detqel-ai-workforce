@@ -33,7 +33,7 @@ function modified(iso: string): string {
   return today ? formatTime(date) : date.toLocaleDateString();
 }
 
-/** The files a discussion keeps: documents agents wrote, exported replies, and files the user added. */
+/** The files a discussion keeps: documents agents wrote and files the user added. */
 export function SessionArtifacts({ workspaceId, sessionId, version }: SessionArtifactsProps) {
   const toast = useToast();
   const confirm = useConfirm();
@@ -60,7 +60,8 @@ export function SessionArtifacts({ workspaceId, sessionId, version }: SessionArt
   const download = async (artifact: SessionArtifact) => {
     if (!workspaceId || !sessionId) return;
     try {
-      saveDownload(await apiDownloadSessionArtifact(workspaceId, sessionId, artifact.fileName));
+      const file = await apiDownloadSessionArtifact(workspaceId, sessionId, artifact.fileName);
+      toast.download(saveDownload(file));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not download the file.");
     }
@@ -69,15 +70,11 @@ export function SessionArtifacts({ workspaceId, sessionId, version }: SessionArt
   const convert = async (artifact: SessionArtifact, format: ExportFormat) => {
     if (!workspaceId || !sessionId) return;
     try {
-      // Markdown is the document itself; Word and PDF are made from it and kept beside it.
+      // Markdown is the source document; converted formats are download-only.
       const file = format === "md"
         ? await apiDownloadSessionArtifact(workspaceId, sessionId, artifact.fileName)
         : await apiExportSessionArtifact(workspaceId, sessionId, artifact.fileName, format);
-      saveDownload(file);
-      if (format !== "md") {
-        reload();
-        toast.success(`Exported ${file.fileName}.`);
-      }
+      toast.download(saveDownload(file));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not export the document.");
     }
@@ -137,7 +134,7 @@ export function SessionArtifacts({ workspaceId, sessionId, version }: SessionArt
           <div className="flex items-center justify-center p-4"><Loader2 className="h-5 w-5 animate-spin text-primary" /></div>
         ) : artifacts.length === 0 ? (
           <div className="text-center p-4 text-xs text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
-            Nothing saved yet. Documents agents write and replies you export appear here.
+            Nothing saved yet. Documents agents write and files you add appear here.
           </div>
         ) : (
           <ul className="space-y-1.5">

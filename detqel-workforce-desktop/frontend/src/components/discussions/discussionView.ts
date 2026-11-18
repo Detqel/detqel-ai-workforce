@@ -23,6 +23,7 @@ export interface ChatMessage {
   activity?: ActivityStep[];
   /** The reply is still being written; it is not saved yet. */
   streaming?: boolean;
+  interruption?: string;
 }
 
 export const EMPTY_USAGE: SessionUsage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, costUsd: 0 };
@@ -48,6 +49,7 @@ export function toViewMessage(message: ApiChatMessage, target: DiscussionTarget 
     timestamp: formatTime(new Date(message.createdAt)),
     sources: sources?.map((source) => ({ title: source.title, url: source.url, reference: source.reference })),
     activity: assistant ? message.activity : undefined,
+    interruption: message.activity?.find(step => step.detail?.interruption)?.detail?.interruption,
     turnRole: assistant ? message.turnRole ?? undefined : undefined,
   };
 }
@@ -63,10 +65,10 @@ export function documentOf(message: ChatMessage): { title: string; fileName?: st
 }
 
 /** Replies shown as one compact line with a viewer instead of in full: handoffs and documents. */
-export const isCompact = (message: ChatMessage) => isHandoff(message) || documentOf(message) !== null;
+export const isCompact = (message: ChatMessage) => !message.interruption && (isHandoff(message) || documentOf(message) !== null);
 
 /** A reply that is saved on the server, so it can be exported. */
-export const isSaved = (message: ChatMessage) => !message.streaming && !message.id.startsWith("live-");
+export const isSaved = (message: ChatMessage) => !message.streaming && !message.interruption && !message.id.startsWith("live-");
 
 /** What the lead asked a teammate to do, from the handoff's first step. */
 export const handoffTask = (message: ChatMessage) => message.activity?.find((step) => step.kind === "assigned")?.detail;

@@ -20,6 +20,7 @@ export interface RepositorySummary {
 }
 export interface RepositoryBranch { name: string; commit: string | null }
 export interface RepositoryEntry { name: string; path: string; type: "file" | "directory" | "other" }
+export type RepositoryDirectoryEntries = RepositoryEntry[] & { nextPage?: number | null; complete?: boolean };
 export interface RepositoryCommit { id: string; message: string; author: string | null; date: string | null }
 export interface RepositoryPullRequest {
     id: string;
@@ -36,7 +37,7 @@ export interface RepositoryClient {
     repository(): Promise<RepositorySummary>;
     branches(limit: number): Promise<RepositoryBranch[]>;
     /** Lists one directory level; `path` is "" for the root. */
-    entries(path: string, ref: string): Promise<RepositoryEntry[]>;
+    entries(path: string, ref: string, page?: number): Promise<RepositoryDirectoryEntries>;
     /** A text file's content. */
     file(path: string, ref: string): Promise<string>;
     commits(ref: string, limit: number): Promise<RepositoryCommit[]>;
@@ -57,6 +58,39 @@ const lastSegment = (path: string) => path.split("/").filter(Boolean).at(-1) ?? 
 const branchName = (ref: string) => ref.replace(/^refs\/heads\//, "");
 const notDirectory = () => new AppError(400, "The path is a file. Use the read operation to get its content.");
 const notFile = () => new AppError(400, "The path is a directory. List it with the files resource.");
+
+function directoryEntries(entries: RepositoryEntry[], nextPage: number | null): RepositoryDirectoryEntries {
+    return Object.assign(entries, { nextPage, complete: nextPage === null });
+}
+
+function localDirectoryPage(entries: RepositoryEntry[], page: number): RepositoryDirectoryEntries {
+    const offset = (page - 1) * REPOSITORY_LIMITS.maxPageSize;
+    return directoryEntries(entries.slice(offset, offset + REPOSITORY_LIMITS.maxPageSize), offset + REPOSITORY_LIMITS.maxPageSize < entries.length ? page + 1 : null);
+}
+
+async function githubTreeDirectory(http: RepositoryHttp, base: URL, root: string, path: string, ref: string, page: number): Promise<RepositoryDirectoryEntries> {
+    const schema = z.object({ truncated: z.boolean(), tree: z.array(z.object({ path: z.string(), type: z.string(), mode: z.string(), sha: z.string() })) });
+    const read = async (sha: string) => {
+        const result = parse(schema, await http.json(apiUrl(base, `${root}/git/trees/${enc(sha)}`)));
+        if (result.truncated) throw new AppError(422, "The provider truncated this directory's Git tree. Repository coverage is incomplete.");
+        return result.tree;
+    };
+    let entries = await read(ref);
+    for (const segment of path.split("/").filter(Boolean)) {
+        const child = entries.find(entry => entry.path === segment && entry.type === "tree");
+        if (!child) throw new AppError(404, "The repository directory was not found.");
+        entries = await read(child.sha);
+    }
+    return localDirectoryPage(entries.map(entry => ({ name: entry.path, path: path ? `${path}/${entry.path}` : entry.path, type: entry.type === "tree" ? "directory" : entry.type === "blob" && entry.mode !== "120000" ? "file" : "other" })), page);
+}
+
+function nextDirectoryPage(next: string | null | undefined, base: URL): number | null {
+    if (!next) return null;
+    const url = new URL(next);
+    const page = Number(url.searchParams.get("page"));
+    if (url.origin !== base.origin || !Number.isSafeInteger(page) || page < 1) throw new AppError(502, "The provider returned an invalid directory page.");
+    return page;
+}
 
 function optionalString(configuration: Record<string, unknown>, key: string): string | undefined {
     const value = configuration[key];
@@ -149,10 +183,11 @@ function githubStyleClient(http: RepositoryHttp, base: URL, owner: string, repos
             const branches = parse(githubBranches, await http.json(apiUrl(base, `${root}/branches`, { [pageParam]: limit })));
             return branches.map(branch => ({ name: branch.name, commit: branch.commit?.sha ?? branch.commit?.id ?? null }));
         },
-        async entries(path, ref) {
+        async entries(path, ref, page = 1) {
+            if (pageParam === "per_page") return githubTreeDirectory(http, base, root, path, ref, page);
             const data = await http.json(apiUrl(base, contents(path), { ref }));
             if (!Array.isArray(data)) throw notDirectory();
-            return parse(githubEntries, data).map(entry => ({ name: entry.name, path: entry.path, type: entryType(entry.type === "dir", entry.type === "file") }));
+            return localDirectoryPage(parse(githubEntries, data).map(entry => ({ name: entry.name, path: entry.path, type: entryType(entry.type === "dir", entry.type === "file") })), page);
         },
         async file(path, ref) {
             const data = await http.json(apiUrl(base, contents(path), { ref }));
@@ -240,9 +275,9 @@ const gitlab: RepositoryProvider = {
                 const branches = parse(gitlabBranches, await http.json(apiUrl(base, `${root}/repository/branches`, { per_page: limit })));
                 return branches.map(branch => ({ name: branch.name, commit: branch.commit?.id ?? null }));
             },
-            async entries(path, ref) {
-                const tree = parse(gitlabTree, await http.json(apiUrl(base, `${root}/repository/tree`, { path, ref, per_page: REPOSITORY_LIMITS.maxPageSize })));
-                return tree.map(entry => ({ name: entry.name, path: entry.path, type: entryType(entry.type === "tree", entry.type === "blob") }));
+            async entries(path, ref, page = 1) {
+                const tree = parse(gitlabTree, await http.json(apiUrl(base, `${root}/repository/tree`, { path, ref, per_page: REPOSITORY_LIMITS.maxPageSize, page })));
+                return directoryEntries(tree.map(entry => ({ name: entry.name, path: entry.path, type: entryType(entry.type === "tree", entry.type === "blob") })), tree.length === REPOSITORY_LIMITS.maxPageSize ? page + 1 : null);
             },
             async file(path, ref) {
                 const file = parse(gitlabFile, await http.json(apiUrl(base, `${root}/repository/files/${enc(path)}`, { ref })));
@@ -308,17 +343,17 @@ const azureDevops: RepositoryProvider = {
                 const refs = parse(adoList(adoRef), await http.json(url("/refs", { filter: "heads/", $top: limit })));
                 return refs.value.map(ref => ({ name: branchName(ref.name), commit: ref.objectId ?? null }));
             },
-            async entries(path, ref) {
+            async entries(path, ref, page = 1) {
                 const scope = `/${path}`;
                 const items = parse(adoList(adoItem), await http.json(url("/items", { scopePath: scope, recursionLevel: "OneLevel", ...version(ref) })));
                 // The listing includes the folder itself; a file path lists only that file.
                 const children = items.value.filter(item => item.path !== scope);
                 if (!children.length && items.value.some(item => item.path === scope && !item.isFolder)) throw notDirectory();
-                return children.map(item => ({
+                return localDirectoryPage(children.map(item => ({
                     name: lastSegment(item.path),
                     path: item.path.replace(/^\/+/, ""),
                     type: entryType(Boolean(item.isFolder), item.gitObjectType === "blob" || (!item.isFolder && !item.gitObjectType)),
-                }));
+                })), page);
             },
             async file(path, ref) {
                 const item = parse(adoItem, await http.json(url("/items", { path: `/${path}`, includeContent: "true", ...version(ref) })));
@@ -348,7 +383,7 @@ const azureDevops: RepositoryProvider = {
 
 // ---- Bitbucket Cloud ----
 
-const bitbucketPage = <S extends z.ZodTypeAny>(item: S) => z.object({ values: z.array(item) });
+const bitbucketPage = <S extends z.ZodTypeAny>(item: S) => z.object({ values: z.array(item), next: z.string().nullish() });
 const bitbucketRepository = z.object({
     full_name: z.string(), mainbranch: z.object({ name: z.string() }).nullish(), is_private: z.boolean().optional(),
     links: z.object({ html: z.object({ href: z.string() }).nullish() }).nullish(),
@@ -405,13 +440,14 @@ const bitbucketCloud: RepositoryProvider = {
                 const page = parse(bitbucketPage(bitbucketBranch), await http.json(apiUrl(base, `${root}/refs/branches`, { pagelen: limit })));
                 return page.values.map(branch => ({ name: branch.name, commit: branch.target?.hash ?? null }));
             },
-            async entries(path, ref) {
+            async entries(path, ref, page = 1) {
                 const target = `${root}/src/${enc(await revision(ref))}/${path ? `${encodePath(path)}/` : ""}`;
-                const data = await http.json(apiUrl(base, target, { pagelen: REPOSITORY_LIMITS.maxPageSize }));
+                const data = await http.json(apiUrl(base, target, { pagelen: REPOSITORY_LIMITS.maxPageSize, page }));
                 if (data === null || typeof data !== "object" || !("values" in data)) throw notDirectory();
-                return parse(bitbucketPage(bitbucketSource), data).values.map(entry => ({
+                const listing = parse(bitbucketPage(bitbucketSource), data);
+                return directoryEntries(listing.values.map(entry => ({
                     name: lastSegment(entry.path), path: entry.path, type: entryType(entry.type === "commit_directory", entry.type === "commit_file"),
-                }));
+                })), nextDirectoryPage(listing.next, base));
             },
             async file(path, ref) {
                 return textContent(await http.text(apiUrl(base, `${root}/src/${enc(await revision(ref))}/${encodePath(path)}`)));
@@ -444,7 +480,7 @@ const bitbucketServerRepository = z.object({
 const bitbucketServerDefaultBranch = z.object({ displayId: z.string() }).nullable();
 const bitbucketServerBranch = z.object({ displayId: z.string(), latestCommit: z.string().nullish() });
 const bitbucketServerBrowse = z.object({
-    children: z.object({ values: z.array(z.object({ path: z.object({ components: z.array(z.string()) }), type: z.string() })) }).optional(),
+    children: z.object({ values: z.array(z.object({ path: z.object({ components: z.array(z.string()) }), type: z.string() })), isLastPage: z.boolean(), nextPageStart: z.number().int().nonnegative().optional() }).optional(),
 });
 const bitbucketServerCommit = z.object({
     id: z.string(), message: z.string().nullish(), authorTimestamp: z.number().nullish(),
@@ -487,19 +523,20 @@ const bitbucketDataCenter: RepositoryProvider = {
                 const page = parse(bitbucketPage(bitbucketServerBranch), await http.json(apiUrl(base, `${root}/branches`, { limit })));
                 return page.values.map(branch => ({ name: branch.displayId, commit: branch.latestCommit ?? null }));
             },
-            async entries(path, ref) {
+            async entries(path, ref, page = 1) {
                 const browse = parse(bitbucketServerBrowse, await http.json(apiUrl(base, `${root}/browse${path ? `/${encodePath(path)}` : ""}`, {
-                    at: ref, limit: REPOSITORY_LIMITS.maxPageSize,
+                    at: ref, limit: REPOSITORY_LIMITS.maxPageSize, start: page - 1,
                 })));
                 if (!browse.children) throw notDirectory();
-                return browse.children.values.map(child => {
+                if (!browse.children.isLastPage && browse.children.nextPageStart === undefined) throw new AppError(502, "The provider omitted its next directory page.");
+                return directoryEntries(browse.children.values.map(child => {
                     const relative = child.path.components.join("/");
                     return {
                         name: lastSegment(relative),
                         path: path ? `${path}/${relative}` : relative,
                         type: entryType(child.type === "DIRECTORY", child.type === "FILE"),
                     };
-                });
+                }), browse.children.isLastPage ? null : browse.children.nextPageStart! + 1);
             },
             async file(path, ref) {
                 return textContent(await http.text(apiUrl(base, `${root}/raw/${encodePath(path)}`, { at: ref })));

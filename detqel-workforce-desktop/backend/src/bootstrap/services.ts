@@ -26,7 +26,8 @@ import { DiscussionParticipants } from "../modules/discussions/services/discussi
 import { LiteLlmClient } from "../shared/agents/litellm.client.js";
 import { VirtualKeyRegistry } from "../shared/agents/virtual-key.registry.js";
 import { DiscussionRuntime } from "../shared/agents/graphs/discussion-runtime.js";
-import { PomlLoader } from "../shared/agents/poml/loader.js";
+import { PromptLoader } from "../shared/agents/prompts/loader.js";
+import { createPromptLoader } from "../shared/agents/prompts/prompt-loader.factory.js";
 import { FileServer } from "../shared/rag/file-server.js";
 import { MilvusClient } from "../shared/rag/milvus.client.js";
 import { RagService } from "../shared/rag/rag.service.js";
@@ -43,7 +44,7 @@ import { hostname } from "node:os";
 import { AgentConnectorAccess, type IAgentConnectorAccess } from "../modules/connections/services/agent-connector-access.service.js";
 import { DiscussionToolboxFactory } from "../modules/discussions/services/discussion-toolbox.js";
 import { SessionKnowledge } from "../shared/rag/session-knowledge.js";
-export function createServices(unit: IUnitOfWork, checkDatabase: () => Promise<void>, config: Environment, pomlLoader: PomlLoader = new PomlLoader({ bundledDirectory: process.cwd(), runtimeDirectory: process.cwd() })) {
+export function createServices(unit: IUnitOfWork, checkDatabase: () => Promise<void>, config: Environment, promptLoader: PromptLoader = createPromptLoader()) {
     const sessions = new SessionService(config.AUTH_SESSION_SECRET, config.AUTH_SESSION_TTL_SECONDS);
     const licensePortal = new LicensePortalClient({ baseUrl: config.LICENSE_PORTAL_URL, productKey: config.LICENSE_PORTAL_PRODUCT_KEY, timeoutMs: config.LICENSE_PORTAL_TIMEOUT_MS });
     const licenseTokens = new LicenseTokenVerifier({ portalUrl: config.LICENSE_PORTAL_URL, issuer: config.LICENSE_PORTAL_ISSUER, audience: config.LICENSE_PORTAL_AUDIENCE, timeoutMs: config.LICENSE_PORTAL_TIMEOUT_MS });
@@ -57,7 +58,7 @@ export function createServices(unit: IUnitOfWork, checkDatabase: () => Promise<v
     const settings = new SettingsService(unit.settings, providerSecrets);
     const connections = new ConnectionService(unit.connections, unit.connectorCatalog, credentials, adapters);
     // Agents read connectors only through this layer, which allows read operations alone.
-    const discussions = createDiscussionService(unit, config, settings, pomlLoader, new AgentConnectorAccess(connections));
+    const discussions = createDiscussionService(unit, config, settings, promptLoader, new AgentConnectorAccess(connections));
     return {
         auth: new AuthService(unit.users, unit.workspaces, sessions, licensePortal, licenseTokens, installationMetadata()),
         workspaces: new WorkspaceService(unit),
@@ -94,7 +95,7 @@ function installationMetadata(): PortalClientMetadata {
  * infrastructure environment; the discussion service is still constructed when they are absent so the module
  * registers, and its endpoints fail fast with a clear message if the gateway or vector store is unconfigured.
  */
-function createDiscussionService(unit: IUnitOfWork, config: Environment, settings: SettingsService, pomlLoader: PomlLoader, connectorAccess: IAgentConnectorAccess): DiscussionService {
+function createDiscussionService(unit: IUnitOfWork, config: Environment, settings: SettingsService, promptLoader: PromptLoader, connectorAccess: IAgentConnectorAccess): DiscussionService {
     const gateway = new LiteLlmClient({ baseUrl: config.LITELLM_BASE_URL ?? "", masterKey: config.LITELLM_API_KEY ?? "" });
     const virtualKeyCipher = new SecretCipher(config.CONNECTOR_ENCRYPTION_KEY, AGENT_RUNTIME_SECRET_PURPOSE);
     const keys = new VirtualKeyRegistry(gateway, unit.virtualKeys, virtualKeyCipher);
@@ -105,11 +106,11 @@ function createDiscussionService(unit: IUnitOfWork, config: Environment, setting
         { model: OLLAMA_EMBEDDING_MODEL, apiBase: OLLAMA_GATEWAY_BASE_URL },
         config.CONNECTOR_ENCRYPTION_KEY,
     );
-    const runtime = new DiscussionRuntime(gateway, keys, pomlLoader);
+    const runtime = new DiscussionRuntime(gateway, keys, promptLoader);
     const milvus = new MilvusClient({ address: config.MILVUS_ADDRESS ?? "", token: config.MILVUS_TOKEN });
     const rag = new RagService(gateway, keys, milvus);
     const fileServer = new FileServer();
-    const participants = new DiscussionParticipants(unit.workforce, pomlLoader);
+    const participants = new DiscussionParticipants(unit.workforce, promptLoader);
     // Each workspace searches the web with the Tavily key it saved in Settings.
     const webSearch = new WorkspaceWebSearch(workspaceId => settings.resolveWebSearchKey(workspaceId));
     const knowledge = new SessionKnowledge(fileServer, rag);

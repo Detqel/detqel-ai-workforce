@@ -18,6 +18,7 @@ export function DesktopGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const handleContextMenu = (e: MouseEvent) => {
+      if (e.target instanceof Element && e.target.closest("[data-chat-text]")) return;
       e.preventDefault();
     };
 

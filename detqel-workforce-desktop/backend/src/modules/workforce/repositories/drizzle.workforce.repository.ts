@@ -1,8 +1,8 @@
 import { and, asc, desc, eq, ilike, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import type { DatabaseSession } from "../../../infrastructure/database/connection.js";
 import { BaseRepository } from "../../../infrastructure/database/repositories/base.repository.js";
-import type { PomlLoader } from "../../../shared/agents/poml/loader.js";
-import { buildAgentPoml } from "../../../shared/agents/poml/poml-builder.js";
+import type { PromptLoader } from "../../../shared/agents/prompts/loader.js";
+import { buildAgentMarkdown, configuredAgentPrompt } from "../../../shared/agents/prompts/prompt-builder.js";
 import {
     agentConnections,
     agentMemory,
@@ -47,17 +47,17 @@ import type {
 } from "../../../shared/types/graphs.js";
 
 export class WorkforceRepository extends BaseRepository<typeof agents, Agent, NewAgent> implements IWorkforceRepository {
-    constructor(database: DatabaseSession, private readonly poml?: PomlLoader) {
+    constructor(database: DatabaseSession, private readonly prompts?: PromptLoader) {
         super(agents, database);
     }
 
     /**
-     * Writes the POML prompt for a freshly inserted `agents` row and points its promptRef at the file.
-     * The agent's own uuid is used as the POML id. No-op when no PomlLoader is injected.
+     * Writes the Markdown prompt for a freshly inserted `agents` row and points its promptRef at the file.
+     * The agent's own uuid is used as the Markdown id. No-op when no PromptLoader is injected.
      */
-    private async persistAgentPrompt(agentId: string, role: string, purpose: string, instructions: string): Promise<void> {
-        if (!this.poml) return;
-        await this.poml.writeUserAgentPrompt(agentId, buildAgentPoml({ role, purpose, instructions }));
+    private async persistAgentPrompt(agentId: string, role: string, purpose: string, instructions: string, systemPrompt: string): Promise<void> {
+        if (!this.prompts) return;
+        await this.prompts.writeUserAgentPrompt(agentId, configuredAgentPrompt(buildAgentMarkdown({ role, purpose, instructions, systemPrompt })).source);
         await this.database.update(agents).set({ promptRef: agentId }).where(eq(agents.id, agentId));
     }
 
@@ -300,7 +300,7 @@ export class WorkforceRepository extends BaseRepository<typeof agents, Agent, Ne
                 status: "active",
                 createdBy: data.userId,
             }).returning();
-            await this.persistAgentPrompt(insertedAgent.id, customRole, template.summary || "", customInstructions);
+            await this.persistAgentPrompt(insertedAgent.id, customRole, template.summary || "", customInstructions, systemPrompt);
         }
 
         return recruited;
@@ -433,7 +433,7 @@ export class WorkforceRepository extends BaseRepository<typeof agents, Agent, Ne
             status: "active",
             createdBy: data.userId,
         }).returning();
-        await this.persistAgentPrompt(insertedAgent.id, data.role.trim(), summary, systemPrompt);
+        await this.persistAgentPrompt(insertedAgent.id, data.role.trim(), summary, systemPrompt, systemPrompt);
 
         return {
             ...recruited,

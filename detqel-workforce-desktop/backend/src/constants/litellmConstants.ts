@@ -36,7 +36,8 @@ export const LITELLM_REASONING_EFFORTS = {
 export const LITELLM_TIMEOUTS_MS = {
     admin: 15_000,
     health: 5_000,
-    inference: 120_000,
+    // Deep reasoning and document reviews can take longer than an interactive completion.
+    inference: 600_000,
     embeddings: 60_000,
 } as const;
 

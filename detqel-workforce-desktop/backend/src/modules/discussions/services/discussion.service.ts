@@ -1,5 +1,7 @@
+import type { DiscussionActivityStep } from "../../../shared/types/discussion-activity.js";
 import { randomUUID } from "node:crypto";
 import { AppError } from "../../../shared/errors/app-error.js";
+import type { TaskExecutionPlan, RepositorySnapshot } from "../../../shared/agents/graphs/task-plan.js";
 import { createScopedLogger } from "../../../shared/logging/logger.js";
 import type { IUnitOfWork } from "../../../shared/contracts/unit-of-work.js";
 import type { FileServer } from "../../../shared/rag/file-server.js";
@@ -51,7 +53,6 @@ import {
 import { FILE_SERVER_SCOPES, type FileServerScope } from "../../../constants/fileServerConstants.js";
 import type { ChatMessage, ChatSession, PendingResponder, PendingTurn } from "../repositories/discussion.repository.js";
 import type { DiscussionParticipants } from "./discussion-participants.js";
-import { addressedMembers } from "./discussion-addressing.js";
 import type { DiscussionToolboxFactory } from "./discussion-toolbox.js";
 import { workspaceBrief } from "./workspace-brief.js";
 import { knowledgeText, type KnowledgeDocument, type SessionKnowledge } from "../../../shared/rag/session-knowledge.js";
@@ -122,6 +123,17 @@ type Table =
     | { readonly kind: "team"; readonly team: TeamContext; readonly lead: DiscussionParticipant };
 
 /** A turn in progress for a session: stopped by a newer message, and awaited before that message is saved. */
+interface ReplyProgress {
+    readonly agentId: string;
+    readonly name: string;
+    readonly role: string;
+    readonly isLead: boolean;
+    readonly turnRole: SpeakerPlan["speakerRole"];
+    content: string;
+    draft: string;
+    readonly steps: Map<string, DiscussionActivityStep>;
+}
+
 interface RunningTurn {
     readonly controller: AbortController;
     readonly settled: Promise<void>;
@@ -138,7 +150,7 @@ function usageOf(session: ChatSession): SessionUsage {
 }
 
 function toTranscript(messages: ReadonlyArray<ChatMessage>): TranscriptMessage[] {
-    return messages.map(message => ({
+    return messages.filter(message => !message.activity?.some(step => step.detail?.interruption)).map(message => ({
         role: message.role === DISCUSSION_MESSAGE_ROLES.assistant ? "assistant" as const : "user" as const,
         content: message.content,
         speakerName: message.speakerName ?? null,
@@ -173,9 +185,8 @@ function toResponder(plan: SpeakerPlan): PendingResponder {
  * Orchestrates discussions: sessions, messages, per-session connector attachment, knowledge-base ingestion,
  * and the discussion table itself.
  *
- * A one-to-one session is answered by its agent. A team session is a round-robin table: the lead answers first
- * and may hand parts of the request to teammates, who then speak in turn; when the user names teammates, they
- * answer instead, in the order named. A whole turn runs as one LangGraph run whose progress streams to the user:
+ * A one-to-one session is answered by its agent. A team session plans the requested work once, selects the smallest sufficient set of specialists, and runs
+ * their assignments with the final owner last. Explicit agent requests and exclusions are interpreted by the planner. A whole turn runs as one LangGraph run whose progress streams to the user:
  * who is speaking, each step they take, and their reply as it is written. Every reply is saved as soon as it is
  * done; if the user leaves mid-turn, the speakers still due are kept and pick up when the discussion reopens.
  *
@@ -255,6 +266,9 @@ export class DiscussionService {
         const message = (await this.unit.discussions.listMessages(sessionId))
             .find(candidate => candidate.id === messageId && candidate.role === DISCUSSION_MESSAGE_ROLES.assistant);
         if (!message) throw new AppError(404, DOCUMENT_ERRORS.messageNotFound);
+        if (message.activity.some(step => step.detail?.interruption) || (message.turnRole !== DISCUSSION_SPEAKER_ROLES.delegate && !message.activity.some(step => step.kind === DISCUSSION_ACTIVITY_KINDS.savingDocument && step.status === "done"))) {
+            throw new AppError(422, "Export is available for handoffs and completed document artifacts.");
+        }
         const speaker = message.speakerName ?? session.title;
         const documentTitle = message.activity.find(step => step.kind === DISCUSSION_ACTIVITY_KINDS.savingDocument)?.detail?.title;
         const title = documentTitle
@@ -297,7 +311,7 @@ export class DiscussionService {
         if (!stem) throw new AppError(400, DOCUMENT_ERRORS.emptyDocument);
         const info: DocumentInfo = { title, subtitle: session.title, author: plan.participant.name, exportedAt: exportTimestamp() };
         const completed = await this.exporter.createDocument(info, content, {
-            workspaceId: session.workspaceId, imageCount: document?.imageCount ?? 0, signal,
+            workspaceId: session.workspaceId, imageCount: document?.imageCount ?? 0, requiredSections: document?.requiredSections, signal,
             storeAsset: contents => this.fileServer.storeDocumentAsset(location, contents),
             resolveAsset: source => this.fileServer.readDocumentAsset(location, source),
         });
@@ -432,27 +446,27 @@ export class DiscussionService {
      * stopped first: a new message starts a new turn, and teammates still due from the previous one do not reply.
      */
     async startMessage(input: PostMessageInput): Promise<PreparedTurn> {
-        const trimmed = input.message.trim();
-        if (trimmed.length === 0) throw new AppError(400, DISCUSSION_ERRORS.emptyMessage);
-        if (trimmed.length > DISCUSSION_LIMITS.maxMessageCharacters) throw new AppError(400, DISCUSSION_ERRORS.messageTooLong);
+        const message = input.message;
+        if (message.trim().length === 0) throw new AppError(400, DISCUSSION_ERRORS.emptyMessage);
+        if (message.length > DISCUSSION_LIMITS.maxMessageCharacters) throw new AppError(400, DISCUSSION_ERRORS.messageTooLong);
         const session = await this.getSession(input.workspaceId, input.sessionId);
         const settings: TurnSettings = { responseMode: input.responseMode, capabilityMode: input.capabilityMode, webEnabled: input.webEnabled };
         // Provision, check web search, and resolve the speakers before saving the message, so a configuration
         // problem does not leave an unanswered message behind.
-        await this.prepare(input.workspaceId, settings);
+        await this.prepare(input.workspaceId);
         const table = await this.resolveTable(session);
 
         await this.stopRunningTurn(session.id);
         const slot = this.claim(session.id);
         try {
             const turnId = randomUUID();
-            const userMessage = await this.unit.discussions.appendMessage({ sessionId: session.id, role: DISCUSSION_MESSAGE_ROLES.user, content: trimmed, turnId });
-            const queue = this.firstSpeakers(table, trimmed);
+            const userMessage = await this.unit.discussions.appendMessage({ sessionId: session.id, role: DISCUSSION_MESSAGE_ROLES.user, content: message, turnId });
+            const queue = this.firstSpeakers(table);
             await this.storeQueue(session.id, turnId, queue, settings);
             return {
                 run: (emit, signal) => {
                     emit({ type: DISCUSSION_STREAM_EVENTS.turn, userMessage });
-                    return this.runTurn(session, table, turnId, trimmed, settings, queue, null, slot, emit, signal);
+                    return this.runTurn(session, table, turnId, message, settings, queue, null, slot, emit, signal);
                 },
             };
         } catch (error) {
@@ -472,7 +486,7 @@ export class DiscussionService {
             capabilityMode: pending.capabilityMode as DiscussionCapabilityMode,
             webEnabled: pending.webEnabled,
         };
-        await this.prepare(workspaceId, settings);
+        await this.prepare(workspaceId);
         const table = await this.resolveTable(session);
         const userMessage = (await this.unit.discussions.listMessages(sessionId))
             .find(message => message.turnId === pending.turnId && message.role === DISCUSSION_MESSAGE_ROLES.user);
@@ -482,17 +496,15 @@ export class DiscussionService {
             const plan = this.planFor(table, entry, pending.leadName);
             return plan ? [plan] : [];
         });
+        if (pending.taskPlan && queue.length !== pending.queue.length) throw new AppError(409, "An agent assigned to this task is no longer in the team. Restore that agent or start a new turn so a new plan can be made.");
         const slot = this.claim(sessionId);
         const document = pending.document ?? null;
-        return { run: (emit, signal) => this.runTurn(session, table, pending.turnId, userMessage.content, settings, queue, document, slot, emit, signal) };
+        return { run: (emit, signal) => this.runTurn(session, table, pending.turnId, userMessage.content, settings, queue, document, slot, emit, signal, pending.taskPlan, pending.repositorySnapshots) };
     }
 
-    /** Expert turns with web enabled need the workspace's Tavily key; checked before anything is saved. */
-    private async prepare(workspaceId: string, settings: TurnSettings): Promise<void> {
+    /** Ensure the configured model before saving; web credentials are checked only if the plan needs a search. */
+    private async prepare(workspaceId: string): Promise<void> {
         await this.models.ensure(workspaceId);
-        if (settings.capabilityMode === DISCUSSION_CAPABILITY_MODES.expert && settings.webEnabled) {
-            await this.webSearch.assertConfigured(workspaceId);
-        }
     }
 
     private async resolveTable(session: ChatSession): Promise<Table> {
@@ -501,14 +513,9 @@ export class DiscussionService {
         throw new AppError(409, DISCUSSION_ERRORS.sessionWithoutParticipants);
     }
 
-    /** Who answers a new message: the solo agent; teammates the user named, in order; otherwise the lead. */
-    private firstSpeakers(table: Table, message: string): SpeakerPlan[] {
+    /** The initial planning participant; the validated plan selects the actual task executors. */
+    private firstSpeakers(table: Table): SpeakerPlan[] {
         if (table.kind === "solo") return [{ participant: table.agent, speakerRole: DISCUSSION_SPEAKER_ROLES.solo }];
-        const named = addressedMembers(message, table.team.members);
-        // Naming only the lead is an ordinary lead turn, in which the lead may still delegate.
-        if (named.some(member => !member.isLead)) {
-            return named.map(member => ({ participant: member, speakerRole: DISCUSSION_SPEAKER_ROLES.addressed }));
-        }
         return [{ participant: table.lead, speakerRole: DISCUSSION_SPEAKER_ROLES.lead }];
     }
 
@@ -533,22 +540,41 @@ export class DiscussionService {
         slot: RunningTurn,
         emit: (event: TurnStreamEvent) => void,
         signal: AbortSignal,
+        taskPlan?: TaskExecutionPlan | null,
+        repositorySnapshots?: ReadonlyArray<RepositorySnapshot>,
     ): Promise<void> {
         const stop = () => slot.controller.abort();
         signal.addEventListener("abort", stop, { once: true });
         if (signal.aborted) stop();
         let finished = false;
+        // Keep the current response until it is saved or deliberately replaced by routing.
+        // Failure snapshots use the same durable message history as completed responses.
+        const attempt: { progress: ReplyProgress | null } = { progress: null };
+        const forward = (event: TurnStreamEvent) => {
+            if (event.type === DISCUSSION_STREAM_EVENTS.speaker) {
+                attempt.progress = { agentId: String(event.agentId), name: String(event.name), role: String(event.role), isLead: event.isLead === true, turnRole: event.turnRole as SpeakerPlan["speakerRole"], content: "", draft: "", steps: new Map() };
+            } else if (attempt.progress && event.agentId === attempt.progress.agentId) {
+                if (event.type === DISCUSSION_STREAM_EVENTS.activity) {
+                    const step = event.step as DiscussionActivityStep;
+                    attempt.progress.steps.set(step.id, step);
+                } else if (event.type === DISCUSSION_STREAM_EVENTS.token && typeof event.text === "string") {
+                    attempt.progress.content = (attempt.progress.content + event.text).slice(0, 1_000_000);
+                } else if (event.type === DISCUSSION_STREAM_EVENTS.reply || event.type === DISCUSSION_STREAM_EVENTS.routed) {
+                    attempt.progress = null;
+                }
+            }
+            emit(event);
+        };
         try {
-            const expert = settings.capabilityMode === DISCUSSION_CAPABILITY_MODES.expert;
             const toolbox = await this.toolboxFor(session);
             const collaborators: DiscussionCollaborators = {
                 documentImages: await this.exporter.imageCapability(session.workspaceId),
-                // Expert replies search the knowledge base up front (RAG) unless it is small enough to sit whole in the
-                // cached prefix (CAG). Web search runs on the expert path only.
-                retrieveKnowledge: expert && toolbox?.searchKnowledge
+                // Small knowledge bases stay in the cacheable prefix; larger ones are retrieved during investigation.
+                // Web access is available only when enabled, and the plan decides whether it is needed.
+                retrieveKnowledge: toolbox?.searchKnowledge
                     ? query => this.knowledge.search(session.workspaceId, session.id, query, DISCUSSION_LIMITS.expertRetrievalTopK)
                     : undefined,
-                searchWeb: expert && settings.webEnabled ? query => this.webSearch.search(session.workspaceId, query, DISCUSSION_LIMITS.expertWebResults) : undefined,
+                searchWeb: settings.webEnabled ? query => this.webSearch.search(session.workspaceId, query, DISCUSSION_LIMITS.expertWebResults) : undefined,
                 ...(toolbox ? { toolbox } : {}),
             };
             slot.controller.signal.throwIfAborted();
@@ -559,20 +585,57 @@ export class DiscussionService {
                 settings,
                 collaborators,
                 document,
+                taskPlan,
+                repositorySnapshots,
+                allowedAgentIds: queue.some(item => item.speakerRole === DISCUSSION_SPEAKER_ROLES.lead) && table.kind === "team" ? table.team.members.map(member => member.agentId) : queue.map(item => item.participant.agentId),
                 ports: {
+                    retainDraft: (agentId, content) => {
+                        if (attempt.progress?.agentId === agentId) attempt.progress.draft = content.slice(0, 1_000_000);
+                    },
                     memory: () => this.memory(session),
-                    saveReply: (reply, remaining, pendingDocument) => this.saveReply(session, turnId, settings, reply, remaining, pendingDocument),
+                    saveReply: (reply, remaining, pendingDocument, plan, snapshots) => this.saveReply(session, turnId, settings, reply, remaining, pendingDocument, plan, snapshots),
+                    checkpoint: (remaining, pendingDocument, plan, snapshots) => this.storeQueue(session.id, turnId, remaining, settings, pendingDocument, plan, snapshots),
                     saveDocument: (title, content, plan, request, signal) => this.saveDocument(session, title, content, plan, request, signal),
                 },
-            }, queue, emit, slot.controller.signal);
+            }, queue, forward, slot.controller.signal);
             finished = true;
             const current = await this.getSession(session.workspaceId, session.id);
             emit({ type: DISCUSSION_STREAM_EVENTS.done, usage: usageOf(current) });
         } catch (error) {
-            // Leaving the discussion or sending a newer message stops the turn; the queue keeps who is still due.
-            if (slot.controller.signal.aborted) return;
-            // A failure ends the turn, so reopening the discussion does not retry it on its own.
-            await this.unit.discussions.setPendingTurn(session.id, null).catch(() => undefined);
+            const stopped = slot.controller.signal.aborted;
+            const reason = stopped ? "Stopped before completion. Continue when you are ready."
+                : error instanceof AppError && (error.statusCode < 500 || error.expose) ? error.message
+                : "The agent could not complete this request. Your progress was saved. You can continue the unfinished work.";
+            // Keep the checkpointed queue on failure; continuation must use the same plan and commit.
+            const current = await this.getSession(session.workspaceId, session.id);
+            const first = queue[0];
+            const active = current.pendingTurn?.queue.length ? attempt.progress ?? (first ? {
+                agentId: first.participant.agentId, name: first.participant.name, role: first.participant.role,
+                isLead: first.participant.isLead, turnRole: first.speakerRole, content: "", draft: "", steps: new Map<string, DiscussionActivityStep>(),
+            } : null) : null;
+            if (active) {
+                const now = new Date();
+                const steps: DiscussionActivityStep[] = [...active.steps.values()].map(step => step.status === "running" ? { ...step, status: "failed", durationMs: Math.max(0, now.getTime() - new Date(step.startedAt).getTime()) } : step);
+                steps.push({ id: randomUUID(), kind: DISCUSSION_ACTIVITY_KINDS.writing, status: "failed", startedAt: now.toISOString(), detail: { interruption: reason } });
+                const unfinished = active.content || active.draft;
+                const saved = await this.unit.discussions.appendMessage({
+                    sessionId: session.id, role: DISCUSSION_MESSAGE_ROLES.assistant, turnId,
+                    speakerAgentId: active.agentId,
+                    speakerName: active.name,
+                    speakerRole: active.role,
+                    isLead: active.isLead,
+                    turnRole: active.turnRole,
+                    responseMode: settings.responseMode, capabilityMode: settings.capabilityMode,
+                    content: unfinished ? `> Unfinished response: this content has not been handed over as a completed answer.\n\n${unfinished}` : "", activity: steps,
+                });
+                emit({ type: DISCUSSION_STREAM_EVENTS.reply, agentId: saved.speakerAgentId, message: saved, sources: [], usage: usageOf(current) });
+            }
+            const members = table.kind === "team" ? table.team.members : queue.map(plan => plan.participant);
+            emit({ type: DISCUSSION_STREAM_EVENTS.pending, speakers: (current.pendingTurn?.queue ?? []).flatMap(item => {
+                const member = members.find(member => member.agentId === item.agentId);
+                return member ? [{ agentId: member.agentId, name: member.name, role: member.role, isLead: member.isLead }] : [];
+            }) });
+            if (stopped) return;
             logger.error({ sessionId: session.id, error: String(error) }, "Discussion turn failed");
             throw error;
         } finally {
@@ -596,6 +659,8 @@ export class DiscussionService {
         reply: SpokenReply,
         remaining: ReadonlyArray<SpeakerPlan>,
         pendingDocument: TurnDocument | null,
+        taskPlan?: TaskExecutionPlan | null,
+        repositorySnapshots?: ReadonlyArray<RepositorySnapshot>,
     ): Promise<TurnStreamEvent[]> {
         const { participant } = reply.plan;
         const saved = await this.unit.discussions.appendMessageWithSources({
@@ -621,7 +686,7 @@ export class DiscussionService {
             sources: reply.sources.map(source => ({ sourceType: source.type, title: source.title, reference: source.reference, url: source.url })),
         });
         const totals = await this.unit.discussions.addUsage(session.id, reply.usage);
-        await this.storeQueue(session.id, turnId, remaining, settings, pendingDocument);
+        await this.storeQueue(session.id, turnId, remaining, settings, pendingDocument, taskPlan, repositorySnapshots);
         return [
             { type: DISCUSSION_STREAM_EVENTS.reply, agentId: participant.agentId, message: saved, sources: reply.sources, usage: usageOf(totals) },
             { type: DISCUSSION_STREAM_EVENTS.pending, speakers: remaining.map(toPendingSpeaker) },
@@ -629,13 +694,13 @@ export class DiscussionService {
     }
 
     /** Stores who is still due to reply, so a turn the user leaves resumes where it stopped; empty clears it. */
-    private async storeQueue(sessionId: string, turnId: string, queue: ReadonlyArray<SpeakerPlan>, settings: TurnSettings, document: TurnDocument | null = null): Promise<void> {
+    private async storeQueue(sessionId: string, turnId: string, queue: ReadonlyArray<SpeakerPlan>, settings: TurnSettings, document: TurnDocument | null = null, taskPlan: TaskExecutionPlan | null = null, repositorySnapshots?: ReadonlyArray<RepositorySnapshot>): Promise<void> {
         if (queue.length === 0) {
             await this.unit.discussions.setPendingTurn(sessionId, null);
             return;
         }
         const leadName = queue.find(plan => plan.assignment)?.assignment?.leadName ?? queue[0].participant.name;
-        const pending: PendingTurn = { turnId, queue: queue.map(toResponder), leadName, ...settings, document };
+        const pending: PendingTurn = { turnId, queue: queue.map(toResponder), leadName, ...settings, document, taskPlan, repositorySnapshots };
         await this.unit.discussions.setPendingTurn(sessionId, pending);
     }
 

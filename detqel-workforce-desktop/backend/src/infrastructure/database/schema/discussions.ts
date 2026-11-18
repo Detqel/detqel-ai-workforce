@@ -4,6 +4,7 @@ import { connections } from "./connections.js";
 import { organizationAgents } from "./recruit.js";
 import { agentTeams } from "./teams.js";
 import type { DiscussionActivityStep } from "../../../shared/types/discussion-activity.js";
+import type { TaskExecutionPlan, RepositorySnapshot } from "../../../shared/agents/graphs/task-plan.js";
 
 /** An agent still due to speak in the current turn: the lead or solo agent, a delegate, or a teammate the user named. */
 export interface PendingResponder {
@@ -18,6 +19,8 @@ export interface PendingResponder {
 
 /** The queue of teammates who still have to reply in the current turn, in speaking order, with the turn's settings. */
 export interface PendingTurn {
+    readonly taskPlan?: TaskExecutionPlan | null;
+    readonly repositorySnapshots?: ReadonlyArray<RepositorySnapshot>;
     readonly turnId: string;
     readonly queue: ReadonlyArray<PendingResponder>;
     /** The lead who handed out assignments, named to the teammates it delegated to. */
@@ -26,7 +29,7 @@ export interface PendingTurn {
     readonly capabilityMode: string;
     readonly webEnabled: boolean;
     /** A document the user asked for in this turn that is not written yet, and the agent who will write it. */
-    readonly document?: { readonly title: string; readonly ownerAgentId: string; readonly imageCount?: number } | null;
+    readonly document?: { readonly title: string; readonly ownerAgentId: string; readonly imageCount?: number; readonly requiredSections?: ReadonlyArray<string> } | null;
 }
 
 /**

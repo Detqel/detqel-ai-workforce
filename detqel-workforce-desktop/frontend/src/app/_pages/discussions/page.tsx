@@ -53,8 +53,8 @@ export default function DiscussionsPage() {
   const [activeTarget, setActiveTarget] = useState<DiscussionTarget | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string>("");
   const [isRightPaneOpen, setIsRightPaneOpen] = useState(true);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(true);
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
-  const [currentMessages, setCurrentMessages] = useState<ChatMessage[]>([]);
   const [initialMessages, setInitialMessages] = useState<ChatMessage[]>([]);
   const [historyVersion, setHistoryVersion] = useState(0);
   const [initialUsage, setInitialUsage] = useState<SessionUsage>(EMPTY_USAGE);
@@ -179,7 +179,9 @@ export default function DiscussionsPage() {
   }, [workspaceId, toast, toSidebarSession, openOrCreateSession]);
 
   useEffect(() => {
-    loadData();
+    let active = true;
+    queueMicrotask(() => { if (active) void loadData(); });
+    return () => { active = false; };
   }, [loadData]);
 
   const handleSelectTarget = (target: DiscussionTarget) => { void openOrCreateSession(target, sessions); };
@@ -239,7 +241,6 @@ export default function DiscussionsPage() {
   // Stable identity: the chat window reports messages from an effect that depends on this callback, so a new
   // function on every render would re-run that effect and loop.
   const handleMessagesUpdate = useCallback((messages: ChatMessage[]) => {
-    setCurrentMessages(messages);
     if (messages.length === 0 || !activeSessionId) return;
     const last = messages[messages.length - 1];
     setSessions((prev) => {
@@ -283,14 +284,17 @@ export default function DiscussionsPage() {
   return (
     <div className="h-full w-full flex overflow-hidden bg-slate-100/70 dark:bg-[#0f172a]">
       {/* Left-hand window for chat histories of sessions */}
-      <DiscussionSidebar
-        sessions={sessions}
-        activeSessionId={activeSessionId}
-        onSelectSession={handleSelectSession}
-        onOpenNewChatModal={() => setIsNewChatModalOpen(true)}
-        onDeleteSession={handleDeleteSession}
-        onRenameSession={handleRenameSession}
-      />
+      <div aria-hidden={!isHistoryOpen} inert={!isHistoryOpen} className={`shrink-0 overflow-hidden transition-[width] duration-200 motion-reduce:transition-none ${isHistoryOpen ? "w-80" : "w-0"}`}>
+        <DiscussionSidebar
+          sessions={sessions}
+          activeSessionId={activeSessionId}
+          onSelectSession={handleSelectSession}
+          onOpenNewChatModal={() => setIsNewChatModalOpen(true)}
+          onDeleteSession={handleDeleteSession}
+          onRenameSession={handleRenameSession}
+          onCollapse={() => setIsHistoryOpen(false)}
+        />
+      </div>
 
       {/* Center modernized chat window */}
       <DiscussionChatWindow
@@ -303,6 +307,8 @@ export default function DiscussionsPage() {
         initialPendingAgentIds={initialPendingAgentIds}
         teams={teams}
         agents={agents}
+        isHistoryOpen={isHistoryOpen}
+        onToggleHistory={() => setIsHistoryOpen(open => !open)}
         isRightPaneOpen={isRightPaneOpen}
         onToggleRightPane={() => setIsRightPaneOpen(!isRightPaneOpen)}
         onMessagesUpdate={handleMessagesUpdate}
@@ -310,16 +316,14 @@ export default function DiscussionsPage() {
       />
 
       {/* Right-hand pane for artifacts, knowledge base, connectors */}
-      {isRightPaneOpen && (
+      <div aria-hidden={!isRightPaneOpen} inert={!isRightPaneOpen} className={`shrink-0 overflow-hidden transition-[width] duration-200 motion-reduce:transition-none ${isRightPaneOpen ? "w-80" : "w-0"}`}>
         <DiscussionRightPane
-          activeTarget={activeTarget}
           workspaceId={workspaceId}
           activeSessionId={activeSessionId}
-          messages={currentMessages}
           artifactsVersion={artifactsVersion}
           onClose={() => setIsRightPaneOpen(false)}
         />
-      )}
+      </div>
 
       {/* Modal to pick target for new discussion */}
       <NewDiscussionModal

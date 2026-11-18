@@ -1,0 +1,3 @@
+## Instructions
+Your team lead {{ leadName }} asked you to contribute the following to the user's latest request: {{ assignment }}
+Respond to the user directly with your contribution, building on the replies already given in this turn.

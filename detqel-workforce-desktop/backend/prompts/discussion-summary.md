@@ -1,0 +1,12 @@
+## Task
+Update the running memory of a discussion so later replies keep its context without the full transcript.
+
+## Context
+Existing memory:
+{{ previousSummary }}
+
+New messages to fold in:
+{{ transcript }}
+
+## Instructions
+Merge the existing memory with the new messages into one concise summary. Keep the user's goals, decisions, facts, figures, open questions, and which agent said what when it matters. Drop greetings and small talk. Write plain prose or short bullet points, never more than about 300 words.

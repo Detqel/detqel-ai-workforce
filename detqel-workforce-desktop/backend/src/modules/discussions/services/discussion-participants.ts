@@ -1,8 +1,8 @@
 import { AppError } from "../../../shared/errors/app-error.js";
 import { createScopedLogger } from "../../../shared/logging/logger.js";
 import type { IWorkforceRepository } from "../../workforce/repositories/workforce.repository.js";
-import type { PomlLoader } from "../../../shared/agents/poml/loader.js";
-import { buildAgentPoml } from "../../../shared/agents/poml/poml-builder.js";
+import type { PromptLoader } from "../../../shared/agents/prompts/loader.js";
+import { buildAgentMarkdown, configuredAgentPrompt, needsPromptSynchronization } from "../../../shared/agents/prompts/prompt-builder.js";
 import type { DiscussionParticipant, TeamContext } from "../../../shared/agents/graphs/discussion-runtime.js";
 import type { RecruitedOrganizationAgent, TeamMemberWithAgent } from "../../../shared/types/graphs.js";
 import { DISCUSSION_ERRORS } from "../../../constants/discussionConstants.js";
@@ -17,13 +17,13 @@ export type SessionParticipants =
     | { readonly kind: "team"; readonly team: TeamContext; readonly lead: DiscussionParticipant };
 
 /**
- * Resolves the recruited agents taking part in a discussion and makes sure each one has a current POML persona,
+ * Resolves the recruited agents taking part in a discussion and makes sure each one has a current Markdown persona,
  * keyed by its recruited-agent id. The persona is built from the agent's saved name, role, template, and
- * instructions, and is rewritten whenever those change, so every agent speaks from POML that matches what the
+ * instructions, and is rewritten whenever those change, so every agent speaks from Markdown that matches what the
  * user configured.
  */
 export class DiscussionParticipants {
-    constructor(private readonly workforce: IWorkforceRepository, private readonly poml: PomlLoader) {}
+    constructor(private readonly workforce: IWorkforceRepository, private readonly prompts: PromptLoader) {}
 
     /** The one agent of a one-to-one discussion. Fails when the agent is not in the workspace. */
     async soloAgent(workspaceId: string, agentId: string): Promise<DiscussionParticipant> {
@@ -66,14 +66,16 @@ export class DiscussionParticipants {
      */
     private async ensurePersona(agent: RecruitedAgent, name: string, role: string): Promise<void> {
         const section = agent.template?.section?.name;
-        const source = buildAgentPoml({
+        const source = buildAgentMarkdown({
             role: `You are ${name}, the ${role}${section ? ` in the ${section} department` : ""}.`,
             purpose: agent.template?.summary,
             context: agent.template?.description,
-            instructions: agent.customInstructions || agent.systemPrompt,
+            systemPrompt: agent.systemPrompt,
+            instructions: agent.customInstructions,
         });
-        if ((await this.poml.readUserAgentPrompt(agent.id)) === source) return;
-        await this.poml.writeUserAgentPrompt(agent.id, source);
-        logger.info({ agentId: agent.id }, "Wrote POML persona for a recruited agent from its saved fields");
+        const prompt = configuredAgentPrompt(source);
+        if (!needsPromptSynchronization(await this.prompts.readUserAgentPrompt(agent.id), prompt.configurationHash)) return;
+        await this.prompts.writeUserAgentPrompt(agent.id, prompt.source);
+        logger.info({ agentId: agent.id }, "Wrote Markdown persona for a recruited agent from its saved fields");
     }
 }

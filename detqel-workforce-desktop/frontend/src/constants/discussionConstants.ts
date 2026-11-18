@@ -6,6 +6,7 @@ const plural = (count: number, one: string, many: string) => `${count} ${count =
 
 /** Web search queries longer than this are shortened in the trace. */
 export const ACTIVITY_QUERY_PREVIEW_LENGTH = 80;
+export const CHAT_COMPOSER_MAX_HEIGHT_PX = 160;
 
 const preview = (text: string) => (text.length > ACTIVITY_QUERY_PREVIEW_LENGTH ? `${text.slice(0, ACTIVITY_QUERY_PREVIEW_LENGTH).trimEnd()}…` : text);
 
@@ -26,7 +27,7 @@ export const ACTIVITY_LABELS: Readonly<Record<ActivityKind, { running: (detail: 
   },
   coordinating: {
     running: (detail) => `Coordinating with ${listNames(detail.names ?? [])}`,
-    done: (detail) => `Handed parts of the request to ${listNames(detail.names ?? [])}`,
+    done: (detail) => `Selected ${listNames(detail.names ?? [])} for this task`,
   },
   assigned: {
     running: (detail) => `Picking up ${detail.leadName ?? "the lead"}'s assignment`,

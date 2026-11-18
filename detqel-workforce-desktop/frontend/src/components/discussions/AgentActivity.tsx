@@ -63,14 +63,20 @@ function StepRow({ step }: { step: ActivityStep }) {
           <Icon className="h-3 w-3 text-slate-400 dark:text-slate-500" />
         )}
       </span>
-      <span className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1">
         <span className={step.status === "running" ? "text-slate-700 dark:text-slate-200" : step.status === "failed" ? "text-red-600 dark:text-red-400" : undefined}>
           {stepLabel(step)}
         </span>
         {step.kind === "assigned" && detail.task && (
           <span className="block truncate text-slate-400 dark:text-slate-500" title={detail.task}>{detail.task}</span>
         )}
-      </span>
+        {detail.decisions && detail.decisions.length > 0 && <details className="mt-1">
+          <summary className="cursor-pointer font-medium text-slate-500 dark:text-slate-400">Why these agents</summary>
+          <ul className="mt-1.5 space-y-2 border-l border-slate-200 pl-3 dark:border-slate-700">
+            {detail.decisions.map(decision => <li key={decision.name}><span className="font-semibold">{decision.name}</span><p>{decision.reason}</p><p className="mt-0.5 text-slate-400 dark:text-slate-500">{decision.task}</p></li>)}
+          </ul>
+        </details>}
+      </div>
       {step.status !== "running" && typeof step.durationMs === "number" && step.durationMs > 0 && (
         <span className="shrink-0 tabular-nums text-slate-400 dark:text-slate-500">{formatDuration(step.durationMs)}</span>
       )}

@@ -1,0 +1,4 @@
+## Instructions
+After your reply, these teammates will respond in this order:
+{{ handoffs }}
+Keep this reply short: frame the request for the team from your perspective as the lead and say who will cover which part. Do not answer the parts you are handing over. Once your teammates have replied, you will bring their contributions together into the final answer.

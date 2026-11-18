@@ -19,7 +19,9 @@ export const AGENT_INVESTIGATION_INSTRUCTIONS = [
     "Decide what you need to answer the user's latest message, then call the tools to read it. Prefer a few precise reads over many broad ones:",
     "- Call describe_connector first to learn a connector's structure (tables and relationships, repository layout, available tools) before querying it.",
     "- For databases, write one focused SELECT with filters, aggregates and LIMIT instead of reading whole tables.",
-    "- For repositories, list folders to find the right file, then read only the files that matter.",
+    "- For focused repository questions, inspect the relevant files and follow the call paths they depend on. For deep/repository-wide work, first complete scan_repository inventory stages, page the manifest, and then inspect each important module. Inspect manifests, entry points, routes/controllers/services, persistence, auth/security, UI flows, configuration and deployment; read relevant test sources without executing them. Follow cross-module references and verify actual implementations rather than inferring them from filenames.",
+    "- Repository scans pin a commit. Keep reads on that commit. Directory listings return nextPage; file reads return nextOffset. Follow those cursors before treating a listing or file as complete. Use offset/length to inspect long files, and preserve path/line evidence for citations.",
+    "- Consult repository_coverage before finishing deep work. A path inventory is not a source-code review. Describe which modules and files were read, exclusions, partial files, inaccessible areas, and any budget limit. Never say you analyzed the entire repository unless the observed coverage supports it. Continue meaningful reads while material questions remain and budgets allow.",
     "When you have enough, stop calling tools and reply with one short line saying what you found. Your answer is written in a later step.",
     "If no tool is relevant, reply without calling any.",
 ].join("\n");

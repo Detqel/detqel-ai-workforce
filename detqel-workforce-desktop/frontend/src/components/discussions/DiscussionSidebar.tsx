@@ -8,6 +8,7 @@ import {
   MessageSquare,
   Trash2,
   Pencil,
+  PanelLeftClose,
 } from "lucide-react";
 import { DISCUSSION_TITLE_MAX_LENGTH } from "@/constants/discussionConstants";
 
@@ -24,6 +25,7 @@ export interface DiscussionSession {
 }
 
 interface DiscussionSidebarProps {
+  onCollapse: () => void;
   sessions: DiscussionSession[];
   activeSessionId: string | null;
   onSelectSession: (session: DiscussionSession) => void;
@@ -91,6 +93,7 @@ export const DiscussionSidebar: React.FC<DiscussionSidebarProps> = ({
   onOpenNewChatModal,
   onDeleteSession,
   onRenameSession,
+  onCollapse,
 }) => {
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -125,6 +128,9 @@ export const DiscussionSidebar: React.FC<DiscussionSidebarProps> = ({
           >
             <Plus className="h-3.5 w-3.5 shrink-0" />
             <span className="whitespace-nowrap">New Chat</span>
+          </button>
+          <button type="button" onClick={onCollapse} aria-label="Collapse chat history" title="Collapse chat history" className="p-1.5 shrink-0 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
+            <PanelLeftClose className="h-4 w-4" />
           </button>
         </div>
 

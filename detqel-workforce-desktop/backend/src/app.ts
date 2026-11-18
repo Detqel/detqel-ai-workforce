@@ -22,9 +22,8 @@ import { fileURLToPath } from "node:url";
 import { isAbsolute, join } from "node:path";
 import { createDatabase } from "./infrastructure/database/connection.js";
 import { UnitOfWork } from "./infrastructure/database/unit-of-work.js";
-import { createPomlLoader } from "./shared/agents/poml/poml-loader.factory.js";
+import { createPromptLoader } from "./shared/agents/prompts/prompt-loader.factory.js";
 import { DESKTOP_ENVIRONMENT_KEYS, DESKTOP_FILES } from "./constants/desktopConstants.js";
-import { POML_RUNTIME_DIRECTORY } from "./constants/pomlConstants.js";
 import { verifyMigrationState } from "./infrastructure/database/migrations/verify.js";
 import { analyticsRoutes } from "./modules/analytics/routes/analytics.routes.js";
 import { approvalRoutes } from "./modules/approvals/routes/approval.routes.js";
@@ -67,8 +66,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         },
     });
     if (options.desktopToken) registerDesktopTransport(app, options.desktopToken);
-    const pomlLoader = createPomlLoader();
-    app.decorate("services", options.services ?? createServices(new UnitOfWork(connection!.db, pomlLoader), connection!.check, config, pomlLoader));
+    const promptLoader = createPromptLoader();
+    app.decorate("services", options.services ?? createServices(new UnitOfWork(connection!.db, promptLoader), connection!.check, config, promptLoader));
     app.decorateRequest("userId", undefined);
     app.addHook("onClose", async () => {
         await app.services.connections.close();

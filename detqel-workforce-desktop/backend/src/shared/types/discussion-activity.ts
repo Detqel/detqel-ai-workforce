@@ -1,7 +1,11 @@
 import type { DiscussionActivityKind, DiscussionActivityStatus } from "../../constants/discussionConstants.js";
+import type { TaskExecutionPlan } from "../agents/graphs/task-plan.js";
 
 /** Facts about a step the UI shows next to it, such as how many sources a search found. */
 export interface DiscussionActivityDetail {
+    readonly interruption?: string;
+    readonly plan?: TaskExecutionPlan;
+    readonly decisions?: ReadonlyArray<{ readonly name: string; readonly task: string; readonly reason: string }>;
     /** Results found by a search. */
     readonly count?: number;
     /** What a web search looked for. */

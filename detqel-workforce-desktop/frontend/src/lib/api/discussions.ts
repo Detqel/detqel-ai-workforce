@@ -61,6 +61,8 @@ export interface ActivityStep {
   kind: ActivityKind;
   status: "running" | "done" | "failed";
   detail?: {
+    interruption?: string;
+    decisions?: Array<{ name: string; task: string; reason: string }>;
     count?: number; query?: string; names?: string[]; leadName?: string; task?: string; conversational?: boolean; title?: string; fileName?: string;
     /** For reading steps: the tool used, the connector or document it read, and a short form of the request. */
     tool?: string; target?: string; action?: string;
@@ -87,6 +89,7 @@ export interface PendingSpeaker {
 /** Events of a streamed turn, in the order the server writes them. */
 export type TurnEvent =
   | { type: "turn"; userMessage: ChatMessage }
+  | { type: "routed"; agentId: string }
   | { type: "speaker"; agentId: string; name: string; role: string; isLead: boolean; turnRole: TurnRole }
   | { type: "activity"; agentId: string; step: ActivityStep }
   | { type: "token"; agentId: string; text: string }

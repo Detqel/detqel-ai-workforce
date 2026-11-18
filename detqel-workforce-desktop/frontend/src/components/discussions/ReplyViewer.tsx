@@ -8,6 +8,7 @@ import { IconOnlyButton } from "@/components/ui/icon-only-button";
 import type { ExportFormat } from "@/lib/api/discussions";
 import { AgentActivity } from "./AgentActivity";
 import { ExportMenu } from "./ExportMenu";
+import { CopyMessageButton } from "./CopyMessageButton";
 import { MessageSources } from "./MessageSources";
 import { documentOf, handoffTask, isSaved, type ChatMessage } from "./discussionView";
 
@@ -89,6 +90,7 @@ export function ReplyViewer({ replies, openId, onNavigate, onClose, onExport, as
             </div>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
+            <CopyMessageButton text={message.content} label="Copy response text" disabled={Boolean(message.streaming)} />
             <ExportMenu onExport={(format) => onExport(message, format)} disabled={!isSaved(message)} label={`Export ${title}`} />
             <IconOnlyButton onClick={onClose} className="p-1 rounded-lg" aria-label="Close viewer" icon={<X className="w-4 h-4" />} />
           </div>
@@ -104,7 +106,7 @@ export function ReplyViewer({ replies, openId, onNavigate, onClose, onExport, as
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3 text-xs text-slate-800 dark:text-slate-200">
+        <div className="select-text flex-1 overflow-y-auto px-5 py-4 space-y-3 text-xs text-slate-800 dark:text-slate-200">
           {message.activity && message.activity.length > 0 && <AgentActivity steps={message.activity} live={Boolean(message.streaming)} />}
           {message.content ? <MarkdownContent content={message.content} assetContext={assetContext} /> : <p className="text-slate-400">The reply is on its way…</p>}
           {message.sources && <MessageSources sources={message.sources} idPrefix={message.id} />}

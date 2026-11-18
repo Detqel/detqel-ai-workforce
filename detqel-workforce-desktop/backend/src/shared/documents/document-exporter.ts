@@ -3,19 +3,12 @@ import { DOCUMENT_ATTRIBUTION, DOCUMENT_ERRORS, DOCUMENT_FORMATS, DOCUMENT_MIME_
 import { parseMarkdown, plainText } from "./markdown-model.js";
 import { renderDocx } from "./docx-renderer.js";
 import { renderPdf } from "./pdf-renderer.js";
-import { Lexer } from "marked";
-import { z } from "zod";
+import { documentImageRequests, documentRequirementIssues } from "./document-requirements.js";
 import { createHash } from "node:crypto";
 import { DOCUMENT_IMAGE_ERRORS, DOCUMENT_RENDER_LIMITS } from "../../constants/documentImageConstants.js";
 import { prepareDocumentVisuals, type DocumentAssetResolver } from "./document-visuals.js";
 import type { DocumentImageService } from "./document-image.service.js";
 import { addUsage, ZERO_USAGE } from "../agents/graphs/discussion-runtime.js";
-
-const imageRequestSchema = z.object({
-    prompt: z.string().trim().min(20).max(DOCUMENT_RENDER_LIMITS.imagePromptCharacters),
-    caption: z.string().trim().min(1).max(500),
-    aspectRatio: z.enum(["3:2", "1:1", "2:3"]),
-}).strict();
 
 /** What a document is and who wrote it, shown on the first page and in the file's properties. */
 export interface DocumentInfo {
@@ -48,14 +41,13 @@ export class DocumentExporter {
 
     /** Complete assets and preflight both delivery formats before the document is handed over. */
     async createDocument(info: DocumentInfo, draft: string, options: {
-        workspaceId: string; imageCount: number; signal?: AbortSignal;
+        workspaceId: string; imageCount: number; requiredSections?: ReadonlyArray<string>; signal?: AbortSignal;
         storeAsset: (contents: Buffer) => Promise<string>; resolveAsset: DocumentAssetResolver;
     }) {
         if (draft.length > DOCUMENT_RENDER_LIMITS.markdownCharacters) throw new AppError(422, DOCUMENT_IMAGE_ERRORS.contentTooLarge);
-        const requests = new Lexer({ gfm: true }).lex(draft).filter(token => token.type === "code" && token.lang === "image").map(token => {
-            try { return { raw: token.raw, ...imageRequestSchema.parse(JSON.parse((token as { text: string }).text)) }; }
-            catch { throw new AppError(422, DOCUMENT_IMAGE_ERRORS.invalidDocument); }
-        });
+        const issues = documentRequirementIssues(draft, options);
+        if (issues.length) throw new AppError(422, `The document is incomplete: ${issues.join(" ")}`);
+        const requests = documentImageRequests(draft);
         if (requests.length < options.imageCount || requests.length > DOCUMENT_RENDER_LIMITS.figures) throw new AppError(422, "The document does not contain the required image instructions. It was not saved as a text-only substitute.");
         if (requests.length && !this.images) throw new AppError(503, DOCUMENT_IMAGE_ERRORS.generationFailed);
         const controller = new AbortController();

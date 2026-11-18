@@ -5,6 +5,8 @@ import { CheckCircle2, ClipboardList, FileText, Loader2, PanelTopOpen } from "lu
 import type { ExportFormat } from "@/lib/api/discussions";
 import { stepLabel } from "./AgentActivity";
 import { ExportMenu } from "./ExportMenu";
+import { MessageSurface } from "./MessageSurface";
+import { CopyMessageButton } from "./CopyMessageButton";
 import { documentOf, formatDuration, handoffTask, isSaved, workedFor, type ChatMessage } from "./discussionView";
 
 interface ReplyLineProps {
@@ -35,7 +37,9 @@ export function ReplyLine({ message, onView, onExport }: ReplyLineProps) {
       <div className={`flex h-8 w-8 shrink-0 mt-0.5 items-center justify-center rounded-xl font-bold text-xs shadow-xs ${message.isLead ? "bg-amber-500 text-white" : "bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-100"}`} aria-hidden="true">
         {message.senderAvatarLetter}
       </div>
-      <div className="max-w-xl w-full mr-12 flex items-center gap-3 rounded-2xl rounded-tl-none px-3.5 py-2.5 text-xs bg-white dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-700 shadow-xs">
+      <MessageSurface timestamp={message.timestamp} className="relative max-w-xl w-full mr-12 rounded-2xl rounded-tl-none px-3.5 py-2.5 text-xs bg-white dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-700 shadow-xs">
+        <div className="flex items-center gap-3">
+        <CopyMessageButton text={message.content} label="Copy agent response" disabled={Boolean(message.streaming)} className="absolute -right-9 top-0" />
         <Icon className={`h-4 w-4 shrink-0 ${docInfo ? "text-primary" : "text-slate-400"}`} aria-hidden="true" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 min-w-0">
@@ -64,7 +68,8 @@ export function ReplyLine({ message, onView, onExport }: ReplyLineProps) {
           <PanelTopOpen className="h-3.5 w-3.5" aria-hidden="true" /> View
         </button>
         <ExportMenu onExport={onExport} disabled={!isSaved(message)} label={`Export ${docInfo ? docInfo.title : `${message.sender}'s handoff`}`} />
-      </div>
+        </div>
+      </MessageSurface>
     </div>
   );
 }

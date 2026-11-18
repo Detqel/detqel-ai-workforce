@@ -1,20 +1,18 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
-import { Download, File, FileText, Loader2, Trash2, UploadCloud } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { Download, File, FileText, Loader2, Trash2 } from "lucide-react";
 import {
   apiDeleteSessionArtifact,
   apiDownloadSessionArtifact,
   apiExportSessionArtifact,
   apiListSessionArtifacts,
-  apiUploadSessionArtifact,
   type ExportFormat,
   type SessionArtifact,
 } from "@/lib/api/discussions";
-import { ARTIFACT_UPLOAD_MAX_BYTES } from "@/constants/discussionConstants";
 import { useToast } from "@/context/ToastContext";
 import { useConfirm } from "@/context/ConfirmContext";
-import { formatFileSize, readAsBase64, saveDownload } from "@/lib/download";
+import { formatFileSize, saveDownload } from "@/lib/download";
 import { ExportMenu } from "./ExportMenu";
 import { formatTime } from "./discussionView";
 
@@ -33,15 +31,12 @@ function modified(iso: string): string {
   return today ? formatTime(date) : date.toLocaleDateString();
 }
 
-/** The files a discussion keeps: documents agents wrote and files the user added. */
+/** The generated documents saved in a discussion. */
 export function SessionArtifacts({ workspaceId, sessionId, version }: SessionArtifactsProps) {
   const toast = useToast();
   const confirm = useConfirm();
   const [artifacts, setArtifacts] = useState<SessionArtifact[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
-  const [reloadKey, setReloadKey] = useState(0);
-  const reload = useCallback(() => setReloadKey((key) => key + 1), []);
 
   useEffect(() => {
     let active = true;
@@ -55,7 +50,7 @@ export function SessionArtifacts({ workspaceId, sessionId, version }: SessionArt
       .catch((error) => { if (active) toast.error(error instanceof Error ? error.message : "Could not load the discussion's artifacts."); })
       .finally(() => { if (active) setIsLoading(false); });
     return () => { active = false; };
-  }, [workspaceId, sessionId, version, reloadKey, toast]);
+  }, [workspaceId, sessionId, version, toast]);
 
   const download = async (artifact: SessionArtifact) => {
     if (!workspaceId || !sessionId) return;
@@ -93,48 +88,14 @@ export function SessionArtifacts({ workspaceId, sessionId, version }: SessionArt
     }
   };
 
-  const upload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
-    if (!workspaceId || !sessionId) { toast.error("Open a discussion before adding files."); return; }
-    if (file.size > ARTIFACT_UPLOAD_MAX_BYTES) { toast.error(`"${file.name}" is larger than ${formatFileSize(ARTIFACT_UPLOAD_MAX_BYTES)}.`); return; }
-    setIsUploading(true);
-    try {
-      const contentBase64 = await readAsBase64(file);
-      await apiUploadSessionArtifact(workspaceId, sessionId, { fileName: file.name, mimeType: file.type || "application/octet-stream", contentBase64 });
-      reload();
-      toast.success(`Added "${file.name}" to this discussion.`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not add the file.");
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
   return (
-    <>
-      <div className="space-y-2">
-        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Add a file</span>
-        <label className={`flex flex-col items-center justify-center p-4 border-2 border-dashed border-slate-200 dark:border-slate-800 hover:border-primary rounded-2xl bg-slate-50/40 dark:bg-slate-800/20 hover:bg-primary-muted transition-all cursor-pointer text-center group ${isUploading || !sessionId ? "opacity-50 pointer-events-none" : ""}`}>
-          {isUploading
-            ? <Loader2 className="h-7 w-7 text-primary animate-spin mb-1.5" />
-            : <UploadCloud className="h-7 w-7 text-slate-400 group-hover:text-primary group-hover:scale-110 transition-all mb-1.5" />}
-          <span className="text-xs font-bold text-slate-700 dark:text-slate-200 group-hover:text-primary transition-colors">
-            Upload file or specification
-          </span>
-          <span className="text-[10px] text-slate-400 mt-0.5">PDF, DOCX, CSV, JSON, MD, TXT · up to {formatFileSize(ARTIFACT_UPLOAD_MAX_BYTES)}</span>
-          <input type="file" onChange={upload} className="hidden" accept=".pdf,.docx,.doc,.csv,.json,.md,.txt,.png,.jpg,.jpeg" disabled={isUploading || !sessionId} />
-        </label>
-      </div>
-
       <div className="space-y-2">
         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Saved in this discussion ({artifacts.length})</span>
         {isLoading && artifacts.length === 0 ? (
           <div className="flex items-center justify-center p-4"><Loader2 className="h-5 w-5 animate-spin text-primary" /></div>
         ) : artifacts.length === 0 ? (
           <div className="text-center p-4 text-xs text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
-            Nothing saved yet. Documents agents write and files you add appear here.
+            No documents yet. Documents generated in this discussion appear here.
           </div>
         ) : (
           <ul className="space-y-1.5">
@@ -166,6 +127,5 @@ export function SessionArtifacts({ workspaceId, sessionId, version }: SessionArt
           </ul>
         )}
       </div>
-    </>
   );
 }

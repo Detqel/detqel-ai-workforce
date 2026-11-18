@@ -34,7 +34,7 @@ export const DISCUSSION_LIMITS = {
     /** Teammates the lead may hand one turn to, so a single message cannot fan out across a whole team. */
     maxDelegates: 3,
     /** Upper bound on the triage reply, which is short by design. */
-    triageMaxTokens: 600,
+    triageMaxTokens: 4_000,
     /** Upper bound on a memory summary. */
     summaryMaxTokens: 700,
     maxAssignmentCharacters: 500,
@@ -53,7 +53,7 @@ export const DISCUSSION_MEMORY = { triggerAfter: 20, keepRecent: 8 } as const;
  * the provider's default. Measured on the live gateway, minimal effort cut a greeting's cost by about 95%.
  */
 export const DISCUSSION_REASONING = {
-    triage: "minimal",
+    triage: "low",
     fastAnswer: "low",
     selfCheck: "low",
     summary: "minimal",
@@ -122,6 +122,7 @@ export const DISCUSSION_STREAM_EVENTS = {
     turn: "turn",
     /** An agent starts its reply. */
     speaker: "speaker",
+    routed: "routed",
     /** An activity step started or finished. */
     activity: "activity",
     /** Text of the reply being written. */

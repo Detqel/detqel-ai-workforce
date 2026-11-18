@@ -184,10 +184,10 @@ export class AgentConnectorAccess implements IAgentConnectorAccess {
                 return { data: { ...about, database: reader.configuration.database ?? null, tables: rows, relationships: relations.data }, metadata: { tables: rows.length } };
             }
             case AGENT_CONNECTOR_KINDS.repository: {
-                const root = await this.run(reader, CONNECTOR_OPERATIONS.list, { resource: "files" }).catch(() => ({ data: [] }));
+                const root = await this.run(reader, CONNECTOR_OPERATIONS.list, { resource: "files" });
                 const metadata = reader.metadata;
                 return this.clean({
-                    data: { ...about, repository: metadata.repository, defaultBranch: metadata.defaultBranch, visibility: metadata.visibility, root: withoutProtectedEntries(root).data },
+                    data: { ...about, repository: metadata.repository, defaultBranch: metadata.defaultBranch, visibility: metadata.visibility, root: withoutProtectedEntries(root).data, rootNextPage: root.metadata?.nextPage, rootListingComplete: root.metadata?.listingComplete },
                     metadata: {},
                 });
             }

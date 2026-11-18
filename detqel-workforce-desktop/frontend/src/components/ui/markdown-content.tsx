@@ -82,7 +82,7 @@ export const MarkdownContent = memo(function MarkdownContent({ content, classNam
     },
   }), [assetContext]);
   return (
-    <div className={`min-w-0 break-words [&_.katex-display]:my-2 [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden [&_.katex-display]:py-1 ${className ?? ""}`}>
+    <div data-chat-text className={`select-text cursor-text min-w-0 break-words [&_.katex-display]:my-2 [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden [&_.katex-display]:py-1 ${className ?? ""}`}>
       <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={components} urlTransform={(url, key) => key === "src" && /^kin-asset:[a-f0-9]{64}\.png$/.test(url) ? url : defaultUrlTransform(url)}>
         {prepareMarkdown(content)}
       </ReactMarkdown>

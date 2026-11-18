@@ -174,7 +174,7 @@ export class LiteLlmClient {
         this.assertConfigured();
         const settings = request.provider === "openai"
             ? { size: request.aspectRatio === "1:1" ? "1024x1024" : request.aspectRatio === "2:3" ? "1024x1536" : "1536x1024", quality: "high", output_format: "png" }
-            : { imageConfig: { aspectRatio: request.aspectRatio, imageSize: "2K", imageOutputOptions: { mimeType: "image/png" } } };
+            : { imageConfig: { aspectRatio: request.aspectRatio, imageSize: "2K" } };
         const response = await this.dispatch(LITELLM_ENDPOINTS.imageGenerations, "POST", virtualKey,
             { model: request.model, prompt: request.prompt, n: 1, ...settings }, DOCUMENT_RENDER_LIMITS.imageTimeoutMs, DOCUMENT_IMAGE_ERRORS.generationFailed, signal);
         let payload: unknown;
@@ -185,7 +185,7 @@ export class LiteLlmClient {
         // Remote URLs are deliberately not downloaded: only inline bytes from the managed gateway are accepted.
         if (typeof encoded !== "string" || !encoded || encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) throw new AppError(502, DOCUMENT_IMAGE_ERRORS.generationFailed);
         const contents = Buffer.from(encoded, "base64");
-        if (!contents.length || contents.length > DOCUMENT_RENDER_LIMITS.imageBytes) throw new AppError(502, DOCUMENT_IMAGE_ERRORS.invalidImage);
+        if (!contents.length || contents.length > DOCUMENT_RENDER_LIMITS.imageBytes || contents.toString("base64") !== encoded) throw new AppError(502, DOCUMENT_IMAGE_ERRORS.invalidImage);
         return { contents, usage: {
             inputTokens: numberOrZero(value.usage?.input_tokens), outputTokens: numberOrZero(value.usage?.output_tokens), cachedTokens: 0,
             costUsd: numberOrZero(Number(response.headers.get(LITELLM_HEADERS.responseCost))),
@@ -478,13 +478,25 @@ export class LiteLlmClient {
             if (signal?.aborted) throw error;
             // The gateway address and request shape are controlled by the application, so a thrown fetch means
             // the local service is unreachable or timed out. The reason is logged without any secret material.
-            logger.error({ path, method }, "Gateway request did not complete");
-            throw new AppError(502, LITELLM_ERROR_MESSAGES.inferenceFailed);
+            const timedOut = timeout.aborted;
+            logger.error({ path, method, reason: timedOut ? "deadline" : "connection" }, "Gateway request did not complete");
+            throw new AppError(timedOut ? 504 : 502, timedOut
+                ? "The model exceeded the request time limit. Your unfinished work can be continued."
+                : "The local AI gateway connection was interrupted. Check that the configured provider and managed AI service are available, then continue.", undefined, true);
         }
         if (!response.ok) {
             // The body is read only to release the connection; it is never surfaced, as it may echo secrets.
-            await this.readBoundedBody(response).catch(() => "");
+            const errorBody = await this.readBoundedBody(response).catch(() => "");
             logger.error({ path, method, status: response.status }, "Gateway returned an error status");
+            if (path === LITELLM_ENDPOINTS.imageGenerations) {
+                const reason = /unknown name|unsupported.?param|invalid (?:parameter|argument)/i.test(errorBody) ? "unsupported-parameter"
+                    : /model.{0,80}(?:not found|not supported|unavailable)|model_not_found/i.test(errorBody) ? "model-unavailable"
+                    : response.status === 401 || response.status === 403 ? "access-denied"
+                    : response.status === 429 ? "rate-limit" : "provider-error";
+                logger.error({ status: response.status, reason }, "Document image generation was rejected");
+                const descriptions = { "unsupported-parameter": "The image provider rejected the generation settings.", "model-unavailable": "The configured image model is unavailable to this provider account.", "access-denied": "The provider did not authorize image generation with the configured credentials.", "rate-limit": "The image provider's usage or rate limit was reached.", "provider-error": "The image provider could not complete generation." };
+                throw new AppError(422, `${descriptions[reason]} Required images were not replaced with text diagrams.`, { category: reason, status: response.status });
+            }
             throw new AppError(502, failureMessage);
         }
         return response;

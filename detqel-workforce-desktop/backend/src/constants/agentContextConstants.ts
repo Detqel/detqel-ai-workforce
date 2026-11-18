@@ -16,6 +16,8 @@ export const AGENT_TOOL_NAMES = {
     describeConnector: "describe_connector",
     queryDatabase: "query_database",
     readRepository: "read_repository",
+    scanRepository: "scan_repository",
+    repositoryCoverage: "repository_coverage",
     readFiles: "read_files",
     fetchApi: "fetch_api",
     listMcpTools: "list_mcp_tools",
@@ -38,6 +40,16 @@ export const AGENT_TOOL_LIMITS = {
     maxRounds: 6,
     /** Fast replies investigate briefly. */
     maxRoundsFast: 2,
+    maxRoundsDeep: 24,
+    maxCallsDeep: 96,
+    maxTotalCharactersDeep: 384_000,
+    maxRepositoryCharactersDeep: 256_000,
+    repositoryPagesPerScan: 20,
+    repositoryInventoryEntries: 20_000,
+    repositoryInventoryDirectories: 2_000,
+    repositoryInventoryPageSize: 80,
+    evidenceCompactionCharacters: 64_000,
+    evidenceSummaryTokens: 3_000,
     /** Tool calls in one investigation, across all rounds. */
     maxCalls: 12,
     /** Tool calls the model may ask for in one round. */

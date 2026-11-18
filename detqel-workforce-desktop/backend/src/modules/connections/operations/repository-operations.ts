@@ -58,8 +58,10 @@ export function repositoryOperations(client: RepositoryClient, defaultBranch: st
             if (resource === REPOSITORY_RESOURCES.files) {
                 const path = repositoryPath(parameters.path, true);
                 const ref = repositoryRef(parameters.ref, defaultBranch);
-                const items = await client.entries(path, ref);
-                return { data: items, metadata: { resource, path, ref, count: items.length } };
+                const page = parameters.page === undefined ? 1 : parameters.page;
+                if (typeof page !== "number" || !Number.isSafeInteger(page) || page < 1 || page > 1_000_000) throw new AppError(400, "The directory page is invalid.");
+                const items = await client.entries(path, ref, page);
+                return { data: items, metadata: { resource, path, ref, page, count: items.length, nextPage: items.nextPage ?? null, listingComplete: items.complete === true } };
             }
             if (resource === REPOSITORY_RESOURCES.commits) {
                 const ref = repositoryRef(parameters.ref, defaultBranch);
@@ -76,7 +78,14 @@ export function repositoryOperations(client: RepositoryClient, defaultBranch: st
             const path = repositoryPath(parameters.path, false);
             const ref = repositoryRef(parameters.ref, defaultBranch);
             const content = await client.file(path, ref);
-            return { data: { path, ref, content }, metadata: { bytes: Buffer.byteLength(content, "utf8") } };
+            const offset = parameters.offset === undefined ? 0 : parameters.offset;
+            const length = parameters.length === undefined ? 8_000 : parameters.length;
+            if (typeof offset !== "number" || !Number.isSafeInteger(offset) || offset < 0 || offset > content.length) throw new AppError(400, "The file offset is invalid.");
+            if (typeof length !== "number" || !Number.isSafeInteger(length) || length < 1 || length > 8_000) throw new AppError(400, "Read between 1 and 8000 characters per file page.");
+            const end = Math.min(offset + length, content.length);
+            const startLine = content.slice(0, offset).split("\n").length;
+            return { data: { path, ref, content: content.slice(offset, end), offset, nextOffset: end < content.length ? end : null, totalCharacters: content.length, startLine },
+                metadata: { path, ref, offset, end, totalCharacters: content.length, startLine, nextOffset: end < content.length ? end : null } };
         }
         throw new AppError(422, "Repository connections are read-only. They support the list, read and fetch operations.");
     };

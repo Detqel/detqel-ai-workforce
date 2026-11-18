@@ -15,7 +15,7 @@ import { ConnectorCatalogRepository } from "../../modules/connections/repositori
 import { VirtualKeyRepository } from "../../shared/agents/drizzle.virtual-key.repository.js";
 import { DiscussionRepository } from "../../modules/discussions/repositories/drizzle.discussion.repository.js";
 import type { IUnitOfWork } from "../../shared/contracts/unit-of-work.js";
-import type { PomlLoader } from "../../shared/agents/poml/loader.js";
+import type { PromptLoader } from "../../shared/agents/prompts/loader.js";
 import type { DatabaseSession } from "./connection.js";
 // All repositories use the same injected session, including transactions.
 export class UnitOfWork implements IUnitOfWork {
@@ -35,12 +35,12 @@ export class UnitOfWork implements IUnitOfWork {
     readonly connectorCatalog;
     readonly virtualKeys;
     readonly discussions;
-    constructor(private readonly database: DatabaseSession, private readonly pomlLoader?: PomlLoader) {
+    constructor(private readonly database: DatabaseSession, private readonly promptLoader?: PromptLoader) {
         this.users = new UserRepository(database);
         this.workspaces = new WorkspaceRepository(database);
         this.business = new BusinessRepository(database);
         this.connections = new ConnectionRepository(database);
-        this.workforce = new WorkforceRepository(database, pomlLoader);
+        this.workforce = new WorkforceRepository(database, promptLoader);
         this.missions = new MissionRepository(database);
         this.analytics = new AnalyticsRepository(database);
         this.automations = new AutomationRepository(database);
@@ -54,6 +54,6 @@ export class UnitOfWork implements IUnitOfWork {
         this.discussions = new DiscussionRepository(database);
     }
     transaction<T>(operation: (repositories: IUnitOfWork) => Promise<T>): Promise<T> {
-        return this.database.transaction(tx => operation(new UnitOfWork(tx, this.pomlLoader)));
+        return this.database.transaction(tx => operation(new UnitOfWork(tx, this.promptLoader)));
     }
 }

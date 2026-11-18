@@ -1,13 +1,9 @@
 "use client";
 
-import { useFileDownload } from "@/hooks/useFileDownload";
 import React, { useState, useEffect, useRef } from "react";
 import {
   UploadCloud,
   FileText,
-  FileJson,
-  Copy,
-  Check,
   BookOpen,
   Plug,
   ExternalLink,
@@ -15,11 +11,11 @@ import {
   Link as LinkIcon,
   Loader2,
   Trash2,
+  PanelRightClose,
 } from "lucide-react";
 import { formatFileSize } from "@/lib/download";
 import { pageIds } from "@/lib/navigation";
 import { useNavigation } from "@/context/NavigationContext";
-import type { DiscussionTarget } from "@/lib/discussionStore";
 import { connectorsApi, type ConnectorRecord } from "@/lib/api/connectors";
 import {
   apiAttachSessionConnector,
@@ -36,27 +32,22 @@ import { useConfirm } from "@/context/ConfirmContext";
 import { SessionArtifacts } from "./SessionArtifacts";
 
 interface DiscussionRightPaneProps {
-  activeTarget: DiscussionTarget | null;
   workspaceId?: string;
   activeSessionId?: string;
-  messages: Array<{ role: string; content: string; sender?: string; timestamp: string }>;
   /** Changes whenever the chat saved a document, so the artifacts list reloads. */
   artifactsVersion: number;
   onClose?: () => void;
 }
 
 export const DiscussionRightPane: React.FC<DiscussionRightPaneProps> = ({
-  activeTarget,
   workspaceId,
   activeSessionId,
-  messages,
   artifactsVersion,
+  onClose,
 }) => {
   const { navigate } = useNavigation();
   const toast = useToast();
-  const download = useFileDownload();
   const [activeTab, setActiveTab] = useState<"artifacts" | "knowledge" | "connectors">("artifacts");
-  const [isCopied, setIsCopied] = useState(false);
   const confirm = useConfirm();
   const [knowledgeDocs, setKnowledgeDocs] = useState<KnowledgeDocument[]>([]);
   const [connectors, setConnectors] = useState<ConnectorRecord[]>([]);
@@ -176,45 +167,6 @@ export const DiscussionRightPane: React.FC<DiscussionRightPaneProps> = ({
     };
   }, [workspaceId, activeSessionId, connectorScope, connectorVersion, activeTab]);
 
-  // Handle Export as Markdown
-  const handleExportMarkdown = () => {
-    const header = `# Discussion Transcript with ${activeTarget?.name || "AI Workforce"}\nDate: ${new Date().toLocaleDateString()}\n\n`;
-    const body = messages
-      .map(
-        (m) =>
-          `### ${m.sender || (m.role === "user" ? "User" : "Agent")} (${m.timestamp})\n${m.content}\n`
-      )
-      .join("\n");
-    const blob = new Blob([header + body], { type: "text/markdown;charset=utf-8" });
-    download(blob, `Discussion-${activeTarget?.name || "Session"}-${Date.now()}.md`);
-  };
-
-  // Handle Export as JSON
-  const handleExportJSON = () => {
-    const data = {
-      target: activeTarget,
-      exportedAt: new Date().toISOString(),
-      messages,
-    };
-    const blob = new Blob([JSON.stringify(data, null, 2)], {
-      type: "application/json;charset=utf-8",
-    });
-    download(blob, `Discussion-${activeTarget?.name || "Session"}-${Date.now()}.json`);
-  };
-
-  // Copy Transcript to Clipboard
-  const handleCopyTranscript = () => {
-    const text = messages
-      .map(
-        (m) =>
-          `[${m.timestamp}] ${m.sender || (m.role === "user" ? "User" : "Agent")}: ${m.content}`
-      )
-      .join("\n\n");
-    navigator.clipboard.writeText(text);
-    setIsCopied(true);
-    setTimeout(() => setIsCopied(false), 2000);
-  };
-
   return (
     <aside className="w-80 shrink-0 border-l border-slate-200/80 dark:border-slate-800 bg-white/70 dark:bg-slate-900/60 backdrop-blur-md flex flex-col h-full overflow-hidden select-none">
       {/* Top Header & Tabs */}
@@ -228,6 +180,9 @@ export const DiscussionRightPane: React.FC<DiscussionRightPaneProps> = ({
               Session Resources
             </h3>
           </div>
+          <button type="button" onClick={onClose} aria-label="Collapse session resources" title="Collapse session resources" className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
+            <PanelRightClose className="h-4 w-4" />
+          </button>
         </div>
 
         {/* Resource Tabs */}
@@ -269,49 +224,6 @@ export const DiscussionRightPane: React.FC<DiscussionRightPaneProps> = ({
       <div className="flex-1 overflow-y-auto p-4 space-y-5">
         {activeTab === "artifacts" ? (
           <div className="space-y-5">
-            {/* Export Actions Section */}
-            <div className="space-y-2">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                Export Session Artifacts
-              </span>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={handleExportMarkdown}
-                  className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/60 hover:border-primary hover:text-primary text-slate-700 dark:text-slate-200 text-xs font-semibold transition-all cursor-pointer shadow-xs"
-                >
-                  <FileText className="h-3.5 w-3.5" />
-                  <span>Markdown</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleExportJSON}
-                  className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/60 hover:border-primary hover:text-primary text-slate-700 dark:text-slate-200 text-xs font-semibold transition-all cursor-pointer shadow-xs"
-                >
-                  <FileJson className="h-3.5 w-3.5" />
-                  <span>JSON Spec</span>
-                </button>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleCopyTranscript}
-                className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/60 hover:border-primary hover:text-primary text-slate-700 dark:text-slate-200 text-xs font-semibold transition-all cursor-pointer shadow-xs"
-              >
-                {isCopied ? (
-                  <>
-                    <Check className="h-3.5 w-3.5 text-emerald-500" />
-                    <span className="text-emerald-600 dark:text-emerald-400">Transcript Copied!</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="h-3.5 w-3.5" />
-                    <span>Copy Full Transcript</span>
-                  </>
-                )}
-              </button>
-            </div>
-
             <SessionArtifacts workspaceId={workspaceId} sessionId={activeSessionId} version={artifactsVersion} />
           </div>
         ) : activeTab === "knowledge" ? (

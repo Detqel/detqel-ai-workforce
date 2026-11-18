@@ -5,9 +5,9 @@ export const agents = pgTable("agents", {
     id: uuid("id").defaultRandom().primaryKey(),
     workspaceId: uuid("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }), // null if platform wide
     name: varchar("name", { length: 255 }).notNull(),
-    // POML file id for this agent's prompt (bundled platform id OR the agent's own uuid for user prompts).
+    // Markdown file id for this agent's prompt (bundled platform id OR the agent's own uuid for user prompts).
     promptRef: varchar("prompt_ref", { length: 150 }),
-    // Free-text prompt columns are kept for backward compatibility but POML is now the source of truth.
+    // Free-text prompt columns are kept for backward compatibility but Markdown is now the source of truth.
     description: text("description"),
     purpose: text("purpose"),
     instructions: text("instructions"),

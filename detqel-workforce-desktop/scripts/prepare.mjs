@@ -63,6 +63,7 @@ try {
 } catch {}
 
 if (dev) {
+  await rm(safeGenerated("src-tauri/resources/backend/poml"), { force: true, recursive: true });
   // tauri-build validates bundled resource paths even in development builds.
   await mkdir(path.join(root, "src-tauri/resources/backend"), { recursive: true });
   await cp(path.join(root, "backend/.env.example"), path.join(root, "src-tauri/resources/backend/.env.example"));
@@ -84,8 +85,13 @@ npm(["ci", "--omit=dev", "--ignore-scripts", "--workspace", "backend", "--no-aud
 const resources = safeGenerated("src-tauri/resources/backend");
 await rm(resources, { force: true, recursive: true });
 await mkdir(resources, { recursive: true });
-for (const relative of ["dist", "drizzle", "infrastructure", "poml", "package.json", ".env.example"]) {
+for (const relative of ["dist", "drizzle", "infrastructure", "package.json", ".env.example"]) {
   await cp(path.join(root, "backend", relative), path.join(resources, relative), { recursive: true });
+}
+const prompts = path.join(root, "backend/prompts");
+await mkdir(path.join(resources, "prompts"), { recursive: true });
+for (const entry of await readdir(prompts, { withFileTypes: true })) {
+  if (entry.isFile() && entry.name.endsWith(".md")) await cp(path.join(prompts, entry.name), path.join(resources, "prompts", entry.name));
 }
 await cp(path.join(staging, "node_modules"), path.join(resources, "node_modules"), {
   recursive: true,
@@ -106,6 +112,8 @@ await writeFile(path.join(resources, "runtime-manifest.json"), JSON.stringify({
 // Secrets are never in the explicit resource allowlist. Check the final tree too.
 async function inspect(directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
+    if (entry.name === "poml" || entry.name.endsWith(".poml")) throw new Error("A retired prompt resource was found in the package");
+    if (directory === path.join(resources, "prompts") && entry.name === "agents") throw new Error("Private user prompts must not be packaged");
     if (entry.name === ".env" || (entry.name.startsWith(".env.") && entry.name !== ".env.example")) {
       throw new Error(`Secret configuration file found in package: ${entry.name}`);
     }

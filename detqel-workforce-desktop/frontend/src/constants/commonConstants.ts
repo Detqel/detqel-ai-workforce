@@ -31,6 +31,7 @@ export const DESKTOP_RESTRICTION_SCRIPT = `
   (() => {
     // Restrict desktop context menu (preventing Inspect Element & Reload)
     window.addEventListener('contextmenu', (event) => {
+      if (event.target instanceof Element && event.target.closest('[data-chat-text]')) return;
       event.preventDefault();
     }, true);
 

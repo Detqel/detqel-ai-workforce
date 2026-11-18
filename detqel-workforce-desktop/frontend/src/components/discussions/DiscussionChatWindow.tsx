@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
 import {
   Send,
   Mic,
@@ -8,6 +8,8 @@ import {
   Users,
   Crown,
   PanelRight,
+  PanelLeftClose,
+  PanelLeftOpen,
   MessageSquare,
   Zap,
   Brain,
@@ -17,6 +19,8 @@ import {
   ArrowDownLeft,
   Square,
   Play,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import type { DiscussionTarget } from "@/lib/discussionStore";
 import type { AgentTeam, RecruitedAgent } from "@/lib/api";
@@ -33,11 +37,13 @@ import {
 } from "@/lib/api/discussions";
 import { useToast } from "@/context/ToastContext";
 import { MarkdownContent } from "@/components/ui/markdown-content";
-import { listNames } from "@/constants/discussionConstants";
+import { CHAT_COMPOSER_MAX_HEIGHT_PX, listNames } from "@/constants/discussionConstants";
 import { AgentActivity } from "./AgentActivity";
 import { ReplyLine } from "./ReplyLine";
 import { ReplyViewer } from "./ReplyViewer";
-import { ExportMenu } from "./ExportMenu";
+import { MessageSurface } from "./MessageSurface";
+import { CopyMessageButton } from "./CopyMessageButton";
+import { ComposerMarkdownPreview } from "./ComposerMarkdownPreview";
 import { saveDownload } from "@/lib/download";
 import { MessageSources } from "./MessageSources";
 import {
@@ -48,13 +54,29 @@ import {
   documentOf,
   isCompact,
   isHandoff,
-  isSaved,
   toViewMessage,
   upsertStep,
   type ChatMessage,
 } from "./discussionView";
 
 export type { ChatMessage, ChatMessageSource } from "./discussionView";
+
+interface VoiceRecognitionResult {
+  resultIndex: number;
+  results: ArrayLike<ArrayLike<{ transcript: string }>>;
+}
+interface VoiceRecognition {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onstart: (() => void) | null;
+  onresult: ((event: VoiceRecognitionResult) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+  start(): void;
+  stop(): void;
+}
+type VoiceWindow = Window & { SpeechRecognition?: new () => VoiceRecognition; webkitSpeechRecognition?: new () => VoiceRecognition };
 
 interface DiscussionChatWindowProps {
   activeTarget: DiscussionTarget | null;
@@ -67,6 +89,8 @@ interface DiscussionChatWindowProps {
   initialPendingAgentIds: string[];
   teams: AgentTeam[];
   agents: RecruitedAgent[];
+  isHistoryOpen: boolean;
+  onToggleHistory: () => void;
   isRightPaneOpen: boolean;
   onToggleRightPane: () => void;
   onMessagesUpdate: (messages: ChatMessage[]) => void;
@@ -78,7 +102,8 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
   activeTarget,
   activeSessionId,
   teams,
-  agents,
+  isHistoryOpen,
+  onToggleHistory,
   isRightPaneOpen,
   onToggleRightPane,
   onMessagesUpdate,
@@ -90,12 +115,41 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
 }) => {
   const toast = useToast();
   const [inputText, setInputText] = useState("");
+  const [previewEnabled, setPreviewEnabled] = useState(true);
+  const documentAssetContext = useMemo(() => workspaceId && activeSessionId ? { workspaceId, sessionId: activeSessionId } : undefined, [workspaceId, activeSessionId]);
   const [isRecording, setIsRecording] = useState(false);
   const [responseMode, setResponseMode] = useState<ResponseMode>("detailed");
   const [capabilityMode, setCapabilityMode] = useState<CapabilityMode>("fast");
   const [webEnabled, setWebEnabled] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<VoiceRecognition | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+
+  const resizeComposer = useCallback(() => {
+    const textarea = composerRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    textarea.style.height = `${Math.min(textarea.scrollHeight, CHAT_COMPOSER_MAX_HEIGHT_PX)}px`;
+  }, []);
+
+  useLayoutEffect(() => {
+    resizeComposer();
+  }, [inputText, activeTarget?.id, resizeComposer]);
+
+  useEffect(() => {
+    const textarea = composerRef.current;
+    if (!textarea) return;
+    let width = textarea.getBoundingClientRect().width;
+    const observer = new ResizeObserver(entries => {
+      const nextWidth = entries[0]?.contentRect.width;
+      if (nextWidth !== undefined && nextWidth !== width) {
+        width = nextWidth;
+        resizeComposer();
+      }
+    });
+    observer.observe(textarea);
+    return () => observer.disconnect();
+  }, [activeTarget?.id, resizeComposer]);
 
   // Active Team object if target is a team
   const activeTeam =
@@ -103,17 +157,12 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
       ? teams.find((t) => t.id === activeTarget.id)
       : null;
 
-  // Active Agent object if target is an agent
-  const activeAgent =
-    activeTarget?.type === "agent"
-      ? agents.find((a) => a.id === activeTarget.id)
-      : null;
-
   // Session message stream, seeded from the session's persisted history. The parent remounts this component
   // (via its key) whenever a different session's history loads, so no prop-to-state syncing is needed.
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages ?? []);
   const [usage, setUsage] = useState<SessionUsage>(initialUsage);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [turnError, setTurnError] = useState<string | null>(null);
   // Teammates due to reply after the one speaking now, as the server reports them.
   const [upNext, setUpNext] = useState<PendingSpeaker[]>([]);
   // Agents still due to reply in a turn that was stopped or left; the user can let them continue.
@@ -122,7 +171,7 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
   const [viewingId, setViewingId] = useState<string | null>(null);
 
   // The viewer moves between the handoffs given together with the one opened: the run of consecutive handoffs
-  // around it. A document is viewed on its own. A reply cut off mid-way is removed, which closes the viewer.
+  // around it. A document is viewed on its own. Interrupted attempts remain visible in the conversation.
   const viewerReplies = useMemo(() => {
     const at = messages.findIndex((message) => message.id === viewingId);
     if (at < 0) return [];
@@ -189,6 +238,14 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
   const applyEvent = useCallback((event: TurnEvent, onUserMessageSaved: (message: ChatMessage) => void) => {
     if (!mounted.current) return;
     switch (event.type) {
+      case "routed": {
+        const id = liveIds.current.get(event.agentId);
+        liveIds.current.delete(event.agentId);
+        pendingText.current.delete(event.agentId);
+        if (speaking.current === event.agentId) speaking.current = null;
+        if (id) setMessages(previous => previous.filter(message => message.id !== id));
+        break;
+      }
       case "turn":
         onUserMessageSaved(toViewMessage(event.userMessage, activeTarget));
         break;
@@ -227,7 +284,7 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
         liveIds.current.delete(event.agentId);
         if (speaking.current === event.agentId) speaking.current = null;
         const saved = toViewMessage(event.message, activeTarget, event.sources);
-        setMessages((prev) => prev.map((message) => (message.id === id ? saved : message)));
+        setMessages(prev => prev.some(message => message.id === id) ? prev.map(message => message.id === id ? saved : message) : prev.some(message => message.id === saved.id) ? prev : [...prev, saved]);
         if (documentOf(saved)?.saved) onArtifactsChanged();
         // A handoff open in the viewer stays open as its saved version.
         setViewingId((current) => (current === id ? saved.id : current));
@@ -245,12 +302,11 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
   }, [activeTarget, updateLive, flushText, onArtifactsChanged]);
 
   /**
-   * Runs one streamed turn. Stopping it (or leaving) keeps the replies already saved; a reply cut off mid-way
-   * was not saved, so it is removed, and the agents still due can continue later. A failure is reported.
+   * Runs a streamed turn, retaining interrupted progress until the server history replaces it.
    */
   const runTurn = useCallback(async (
     start: (onEvent: (event: TurnEvent) => void, signal: AbortSignal) => Promise<void>,
-    handlers: { onUserMessageSaved?: (message: ChatMessage) => void; onFailedBeforeSaving?: () => void } = {},
+    handlers: { onUserMessageSaved?: (message: ChatMessage) => void; onFailedBeforeSaving?: () => void; pendingAgentIds?: string[] } = {},
   ) => {
     abortRef.current?.abort();
     const controller = new AbortController();
@@ -259,9 +315,11 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
     speaking.current = null;
     queued.current = [];
     setStalled([]);
+    setTurnError(null);
     setUpNext([]);
     setIsStreaming(true);
     let userMessageSaved = false;
+    let interruption: string | null = null;
     const onUserMessageSaved = (message: ChatMessage) => {
       userMessageSaved = true;
       handlers.onUserMessageSaved?.(message);
@@ -270,18 +328,28 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
       await start((event) => applyEvent(event, onUserMessageSaved), controller.signal);
     } catch (error) {
       if (!mounted.current) return;
-      if (controller.signal.aborted) {
-        setStalled([speaking.current, ...queued.current].filter((agentId): agentId is string => Boolean(agentId)));
-      } else {
+      interruption = controller.signal.aborted ? "Stopped before completion. Continue when you are ready."
+        : error instanceof Error ? error.message : "The agent could not complete this request.";
+      setStalled([...new Set([speaking.current, ...queued.current, ...(handlers.pendingAgentIds ?? [])].filter((agentId): agentId is string => Boolean(agentId)))]);
+      setTurnError(interruption);
+      if (!controller.signal.aborted) {
         if (!userMessageSaved) handlers.onFailedBeforeSaving?.();
-        toast.error(error instanceof Error ? error.message : "The agent could not respond.");
+        toast.error(interruption);
       }
     } finally {
       if (mounted.current && abortRef.current === controller) {
         abortRef.current = null;
         if (frame.current !== null) { cancelAnimationFrame(frame.current); frame.current = null; }
+        const tail = new Map(pendingText.current);
+        const live = new Map(liveIds.current);
         pendingText.current.clear();
-        setMessages((prev) => prev.filter((message) => !message.streaming));
+        setMessages(previous => previous.map(message => {
+          if (!message.streaming) return message;
+          const agentId = [...live].find(([, id]) => id === message.id)?.[0];
+          return { ...message, streaming: false, content: message.content + (agentId ? tail.get(agentId) ?? "" : ""),
+            interruption: interruption ?? "The response ended before it was completed. Continue the unfinished work.",
+            activity: message.activity?.map(step => step.status === "running" ? { ...step, status: "failed" } : step) };
+        }));
         setUpNext([]);
         setIsStreaming(false);
       }
@@ -292,10 +360,10 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
 
   const continueTurn = () => {
     if (!workspaceId || !activeSessionId) return;
-    void runTurn((onEvent, signal) => apiStreamContinueTurn(workspaceId, activeSessionId, onEvent, signal));
+    void runTurn((onEvent, signal) => apiStreamContinueTurn(workspaceId, activeSessionId, onEvent, signal), { pendingAgentIds: stalled });
   };
 
-  // Sync messages with parent for export
+  // Keep the session list in sync with the last message.
   useEffect(() => {
     onMessagesUpdate(messages);
   }, [messages, onMessagesUpdate]);
@@ -316,7 +384,7 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
     }
 
     const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      (window as VoiceWindow).SpeechRecognition || (window as VoiceWindow).webkitSpeechRecognition;
 
     if (SpeechRecognition) {
       try {
@@ -329,7 +397,7 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
           setIsRecording(true);
         };
 
-        recognition.onresult = (event: any) => {
+        recognition.onresult = (event: VoiceRecognitionResult) => {
           let transcript = "";
           for (let i = event.resultIndex; i < event.results.length; i++) {
             transcript += event.results[i][0].transcript;
@@ -371,8 +439,8 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
 
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    const text = inputText.trim();
-    if (!text || isStreaming) return;
+    const text = inputText;
+    if (!text.trim() || isStreaming) return;
     if (!workspaceId) {
       toast.error("Select a workspace before starting a discussion.");
       return;
@@ -412,7 +480,13 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
 
   if (!activeTarget) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-slate-50/50 dark:bg-slate-900/30">
+      <div className="relative min-w-0 flex-1 flex flex-col items-center justify-center p-8 text-center bg-slate-50/50 dark:bg-slate-900/30">
+        <div className="absolute top-4 right-4 flex gap-2">
+          <button type="button" onClick={onToggleHistory} aria-label={isHistoryOpen ? "Collapse chat history" : "Expand chat history"} aria-expanded={isHistoryOpen} className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 cursor-pointer">
+            {isHistoryOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
+          </button>
+          <button type="button" onClick={onToggleRightPane} aria-label={isRightPaneOpen ? "Collapse session resources" : "Expand session resources"} aria-expanded={isRightPaneOpen} className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 cursor-pointer"><PanelRight className="h-4 w-4" /></button>
+        </div>
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-muted text-primary mb-3 shadow-sm">
           <Users className="h-7 w-7" />
         </div>
@@ -427,7 +501,7 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
   }
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-slate-50/50 dark:bg-slate-900/30 overflow-hidden relative">
+    <div className="min-w-0 flex-1 flex flex-col h-full bg-slate-50/50 dark:bg-slate-900/30 overflow-hidden relative">
       {/* Modern Chat Header */}
       <header className="px-6 py-3.5 border-b border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md flex items-center justify-between shrink-0 select-none z-10">
         <div className="flex items-center gap-3 min-w-0">
@@ -489,8 +563,13 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
 
         {/* Right Header Status & Toggle Pane */}
         <div className="flex items-center gap-2.5">
+          <button type="button" onClick={onToggleHistory} aria-label={isHistoryOpen ? "Collapse chat history" : "Expand chat history"} aria-expanded={isHistoryOpen} title={isHistoryOpen ? "Collapse chat history" : "Expand chat history"} className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
+            {isHistoryOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
+          </button>
           <button
             type="button"
+            aria-label={isRightPaneOpen ? "Collapse session resources" : "Expand session resources"}
+            aria-expanded={isRightPaneOpen}
             onClick={onToggleRightPane}
             title={isRightPaneOpen ? "Hide session resources" : "Show session resources"}
             className={`p-2 rounded-xl border transition-all cursor-pointer ${
@@ -545,13 +624,14 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
               </div>
             )}
 
-            <div
-              className={`max-w-xl rounded-2xl p-4 shadow-xs text-xs space-y-1.5 ${
+            <MessageSurface timestamp={msg.timestamp}
+              className={`relative select-text min-w-0 max-w-xl rounded-2xl p-4 shadow-xs text-xs ${
                 msg.role === "user"
-                  ? "bg-primary text-primary-fg rounded-tr-none ml-12"
+                  ? "bg-slate-200/70 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-tr-none ml-12"
                   : "bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 text-slate-800 dark:text-slate-200 rounded-tl-none mr-12"
               }`}
             >
+              <CopyMessageButton text={msg.content} label={msg.role === "user" ? "Copy your message" : "Copy agent response"} disabled={Boolean(msg.streaming)} className={`absolute top-0 ${msg.role === "user" ? "-left-9" : "-right-9"}`} />
               {msg.role === "assistant" && msg.sender && (
                 <div className="flex items-center gap-2 pb-1 border-b border-slate-100 dark:border-slate-800/80">
                   <span className="font-bold text-slate-900 dark:text-slate-100">
@@ -567,11 +647,6 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
                       LEAD
                     </span>
                   )}
-                  {isSaved(msg) && (
-                    <span className="ml-auto">
-                      <ExportMenu onExport={(format) => exportReply(msg, format)} label={`Export ${msg.sender}'s reply`} />
-                    </span>
-                  )}
                 </div>
               )}
 
@@ -582,23 +657,17 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
               {msg.role === "assistant" ? (
                 msg.content || !msg.streaming ? (
                   <div className={msg.streaming ? "[&>div>*:last-child]:after:content-['▍'] [&>div>*:last-child]:after:ml-0.5 [&>div>*:last-child]:after:animate-pulse [&>div>*:last-child]:after:text-primary" : undefined}>
-                    <MarkdownContent content={msg.content} assetContext={workspaceId && activeSessionId ? { workspaceId, sessionId: activeSessionId } : undefined} />
+                    <MarkdownContent content={msg.content} assetContext={documentAssetContext} />
                   </div>
                 ) : null
               ) : (
-                <p className="leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                <p data-chat-text className="select-text cursor-text break-words leading-relaxed whitespace-pre-wrap">{msg.content}</p>
               )}
 
               {msg.role === "assistant" && msg.sources && <MessageSources sources={msg.sources} idPrefix={msg.id} />}
+              {msg.interruption && <p role="status" className="mt-2 rounded-lg bg-amber-50 dark:bg-amber-950/40 p-2.5 text-amber-800 dark:text-amber-200 text-xs">{msg.interruption}</p>}
 
-              <div
-                className={`text-[9px] pt-1 text-right ${
-                  msg.role === "user" ? "text-primary-fg/70" : "text-slate-400"
-                }`}
-              >
-                {msg.timestamp}
-              </div>
-            </div>
+            </MessageSurface>
           </div>
         ))
       )}
@@ -613,6 +682,9 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
           <Users className="h-3.5 w-3.5" aria-hidden="true" />
           <span>Up next: {listNames(upNext.map((speaker) => speaker.name))}</span>
         </div>
+      )}
+      {!isStreaming && turnError && !messages.at(-1)?.interruption && (
+        <p role="alert" className="text-xs text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/40 rounded-xl p-3">{turnError}</p>
       )}
       {!isStreaming && stalled.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 pl-11" role="status">
@@ -654,17 +726,19 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
       )}
 
       {/* Modernized Input Box (Uploads strictly omitted as they are handled in Right Pane) */}
-      <div className="p-4 border-t border-slate-200/80 dark:border-slate-800 shrink-0">
+      <div className="min-w-0 p-4 shrink-0">
         <form
           onSubmit={handleSendMessage}
-          className="flex items-center gap-2 bg-slate-100/90 dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700/80 rounded-2xl px-3 py-2 shadow-xs focus-within:ring-2 focus-within:ring-primary-ring focus-within:border-primary transition-all"
+          className="flex w-full min-w-0 flex-col gap-2 bg-slate-100/90 dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700/80 rounded-2xl px-3 py-2 shadow-xs focus-within:ring-2 focus-within:ring-primary-ring focus-within:border-primary transition-colors"
         >
+          {previewEnabled && <ComposerMarkdownPreview content={inputText} assetContext={documentAssetContext} />}
+          <div className="flex w-full min-w-0 items-end gap-2">
           {/* Voice Activated Speech Recognition Button */}
           <button
             type="button"
             onClick={toggleVoiceRecording}
             title={isRecording ? "Stop voice recognition" : "Activate voice recognition"}
-            className={`p-2 rounded-xl transition-all cursor-pointer ${
+            className={`shrink-0 p-2 rounded-xl transition-all cursor-pointer ${
               isRecording
                 ? "bg-red-500 text-white animate-pulse"
                 : "text-slate-400 hover:text-primary hover:bg-slate-200/70 dark:hover:bg-slate-700"
@@ -674,16 +748,26 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
           </button>
 
           {/* Main Input Text Field */}
-          <input
-            type="text"
+          <textarea
+            ref={composerRef}
+            rows={1}
+            wrap="soft"
+            aria-label="Message"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
+            onKeyDown={event => {
+              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                event.preventDefault();
+                if (!isStreaming) event.currentTarget.form?.requestSubmit();
+              }
+            }}
             placeholder={
               activeTarget.type === "team"
                 ? `Dispatch directive to ${activeTarget.name} squad...`
                 : `Instruct ${activeTarget.name}...`
             }
-            className="flex-1 bg-transparent border-none text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none"
+            style={{ maxHeight: CHAT_COMPOSER_MAX_HEIGHT_PX }}
+            className="block min-h-8 min-w-0 flex-1 resize-none overflow-x-hidden overflow-y-auto whitespace-pre-wrap [overflow-wrap:anywhere] border-none bg-transparent px-0 py-1 text-xs leading-6 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none"
           />
 
           {/* Send, or stop the turn while agents are replying */}
@@ -693,7 +777,7 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
               onClick={stopTurn}
               title="Stop replying"
               aria-label="Stop replying"
-              className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-700 hover:bg-slate-800 dark:bg-slate-600 dark:hover:bg-slate-500 text-white shadow-xs transition-all cursor-pointer"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-slate-700 hover:bg-slate-800 dark:bg-slate-600 dark:hover:bg-slate-500 text-white shadow-xs transition-all cursor-pointer"
             >
               <Square className="h-3 w-3 fill-current" />
             </button>
@@ -702,15 +786,19 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
               type="submit"
               disabled={!inputText.trim()}
               title="Send directive"
-              className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary hover:bg-primary-hover disabled:opacity-40 text-primary-fg shadow-xs transition-all cursor-pointer"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary hover:bg-primary-hover disabled:opacity-40 text-primary-fg shadow-xs transition-all cursor-pointer"
             >
               <Send className="h-3.5 w-3.5" />
             </button>
           )}
+          </div>
         </form>
 
         {/* Response and capability mode controls */}
         <div className="flex flex-wrap items-center gap-2 mt-2.5 px-1">
+          <button type="button" aria-pressed={previewEnabled} onClick={() => setPreviewEnabled(value => !value)} title="Preview Markdown as you type; messages are sent as raw Markdown" className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[10px] font-semibold transition-colors ${previewEnabled ? "border-primary bg-primary-muted text-primary" : "border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-400"}`}>
+            {previewEnabled ? <Eye className="h-3 w-3" aria-hidden="true" /> : <EyeOff className="h-3 w-3" aria-hidden="true" />} Preview
+          </button>
           <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
             {(["brief", "detailed"] as const).map((mode) => (
               <button
@@ -751,7 +839,7 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
             <Globe className="h-3 w-3" /> Web
           </button>
 
-          <span className="ml-auto text-[10px] text-slate-400">Press Enter to send</span>
+          <span className="ml-auto text-[10px] text-slate-400">Enter to send · Shift+Enter for a new line</span>
         </div>
       </div>
     </div>

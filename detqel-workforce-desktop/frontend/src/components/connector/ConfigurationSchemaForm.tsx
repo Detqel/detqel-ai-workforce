@@ -81,7 +81,7 @@ function JsonConfigurationInput({ id, schema, value, required, onChange }: Pick<
       onChange(parsed);
     } catch { input.setCustomValidity("Enter valid JSON."); }
   };
-  const props = { id, required, value: text, spellCheck: false, autoComplete: "off", className: `${connectionInputClass} font-mono text-xs`, onChange: handleChange };
+  const props = { id, required, placeholder: schema["x-placeholder"], value: text, spellCheck: false, autoComplete: "off", className: `${connectionInputClass} font-mono text-xs`, onChange: handleChange };
   return schema["x-secret"] || schema.format === "password" ? <input {...props} type="password" autoComplete="new-password" /> : <textarea {...props} rows={4} />;
 }
 
@@ -99,7 +99,7 @@ function ConfigurationField({ id, name, schema, value, required, hasStoredSecret
     control = <JsonConfigurationInput id={id} schema={schema} value={value} required={required} onChange={onChange} />;
   } else if (type === "string" || type === "number" || type === "integer") {
     const inputType = secret ? "password" : type === "number" || type === "integer" ? "number" : schema.format === "uri" || schema.format === "url" ? "url" : schema.format === "email" ? "email" : "text";
-    control = <input id={id} type={inputType} required={required} value={typeof value === "string" || typeof value === "number" ? value : ""} minLength={schema.minLength} maxLength={schema.maxLength} min={schema.minimum} max={schema.maximum} step={type === "integer" ? 1 : type === "number" ? "any" : undefined} pattern={schema.pattern} autoComplete={secret ? "new-password" : "off"} className={connectionInputClass} onChange={event => onChange(event.target.value === "" ? undefined : inputType === "number" ? Number(event.target.value) : event.target.value)} />;
+    control = <input id={id} type={inputType} placeholder={schema["x-placeholder"]} required={required} value={typeof value === "string" || typeof value === "number" ? value : ""} minLength={schema.minLength} maxLength={schema.maxLength} min={schema.minimum} max={schema.maximum} step={type === "integer" ? 1 : type === "number" ? "any" : undefined} pattern={schema.pattern} autoComplete={secret ? "new-password" : "off"} className={connectionInputClass} onChange={event => onChange(event.target.value === "" ? undefined : inputType === "number" ? Number(event.target.value) : event.target.value)} />;
   } else {
     control = <p role="alert" className="text-xs text-red-600 dark:text-red-400">This configuration field uses an unsupported schema type.</p>;
   }

@@ -193,7 +193,7 @@ export class AgentConnectorAccess implements IAgentConnectorAccess {
             }
             case AGENT_CONNECTOR_KINDS.files: {
                 const kindOfPath = reader.adapterKey === CONNECTOR_ADAPTER_KEYS.directory ? "folder" : "file";
-                const path = String(reader.configuration.path ?? "");
+                const path = String(kindOfPath === "file" ? reader.configuration.fileName : reader.configuration.path);
                 const listing = kindOfPath === "folder" ? withoutProtectedEntries(await this.run(reader, CONNECTOR_OPERATIONS.list, { path })).data : null;
                 return { data: { ...about, kind: kindOfPath, path, entries: listing }, metadata: {} };
             }

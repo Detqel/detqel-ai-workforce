@@ -23,6 +23,7 @@ export interface ConfigurationSchema {
   then?: ConfigurationSchema;
   else?: ConfigurationSchema;
   "x-secret"?: boolean;
+  "x-placeholder"?: string;
   "x-visibleWhen"?: Record<string, unknown>;
 }
 

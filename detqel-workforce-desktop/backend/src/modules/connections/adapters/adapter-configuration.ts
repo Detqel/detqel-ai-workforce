@@ -123,8 +123,15 @@ async function assertNotApplicationPath(target: string): Promise<void> {
 }
 
 export async function allowedFilesystemPath(path: string, roots: string[], kind: "file" | "directory"): Promise<string> {
-    if (!isAbsolute(path)) throw new AppError(400, "An absolute filesystem path is required.");
-    const target = await realpath(path);
+    if (!isAbsolute(path)) throw new AppError(400, "Enter the full absolute path without quotation marks, as shown in the field example.");
+    let target: string;
+    try { target = await realpath(path); }
+    catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "ENOENT" || code === "ENOTDIR") throw new AppError(422, "The path does not exist on this computer. Check the spelling and paste an existing absolute path without quotation marks.");
+        if (code === "EACCES" || code === "EPERM") throw new AppError(403, "The application does not have permission to access this path.");
+        throw error;
+    }
     await assertNotApplicationPath(target);
     const canonicalRoots = await Promise.all(roots.map(async (root) => {
         if (!isAbsolute(root)) throw new AppError(503, "The filesystem allowlist contains a non-absolute path.");
@@ -134,6 +141,11 @@ export async function allowedFilesystemPath(path: string, roots: string[], kind:
     if (!permitted) throw new AppError(403, "The filesystem path is outside the operator-configured roots.");
     const entry = await stat(target);
     if (kind === "file" ? !entry.isFile() : !entry.isDirectory()) throw new AppError(400, `The configured path must be a ${kind}.`);
-    await access(target, constants.R_OK);
+    try { await access(target, constants.R_OK); }
+    catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "EACCES" || code === "EPERM") throw new AppError(403, "The application does not have permission to read this path.");
+        throw error;
+    }
     return target;
 }

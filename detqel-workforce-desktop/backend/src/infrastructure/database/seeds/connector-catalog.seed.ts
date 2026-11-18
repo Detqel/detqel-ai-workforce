@@ -8,6 +8,8 @@ import {
     REPOSITORY_NAME_PATTERN,
 } from "../../../constants/connectionConstants.js";
 import { CONNECTOR_ICON_KEYS } from "../../../constants/databaseSeedConstants.js";
+import { connectorInputExample } from "../../../constants/connectorInputExamples.js";
+import { CONNECTOR_FILE_LIMITS } from "../../../constants/connectorFileConstants.js";
 import type { ConfigurationProperty, ConfigurationSchema } from "../../../shared/types/connector-catalog.js";
 import type { NewConnectorCatalog } from "../schema/connector-catalog.js";
 
@@ -93,7 +95,7 @@ function urlField(title: string, description: string): ConfigurationProperty {
 }
 
 function repositoryNameField(title: string, description?: string): ConfigurationProperty {
-    return { ...textField(title, description), pattern: REPOSITORY_NAME_PATTERN, maxLength: 100 };
+    return { ...textField(title, description ?? "Enter only the name shown in the repository URL, without the URL or a .git suffix."), pattern: REPOSITORY_NAME_PATTERN, maxLength: 100 };
 }
 
 function tokenField(title: string, description: string): ConfigurationProperty {
@@ -167,13 +169,18 @@ export const INITIAL_CONNECTOR_CATALOG: NewConnectorCatalog[] = [
     },
     {
         code: "files", name: "Files", connectorType: CONNECTOR_TYPES.data, category: "Files and folders", adapterKey: CONNECTOR_ADAPTER_KEYS.file,
-        description: "Verify a readable backend-host file inside an operator-permitted filesystem root.",
-        configSchema: objectSchema({ path: textField("Absolute file path") }, ["path"]), isEnabled: true,
+        description: "Upload a UTF-8 text or structured data file. The saved upload is encrypted and available to attached agents.",
+        configSchema: objectSchema({
+            fileName: { ...textField("File name"), maxLength: 255 },
+            mimeType: { ...textField("File type"), maxLength: 255 },
+            fileSize: { type: "integer", title: "File size", minimum: 1, maximum: CONNECTOR_FILE_LIMITS.bytes },
+            fileContent: { ...secretField("Uploaded file"), maxLength: CONNECTOR_FILE_LIMITS.base64Characters },
+        }, ["fileName", "mimeType", "fileSize", "fileContent"]), isEnabled: true,
     },
     {
         code: "folders", name: "Folders", connectorType: CONNECTOR_TYPES.data, category: "Files and folders", adapterKey: CONNECTOR_ADAPTER_KEYS.directory,
         description: "Verify a readable backend-host directory inside an operator-permitted filesystem root.",
-        configSchema: objectSchema({ path: textField("Absolute folder path") }, ["path"]), isEnabled: true,
+        configSchema: objectSchema({ path: textField("Absolute folder path", "Paste the full path without quotation marks. The folder must exist on this computer and be inside a permitted filesystem root. On macOS use /Users/yourname/Documents/Reports; on Linux use /home/yourname/Documents/Reports.") }, ["path"]), isEnabled: true,
     },
     {
         code: "github", name: "GitHub", connectorType: CONNECTOR_TYPES.repository, category: REPOSITORY_CATEGORIES.hosted, adapterKey: CONNECTOR_ADAPTER_KEYS.github,
@@ -310,4 +317,11 @@ export const INITIAL_CONNECTOR_CATALOG: NewConnectorCatalog[] = [
         description: "Verify a Docker-compatible daemon using its read-only version and daemon-information APIs.",
         configSchema: dockerSchema, isEnabled: true,
     },
-].map(entry => ({ ...entry, configSchema: { ...entry.configSchema, "x-icon": catalogIcon(entry.code) } }));
+].map(entry => ({ ...entry, configSchema: {
+    ...entry.configSchema,
+    "x-icon": catalogIcon(entry.code),
+    properties: Object.fromEntries(Object.entries(entry.configSchema.properties).map(([name, property]) => {
+        const example = connectorInputExample(entry.code, name);
+        return [name, { ...property, ...(example === undefined ? {} : { "x-placeholder": example }) }];
+    })),
+} }));

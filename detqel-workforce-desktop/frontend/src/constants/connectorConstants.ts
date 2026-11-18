@@ -59,6 +59,8 @@ export const CONNECTOR_STATUS_STYLES: Record<ConnectorStatus, string> = {
 };
 
 export const CONNECTION_FIELD_MAX_LENGTH = 255;
+export const CONNECTOR_FILE_MAX_BYTES = 5 * 1024 * 1024;
+export const CONNECTOR_FILE_ACCEPT = ".txt,.md,.markdown,.csv,.tsv,.json,.jsonl,.ndjson,.xml,.yaml,.yml,.toml,.ini,.log,.sql,.html,.htm,.rst";
 export const CONNECTION_TABLE_COLUMNS = ["Connector Name", "Type", "Status", "Data Stream", "Last Verified", "Actions"];
 export const BOOLEAN_CONFIGURATION_OPTIONS = [{ value: "true", label: "Yes" }, { value: "false", label: "No" }];
 export const CATALOG_ALL_CATEGORIES_OPTION = { value: "", label: "All categories" };

@@ -169,6 +169,13 @@
       "when": 1794644813194,
       "tag": "0023_repository_connectors",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1794901957867,
+      "tag": "0024_connector_uploads_and_examples",
+      "breakpoints": true
     }
   ]
 }

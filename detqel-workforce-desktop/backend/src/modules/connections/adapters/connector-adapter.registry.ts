@@ -6,6 +6,7 @@ import { DockerEnvironmentConnectorAdapter, HttpEnvironmentConnectorAdapter, Loc
 import { createSseTransport, createStdioTransport, createStreamableHttpTransport, McpConnectorAdapter } from "./mcp-connector.adapter.js";
 import { RepositoryConnectorAdapter } from "./repository-connector.adapter.js";
 import { REPOSITORY_PROVIDERS } from "./repository-providers.js";
+import { UploadedFileConnectorAdapter } from "./uploaded-file.adapter.js";
 
 export class ConnectorAdapterRegistry {
     private readonly adapters = new Map<string, ConnectorAdapter>();
@@ -17,7 +18,7 @@ export class ConnectorAdapterRegistry {
         [
             new PostgresConnectorAdapter(options),
             new HttpConnectorAdapter(options),
-            new FilesystemConnectorAdapter("file", options),
+            new UploadedFileConnectorAdapter(),
             new FilesystemConnectorAdapter("directory", options),
             new McpConnectorAdapter(CONNECTOR_ADAPTER_KEYS.mcpStdio, createStdioTransport, options),
             new McpConnectorAdapter(CONNECTOR_ADAPTER_KEYS.mcpStreamableHttp, createStreamableHttpTransport, options),

@@ -12,6 +12,7 @@ import {
   Loader2,
   Trash2,
   PanelRightClose,
+  PanelRightOpen,
 } from "lucide-react";
 import { formatFileSize } from "@/lib/download";
 import { pageIds } from "@/lib/navigation";
@@ -37,6 +38,8 @@ interface DiscussionRightPaneProps {
   /** Changes whenever the chat saved a document, so the artifacts list reloads. */
   artifactsVersion: number;
   onClose?: () => void;
+  isCollapsed?: boolean;
+  onExpand?: () => void;
 }
 
 export const DiscussionRightPane: React.FC<DiscussionRightPaneProps> = ({
@@ -44,6 +47,8 @@ export const DiscussionRightPane: React.FC<DiscussionRightPaneProps> = ({
   activeSessionId,
   artifactsVersion,
   onClose,
+  isCollapsed = false,
+  onExpand,
 }) => {
   const { navigate } = useNavigation();
   const toast = useToast();
@@ -168,8 +173,79 @@ export const DiscussionRightPane: React.FC<DiscussionRightPaneProps> = ({
   }, [workspaceId, activeSessionId, connectorScope, connectorVersion, activeTab]);
 
   return (
-    <aside className="w-80 shrink-0 border-l border-slate-200/80 dark:border-slate-800 bg-white/70 dark:bg-slate-900/60 backdrop-blur-md flex flex-col h-full overflow-hidden select-none">
-      {/* Top Header & Tabs */}
+    <aside className={`${isCollapsed ? "w-16" : "w-80"} shrink-0 border-l border-slate-200/80 dark:border-slate-800 bg-white/70 dark:bg-slate-900/60 backdrop-blur-md flex flex-col h-full overflow-hidden select-none transition-[width] duration-200 ease-in-out`}>
+      {isCollapsed ? (
+        <div className="flex flex-col h-full w-full items-center">
+          {/* Top Expansion Option */}
+          <div className="py-3.5 px-2 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-center w-full min-h-[57px] shrink-0">
+            <button
+              type="button"
+              onClick={onExpand}
+              aria-label="Expand session resources"
+              title="Expand session resources"
+              className="p-2 rounded-xl text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+            >
+              <PanelRightOpen className="h-4 w-4" />
+            </button>
+          </div>
+
+          {/* Icons for artifacts, knowledge and connectors */}
+          <div className="pt-3 p-2 space-y-3 flex flex-col items-center w-full">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab("artifacts");
+                onExpand?.();
+              }}
+              aria-label="Artifacts"
+              title="Artifacts"
+              className={`p-2.5 rounded-xl transition-all cursor-pointer ${
+                activeTab === "artifacts"
+                  ? "bg-primary-muted text-primary shadow-xs font-bold"
+                  : "text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
+              }`}
+            >
+              <FileText className="h-4 w-4" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab("knowledge");
+                onExpand?.();
+              }}
+              aria-label="Knowledge"
+              title="Knowledge"
+              className={`p-2.5 rounded-xl transition-all cursor-pointer ${
+                activeTab === "knowledge"
+                  ? "bg-primary-muted text-primary shadow-xs font-bold"
+                  : "text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
+              }`}
+            >
+              <BookOpen className="h-4 w-4" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab("connectors");
+                onExpand?.();
+              }}
+              aria-label="Connectors"
+              title="Connectors"
+              className={`p-2.5 rounded-xl transition-all cursor-pointer ${
+                activeTab === "connectors"
+                  ? "bg-primary-muted text-primary shadow-xs font-bold"
+                  : "text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
+              }`}
+            >
+              <Plug className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Top Header & Tabs */}
       <div className="p-4 border-b border-slate-200/80 dark:border-slate-800 space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -360,6 +436,8 @@ export const DiscussionRightPane: React.FC<DiscussionRightPaneProps> = ({
           </div>
         )}
       </div>
+        </>
+      )}
     </aside>
   );
 };

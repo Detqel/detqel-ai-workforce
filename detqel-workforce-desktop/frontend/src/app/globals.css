@@ -174,3 +174,52 @@ input[type="radio"]:not(:disabled) {
 @media (prefers-reduced-motion: reduce) {
   .kin-activity-toast { animation: none; }
 }
+
+
+.chat-composer-editor {
+  min-height: 2rem;
+  padding: 0.25rem 0;
+  line-height: 1.5rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  outline: none;
+}
+.chat-composer-editor p { margin: 0; }
+.chat-composer-editor > * + * { margin-top: 0.35rem; }
+.chat-composer-editor p.is-editor-empty:first-child::before {
+  color: #94a3b8;
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+.chat-composer-editor ul,
+.chat-composer-editor ol { margin: 0; padding-left: 1.4rem; }
+.chat-composer-editor ul { list-style-type: disc; }
+.chat-composer-editor ol { list-style-type: decimal; }
+.chat-composer-editor li > p { margin: 0; }
+.chat-composer-editor h1 { font-size: 1.2rem; }
+.chat-composer-editor h2 { font-size: 1.05rem; }
+.chat-composer-editor h3,
+.chat-composer-editor h4,
+.chat-composer-editor h5,
+.chat-composer-editor h6 { font-size: 0.9rem; }
+.chat-composer-editor :is(h1, h2, h3, h4, h5, h6) { font-weight: 700; line-height: 1.5; }
+.chat-composer-editor strong { font-weight: 700; }
+.chat-composer-editor em { font-style: italic; }
+.chat-composer-editor s { text-decoration: line-through; }
+.chat-composer-editor blockquote { margin-left: 0; border-left: 2px solid #94a3b8; padding-left: 0.75rem; }
+.chat-composer-editor code { border-radius: 0.25rem; background: rgb(148 163 184 / 16%); padding: 0.1rem 0.25rem; font-family: monospace; }
+.chat-composer-editor pre { border-radius: 0.5rem; background: rgb(148 163 184 / 12%); padding: 0.5rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-composer-editor pre code { background: none; padding: 0; }
+.chat-composer-editor a { color: var(--primary); text-decoration: underline; }
+.chat-composer-editor hr { border-color: #94a3b8; margin: 0.75rem 0; }
+.chat-composer-editor ul[data-type="taskList"] { list-style: none; padding-left: 0.1rem; }
+.chat-composer-editor li[data-type="taskItem"] { display: flex; align-items: flex-start; gap: 0.5rem; }
+.chat-composer-editor li[data-type="taskItem"] > label { flex: none; user-select: none; }
+.chat-composer-editor li[data-type="taskItem"] > label input { accent-color: var(--primary); }
+.chat-composer-editor li[data-type="taskItem"] > div { flex: 1; min-width: 0; }
+.chat-composer-editor table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+.chat-composer-editor :is(td, th) { border: 1px solid #94a3b8; padding: 0.25rem 0.5rem; vertical-align: top; }
+.chat-composer-editor th { background: rgb(148 163 184 / 12%); font-weight: 700; }
+.chat-composer-editor .selectedCell { background: rgb(148 163 184 / 20%); }

@@ -45,6 +45,10 @@ export const ACTIVITY_LABELS: Readonly<Record<ActivityKind, { running: (detail: 
     running: () => "Drafting an answer",
     done: () => "Drafted an answer",
   },
+  organizingEvidence: {
+    running: () => "Organizing inspected source evidence",
+    done: () => "Organized inspected source evidence",
+  },
   reviewing: {
     running: (detail) => (detail.count ? `Checking the draft against ${plural(detail.count, "source", "sources")}` : "Checking the draft"),
     done: () => "Checked the draft",

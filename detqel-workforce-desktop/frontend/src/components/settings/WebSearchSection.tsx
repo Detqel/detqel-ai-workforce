@@ -37,7 +37,7 @@ export const WebSearchSection: React.FC<WebSearchSectionProps> = ({
       <div className="w-full flex items-center justify-between pb-4 sm:pb-5">
         <div className="flex items-center gap-3">
           <div className="w-8.5 h-8.5 rounded-xl flex items-center justify-center font-bold text-xs bg-purple-100 dark:bg-[#1e1335] text-[#8a2be2] dark:text-[#c084fc] border border-purple-200/70 dark:border-[#7c3aed]/40 shadow-xs">
-            04
+            03
           </div>
           <div>
             <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100 leading-tight">

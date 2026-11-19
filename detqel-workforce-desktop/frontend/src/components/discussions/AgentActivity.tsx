@@ -27,6 +27,7 @@ import { formatDuration, workedFor } from "./discussionView";
 
 const ICONS: Readonly<Record<ActivityKind, LucideIcon>> = {
   understanding: ScanSearch,
+  organizingEvidence: Layers,
   coordinating: Users,
   assigned: ClipboardList,
   searchingKnowledge: BookOpen,

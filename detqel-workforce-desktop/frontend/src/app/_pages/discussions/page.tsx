@@ -284,17 +284,17 @@ export default function DiscussionsPage() {
   return (
     <div className="h-full w-full flex overflow-hidden bg-slate-100/70 dark:bg-[#0f172a]">
       {/* Left-hand window for chat histories of sessions */}
-      <div aria-hidden={!isHistoryOpen} inert={!isHistoryOpen} className={`shrink-0 overflow-hidden transition-[width] duration-200 motion-reduce:transition-none ${isHistoryOpen ? "w-80" : "w-0"}`}>
-        <DiscussionSidebar
-          sessions={sessions}
-          activeSessionId={activeSessionId}
-          onSelectSession={handleSelectSession}
-          onOpenNewChatModal={() => setIsNewChatModalOpen(true)}
-          onDeleteSession={handleDeleteSession}
-          onRenameSession={handleRenameSession}
-          onCollapse={() => setIsHistoryOpen(false)}
-        />
-      </div>
+      <DiscussionSidebar
+        isCollapsed={!isHistoryOpen}
+        onExpand={() => setIsHistoryOpen(true)}
+        sessions={sessions}
+        activeSessionId={activeSessionId}
+        onSelectSession={handleSelectSession}
+        onOpenNewChatModal={() => setIsNewChatModalOpen(true)}
+        onDeleteSession={handleDeleteSession}
+        onRenameSession={handleRenameSession}
+        onCollapse={() => setIsHistoryOpen(false)}
+      />
 
       {/* Center modernized chat window */}
       <DiscussionChatWindow
@@ -307,23 +307,19 @@ export default function DiscussionsPage() {
         initialPendingAgentIds={initialPendingAgentIds}
         teams={teams}
         agents={agents}
-        isHistoryOpen={isHistoryOpen}
-        onToggleHistory={() => setIsHistoryOpen(open => !open)}
-        isRightPaneOpen={isRightPaneOpen}
-        onToggleRightPane={() => setIsRightPaneOpen(!isRightPaneOpen)}
         onMessagesUpdate={handleMessagesUpdate}
         onArtifactsChanged={handleArtifactsChanged}
       />
 
       {/* Right-hand pane for artifacts, knowledge base, connectors */}
-      <div aria-hidden={!isRightPaneOpen} inert={!isRightPaneOpen} className={`shrink-0 overflow-hidden transition-[width] duration-200 motion-reduce:transition-none ${isRightPaneOpen ? "w-80" : "w-0"}`}>
-        <DiscussionRightPane
-          workspaceId={workspaceId}
-          activeSessionId={activeSessionId}
-          artifactsVersion={artifactsVersion}
-          onClose={() => setIsRightPaneOpen(false)}
-        />
-      </div>
+      <DiscussionRightPane
+        isCollapsed={!isRightPaneOpen}
+        onExpand={() => setIsRightPaneOpen(true)}
+        workspaceId={workspaceId}
+        activeSessionId={activeSessionId}
+        artifactsVersion={artifactsVersion}
+        onClose={() => setIsRightPaneOpen(false)}
+      />
 
       {/* Modal to pick target for new discussion */}
       <NewDiscussionModal

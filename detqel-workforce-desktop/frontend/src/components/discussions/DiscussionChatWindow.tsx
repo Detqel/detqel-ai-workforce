@@ -1,15 +1,12 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   Send,
   Mic,
   MicOff,
   Users,
   Crown,
-  PanelRight,
-  PanelLeftClose,
-  PanelLeftOpen,
   MessageSquare,
   Zap,
   Brain,
@@ -19,8 +16,6 @@ import {
   ArrowDownLeft,
   Square,
   Play,
-  Eye,
-  EyeOff,
 } from "lucide-react";
 import type { DiscussionTarget } from "@/lib/discussionStore";
 import type { AgentTeam, RecruitedAgent } from "@/lib/api";
@@ -37,13 +32,13 @@ import {
 } from "@/lib/api/discussions";
 import { useToast } from "@/context/ToastContext";
 import { MarkdownContent } from "@/components/ui/markdown-content";
-import { CHAT_COMPOSER_MAX_HEIGHT_PX, listNames } from "@/constants/discussionConstants";
+import { listNames } from "@/constants/discussionConstants";
 import { AgentActivity } from "./AgentActivity";
 import { ReplyLine } from "./ReplyLine";
 import { ReplyViewer } from "./ReplyViewer";
 import { MessageSurface } from "./MessageSurface";
 import { CopyMessageButton } from "./CopyMessageButton";
-import { ComposerMarkdownPreview } from "./ComposerMarkdownPreview";
+import { MarkdownComposer } from "./MarkdownComposer";
 import { saveDownload } from "@/lib/download";
 import { MessageSources } from "./MessageSources";
 import {
@@ -89,10 +84,6 @@ interface DiscussionChatWindowProps {
   initialPendingAgentIds: string[];
   teams: AgentTeam[];
   agents: RecruitedAgent[];
-  isHistoryOpen: boolean;
-  onToggleHistory: () => void;
-  isRightPaneOpen: boolean;
-  onToggleRightPane: () => void;
   onMessagesUpdate: (messages: ChatMessage[]) => void;
   /** A document was saved in the discussion's artifacts. */
   onArtifactsChanged: () => void;
@@ -102,10 +93,6 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
   activeTarget,
   activeSessionId,
   teams,
-  isHistoryOpen,
-  onToggleHistory,
-  isRightPaneOpen,
-  onToggleRightPane,
   onMessagesUpdate,
   workspaceId,
   initialMessages,
@@ -115,7 +102,6 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
 }) => {
   const toast = useToast();
   const [inputText, setInputText] = useState("");
-  const [previewEnabled, setPreviewEnabled] = useState(true);
   const documentAssetContext = useMemo(() => workspaceId && activeSessionId ? { workspaceId, sessionId: activeSessionId } : undefined, [workspaceId, activeSessionId]);
   const [isRecording, setIsRecording] = useState(false);
   const [responseMode, setResponseMode] = useState<ResponseMode>("detailed");
@@ -123,34 +109,6 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
   const [webEnabled, setWebEnabled] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<VoiceRecognition | null>(null);
-  const composerRef = useRef<HTMLTextAreaElement>(null);
-
-  const resizeComposer = useCallback(() => {
-    const textarea = composerRef.current;
-    if (!textarea) return;
-    textarea.style.height = "auto";
-    textarea.style.height = `${Math.min(textarea.scrollHeight, CHAT_COMPOSER_MAX_HEIGHT_PX)}px`;
-  }, []);
-
-  useLayoutEffect(() => {
-    resizeComposer();
-  }, [inputText, activeTarget?.id, resizeComposer]);
-
-  useEffect(() => {
-    const textarea = composerRef.current;
-    if (!textarea) return;
-    let width = textarea.getBoundingClientRect().width;
-    const observer = new ResizeObserver(entries => {
-      const nextWidth = entries[0]?.contentRect.width;
-      if (nextWidth !== undefined && nextWidth !== width) {
-        width = nextWidth;
-        resizeComposer();
-      }
-    });
-    observer.observe(textarea);
-    return () => observer.disconnect();
-  }, [activeTarget?.id, resizeComposer]);
-
   // Active Team object if target is a team
   const activeTeam =
     activeTarget?.type === "team"
@@ -418,22 +376,11 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
         recognitionRef.current = recognition;
         recognition.start();
       } catch {
-        // Fallback toggle simulation
-        setIsRecording(true);
+        setIsRecording(false);
+        toast.error("Voice dictation could not start. Check microphone access and try again.");
       }
     } else {
-      // Browser doesn't support Web Speech API natively
-      setIsRecording(!isRecording);
-      if (!isRecording) {
-        setTimeout(() => {
-          setInputText((prev) =>
-            prev
-              ? `${prev} Please analyze the operational architecture and report key bottlenecks.`
-              : "Please analyze the operational architecture and report key bottlenecks."
-          );
-          setIsRecording(false);
-        }, 2200);
-      }
+      toast.error("Voice dictation is unavailable in this browser.");
     }
   };
 
@@ -481,12 +428,6 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
   if (!activeTarget) {
     return (
       <div className="relative min-w-0 flex-1 flex flex-col items-center justify-center p-8 text-center bg-slate-50/50 dark:bg-slate-900/30">
-        <div className="absolute top-4 right-4 flex gap-2">
-          <button type="button" onClick={onToggleHistory} aria-label={isHistoryOpen ? "Collapse chat history" : "Expand chat history"} aria-expanded={isHistoryOpen} className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 cursor-pointer">
-            {isHistoryOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
-          </button>
-          <button type="button" onClick={onToggleRightPane} aria-label={isRightPaneOpen ? "Collapse session resources" : "Expand session resources"} aria-expanded={isRightPaneOpen} className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 cursor-pointer"><PanelRight className="h-4 w-4" /></button>
-        </div>
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-muted text-primary mb-3 shadow-sm">
           <Users className="h-7 w-7" />
         </div>
@@ -503,21 +444,8 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
   return (
     <div className="min-w-0 flex-1 flex flex-col h-full bg-slate-50/50 dark:bg-slate-900/30 overflow-hidden relative">
       {/* Modern Chat Header */}
-      <header className="px-6 py-3.5 border-b border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md flex items-center justify-between shrink-0 select-none z-10">
+      <header className="px-6 py-3.5 border-b border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md flex items-center justify-between gap-4 shrink-0 select-none z-10">
         <div className="flex items-center gap-3 min-w-0">
-          {/* Session usage from the gateway, refreshed after every reply */}
-          <div
-            role="status"
-            aria-live="polite"
-            aria-label={`Session usage: ${formatTokensExact(usage.inputTokens)} input tokens sent, ${formatTokensExact(usage.outputTokens)} output tokens received, total cost ${formatCost(usage.costUsd)}`}
-            title={`Input sent: ${formatTokensExact(usage.inputTokens)} tokens (${formatTokensExact(usage.cachedTokens)} served from cache)\nOutput received: ${formatTokensExact(usage.outputTokens)} tokens\nTotal cost: ${formatCost(usage.costUsd)}`}
-            className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-slate-200/80 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 text-[10px] font-semibold text-slate-600 dark:text-slate-300 tabular-nums shrink-0"
-          >
-            <span className="inline-flex items-center gap-0.5"><ArrowUpRight className="h-3 w-3 text-sky-500" aria-hidden="true" />{formatTokens(usage.inputTokens)}</span>
-            <span className="inline-flex items-center gap-0.5"><ArrowDownLeft className="h-3 w-3 text-emerald-500" aria-hidden="true" />{formatTokens(usage.outputTokens)}</span>
-            <span className="pl-2 border-l border-slate-200 dark:border-slate-700">{formatCost(usage.costUsd)}</span>
-          </div>
-
           <div className="relative">
             {activeTarget.type === "team" ? (
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-fg font-bold text-sm shadow-sm">
@@ -561,25 +489,17 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
           </div>
         </div>
 
-        {/* Right Header Status & Toggle Pane */}
-        <div className="flex items-center gap-2.5">
-          <button type="button" onClick={onToggleHistory} aria-label={isHistoryOpen ? "Collapse chat history" : "Expand chat history"} aria-expanded={isHistoryOpen} title={isHistoryOpen ? "Collapse chat history" : "Expand chat history"} className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
-            {isHistoryOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
-          </button>
-          <button
-            type="button"
-            aria-label={isRightPaneOpen ? "Collapse session resources" : "Expand session resources"}
-            aria-expanded={isRightPaneOpen}
-            onClick={onToggleRightPane}
-            title={isRightPaneOpen ? "Hide session resources" : "Show session resources"}
-            className={`p-2 rounded-xl border transition-all cursor-pointer ${
-              isRightPaneOpen
-                ? "bg-primary-muted border-primary text-primary"
-                : "border-slate-200 dark:border-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 bg-white dark:bg-slate-800"
-            }`}
-          >
-            <PanelRight className="h-4 w-4" />
-          </button>
+        {/* Real usage figures reported by the orchestrator (Dollar Tracker) */}
+        <div
+          role="status"
+          aria-live="polite"
+          aria-label={`Session usage: ${formatTokensExact(usage.inputTokens)} input tokens sent, ${formatTokensExact(usage.outputTokens)} output tokens received, total cost ${formatCost(usage.costUsd)}`}
+          title={`Input sent: ${formatTokensExact(usage.inputTokens)} tokens (${formatTokensExact(usage.cachedTokens)} served from cache)\nOutput received: ${formatTokensExact(usage.outputTokens)} tokens\nTotal cost: ${formatCost(usage.costUsd)}`}
+          className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-slate-200/80 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 text-[10px] font-semibold text-slate-600 dark:text-slate-300 tabular-nums shrink-0"
+        >
+          <span className="inline-flex items-center gap-0.5"><ArrowUpRight className="h-3 w-3 text-sky-500" aria-hidden="true" />{formatTokens(usage.inputTokens)}</span>
+          <span className="inline-flex items-center gap-0.5"><ArrowDownLeft className="h-3 w-3 text-emerald-500" aria-hidden="true" />{formatTokens(usage.outputTokens)}</span>
+          <span className="pl-2 border-l border-slate-200 dark:border-slate-700">{formatCost(usage.costUsd)}</span>
         </div>
       </header>
 
@@ -725,13 +645,12 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
         </div>
       )}
 
-      {/* Modernized Input Box (Uploads strictly omitted as they are handled in Right Pane) */}
+      {/* Markdown composer */}
       <div className="min-w-0 p-4 shrink-0">
         <form
           onSubmit={handleSendMessage}
           className="flex w-full min-w-0 flex-col gap-2 bg-slate-100/90 dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700/80 rounded-2xl px-3 py-2 shadow-xs focus-within:ring-2 focus-within:ring-primary-ring focus-within:border-primary transition-colors"
         >
-          {previewEnabled && <ComposerMarkdownPreview content={inputText} assetContext={documentAssetContext} />}
           <div className="flex w-full min-w-0 items-end gap-2">
           {/* Voice Activated Speech Recognition Button */}
           <button
@@ -747,27 +666,12 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
             {isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
           </button>
 
-          {/* Main Input Text Field */}
-          <textarea
-            ref={composerRef}
-            rows={1}
-            wrap="soft"
-            aria-label="Message"
+          <MarkdownComposer
             value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            onKeyDown={event => {
-              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-                event.preventDefault();
-                if (!isStreaming) event.currentTarget.form?.requestSubmit();
-              }
-            }}
-            placeholder={
-              activeTarget.type === "team"
-                ? `Dispatch directive to ${activeTarget.name} squad...`
-                : `Instruct ${activeTarget.name}...`
-            }
-            style={{ maxHeight: CHAT_COMPOSER_MAX_HEIGHT_PX }}
-            className="block min-h-8 min-w-0 flex-1 resize-none overflow-x-hidden overflow-y-auto whitespace-pre-wrap [overflow-wrap:anywhere] border-none bg-transparent px-0 py-1 text-xs leading-6 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none"
+            onChange={setInputText}
+            onSubmit={() => { void handleSendMessage(); }}
+            sending={isStreaming}
+            placeholder={activeTarget.type === "team" ? `Dispatch directive to ${activeTarget.name} squad...` : `Instruct ${activeTarget.name}...`}
           />
 
           {/* Send, or stop the turn while agents are replying */}
@@ -796,9 +700,6 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
 
         {/* Response and capability mode controls */}
         <div className="flex flex-wrap items-center gap-2 mt-2.5 px-1">
-          <button type="button" aria-pressed={previewEnabled} onClick={() => setPreviewEnabled(value => !value)} title="Preview Markdown as you type; messages are sent as raw Markdown" className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[10px] font-semibold transition-colors ${previewEnabled ? "border-primary bg-primary-muted text-primary" : "border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-400"}`}>
-            {previewEnabled ? <Eye className="h-3 w-3" aria-hidden="true" /> : <EyeOff className="h-3 w-3" aria-hidden="true" />} Preview
-          </button>
           <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
             {(["brief", "detailed"] as const).map((mode) => (
               <button

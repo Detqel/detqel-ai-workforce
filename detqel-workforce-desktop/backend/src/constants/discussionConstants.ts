@@ -102,6 +102,7 @@ export const DISCUSSION_ACTIVITY_KINDS = {
     drafting: "drafting",
     /** Expert mode: checking the draft against the sources while writing the final reply. */
     reviewing: "reviewing",
+    organizingEvidence: "organizingEvidence",
     /** Writing the reply the user sees. */
     writing: "writing",
     /** The lead bringing its teammates' contributions together into one answer. */

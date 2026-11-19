@@ -53,7 +53,7 @@ export type TurnRole = "solo" | "lead" | "addressed" | "delegate" | "wrapUp";
 
 export type ActivityKind =
   | "understanding" | "coordinating" | "assigned" | "searchingKnowledge" | "searchingWeb" | "drafting" | "reviewing" | "writing" | "consolidating"
-  | "writingDocument" | "savingDocument" | "readingConnector" | "readingKnowledge";
+  | "writingDocument" | "savingDocument" | "readingConnector" | "readingKnowledge" | "organizingEvidence";
 
 /** One high-level step of an agent's reply. */
 export interface ActivityStep {

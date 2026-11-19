@@ -1,12 +1,10 @@
 "use client";
 
-import { PREVIEW_MODES, SETTINGS_SAVE_SUCCESS_DURATION_MS } from "@/constants/settingsConstants";
+import { SETTINGS_SAVE_SUCCESS_DURATION_MS } from "@/constants/settingsConstants";
 
 import React, { useEffect, useState, useCallback } from "react";
-import { VyraBannerCard } from "./VyraBannerCard";
 import { IntelligenceSection } from "./IntelligenceSection";
 import { PersonalityInstructionsSection } from "./PersonalityInstructionsSection";
-import { TestPreviewSection } from "./TestPreviewSection";
 import { WebSearchSection } from "./WebSearchSection";
 import { useWorkspace } from "@/context/WorkspaceContext";
 import {
@@ -15,7 +13,6 @@ import {
   apiGetVyraSettings,
   apiUpdateVyraSettings,
   apiTestConnection,
-  apiTestVyraPrompt,
   apiTestWebSearch,
   type AIProvider,
   type AIProviderModel,
@@ -23,8 +20,31 @@ import {
   type VyraInstructions,
   type VyraTemplate,
 } from "@/lib/api";
-import { Check, Loader2, Save } from "lucide-react";
+import { Check, Loader2, Save, Cpu, Sliders, Globe } from "lucide-react";
 import { PrimaryButton } from "@/components/ui/primary-button";
+
+type VyraSettingsTab = "intelligence" | "personality" | "capabilities";
+
+const SETTINGS_TABS = [
+  {
+    id: "intelligence" as const,
+    number: "01",
+    label: "Intelligence",
+    icon: Cpu,
+  },
+  {
+    id: "personality" as const,
+    number: "02",
+    label: "Personality & Instructions",
+    icon: Sliders,
+  },
+  {
+    id: "capabilities" as const,
+    number: "03",
+    label: "Custom Capabilities",
+    icon: Globe,
+  },
+];
 
 export const VyraSettingsPage: React.FC = () => {
   const { currentWorkspace } = useWorkspace();
@@ -57,11 +77,13 @@ export const VyraSettingsPage: React.FC = () => {
     boundaries: "",
     responseStyle: "",
   });
-  const [previewMode, setPreviewMode] = useState<"chat" | "structured">(PREVIEW_MODES.chat);
+  const [activeTab, setActiveTab] = useState<VyraSettingsTab>("intelligence");
 
   // Save state
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
+
+  const workspaceId = currentWorkspace?.id;
 
   // Load from DB
   const loadData = useCallback(async () => {
@@ -69,7 +91,7 @@ export const VyraSettingsPage: React.FC = () => {
     try {
       const [fetchedProviders, fetchedSettings] = await Promise.all([
         apiGetAIProviders(),
-        apiGetVyraSettings(currentWorkspace?.id),
+        apiGetVyraSettings(workspaceId),
       ]);
 
       if (fetchedProviders && fetchedProviders.length > 0) {
@@ -98,15 +120,12 @@ export const VyraSettingsPage: React.FC = () => {
             responseStyle: fetchedSettings.instructions.responseStyle || "",
           });
         }
-        if (fetchedSettings.previewMode) {
-          setPreviewMode(fetchedSettings.previewMode as "chat" | "structured");
-        }
 
         // Fetch models for the saved provider using the key saved on the server
         if (provId && fetchedSettings.hasApiKey) {
           setIsLoadingModels(true);
           try {
-            const models = await apiGetProviderModels(provId, undefined, currentWorkspace?.id);
+            const models = await apiGetProviderModels(provId, undefined, workspaceId);
             setAvailableModels(models);
           } finally {
             setIsLoadingModels(false);
@@ -118,15 +137,19 @@ export const VyraSettingsPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [currentWorkspace?.id]);
+  }, [workspaceId]);
 
   useEffect(() => {
-    loadData();
+    let active = true;
+    queueMicrotask(() => {
+      if (active) void loadData();
+    });
+    return () => {
+      active = false;
+    };
   }, [loadData]);
 
   const lastFetchRef = React.useRef<string>("");
-
-  const workspaceId = currentWorkspace?.id;
 
   /** Loads models with the typed key, or with the server's saved key when nothing has been typed. */
   const fetchModels = useCallback(
@@ -204,7 +227,6 @@ export const VyraSettingsPage: React.FC = () => {
           ? { tavilyApiKey: tavilyKey.trim(), tavilyKeyStatus: "", isValidTavilyKey: false }
           : { tavilyKeyStatus, isValidTavilyKey }),
         instructions,
-        previewMode,
       });
       if (updated) {
         setVyraSettings(updated);
@@ -292,24 +314,6 @@ export const VyraSettingsPage: React.FC = () => {
     }
   };
 
-  // Execute test prompt
-  const handleExecutePrompt = async (prompt: string, mode: "chat" | "structured") => {
-    const res = await apiTestVyraPrompt({
-      prompt,
-      providerId: selectedProviderId,
-      modelId: selectedModelId,
-      ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
-      mode,
-      systemPrompt: instructions.core,
-    });
-    return {
-      output: res.output,
-      structuredOutput: res.structuredOutput,
-      tokensUsed: res.tokensUsed,
-      latencyMs: res.latencyMs,
-    };
-  };
-
   if (isLoading) {
     return (
       <div className="w-full h-full min-h-[70vh] flex flex-col items-center justify-center p-8 space-y-3">
@@ -361,64 +365,86 @@ export const VyraSettingsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Main Two-Column Layout (Matching the Reference Image exactly) */}
-      <div className="w-full flex flex-col lg:flex-row items-start gap-5 xl:gap-6">
-        {/* Left Column: Cybernetic VYRA Banner Card */}
-        <VyraBannerCard
-          quote={vyraSettings?.quote}
-          traits={vyraSettings?.traits}
-        />
+      {/* Category Tabs & Active Section */}
+      <div className="w-full space-y-4 sm:space-y-5">
+        {/* Main Category Tabs */}
+        <div className="w-full p-1.5 rounded-2xl bg-slate-100/90 dark:bg-[#0c1222]/80 border border-slate-200/90 dark:border-[#1c273e] grid grid-cols-1 sm:grid-cols-3 gap-1.5 shadow-2xs">
+            {SETTINGS_TABS.map((tab) => {
+              const isActive = activeTab === tab.id;
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                    isActive
+                      ? "bg-white dark:bg-[#182238] text-[#8a2be2] dark:text-[#c084fc] shadow-sm font-bold border border-slate-200/80 dark:border-[#2b3a58]"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-white/50 dark:hover:bg-slate-800/40"
+                  }`}
+                >
+                  <span
+                    className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold shrink-0 ${
+                      isActive
+                        ? "bg-purple-100 dark:bg-[#201538] text-[#8a2be2] dark:text-[#c084fc]"
+                        : "bg-slate-200/70 dark:bg-[#162035] text-slate-500 dark:text-slate-400"
+                    }`}
+                  >
+                    {tab.number}
+                  </span>
+                  <Icon className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
 
-        {/* Right Column: 01, 02, 03 Sections */}
-        <div className="flex-1 w-full space-y-5 xl:space-y-6 min-w-0">
-          {/* 01: Intelligence & Provider Selection */}
-          <IntelligenceSection
-            providers={providers}
-            selectedProviderId={selectedProviderId}
-            onSelectProvider={handleSelectProvider}
-            availableModels={availableModels}
-            isLoadingModels={isLoadingModels}
-            selectedModelId={selectedModelId}
-            onSelectModel={setSelectedModelId}
-            apiKey={apiKey}
-            hasSavedKey={hasSavedKey}
-            onApiKeyChange={setApiKey}
-            onApiKeyBlur={handleApiKeyBlur}
-            onOpenModelSelection={handleOpenModelSelection}
-            keyStatus={keyStatus}
-            isValidKey={isValidKey}
-            onTestConnection={handleTestConnection}
-            isTestingConnection={isTestingConnection}
-          />
+          {/* Tab 01: Intelligence & Provider Selection */}
+          <div className={activeTab === "intelligence" ? "block animate-in fade-in duration-200" : "hidden"}>
+            <IntelligenceSection
+              providers={providers}
+              selectedProviderId={selectedProviderId}
+              onSelectProvider={handleSelectProvider}
+              availableModels={availableModels}
+              isLoadingModels={isLoadingModels}
+              selectedModelId={selectedModelId}
+              onSelectModel={setSelectedModelId}
+              apiKey={apiKey}
+              hasSavedKey={hasSavedKey}
+              onApiKeyChange={setApiKey}
+              onApiKeyBlur={handleApiKeyBlur}
+              onOpenModelSelection={handleOpenModelSelection}
+              keyStatus={keyStatus}
+              isValidKey={isValidKey}
+              onTestConnection={handleTestConnection}
+              isTestingConnection={isTestingConnection}
+            />
+          </div>
 
-          {/* 02: Personality & Instructions */}
-          <PersonalityInstructionsSection
-            instructions={instructions}
-            onInstructionsChange={setInstructions}
-            templates={vyraSettings?.templates || []}
-            onApplyTemplate={handleApplyTemplate}
-          />
+          {/* Tab 02: Personality & Instructions */}
+          <div className={activeTab === "personality" ? "block animate-in fade-in duration-200" : "hidden"}>
+            <PersonalityInstructionsSection
+              instructions={instructions}
+              onInstructionsChange={setInstructions}
+              templates={vyraSettings?.templates || []}
+              onApplyTemplate={handleApplyTemplate}
+            />
+          </div>
 
-          {/* 03: Test & Preview */}
-          <TestPreviewSection
-            previewMode={previewMode}
-            onPreviewModeChange={setPreviewMode}
-            onExecutePrompt={handleExecutePrompt}
-          />
-
-          {/* 04: Web Search */}
-          <WebSearchSection
-            apiKey={tavilyKey}
-            hasSavedKey={hasSavedTavilyKey}
-            savedKeyHint={vyraSettings?.tavilyApiKeyHint}
-            onApiKeyChange={setTavilyKey}
-            keyStatus={tavilyKeyStatus}
-            isValidKey={isValidTavilyKey}
-            onTestConnection={handleTestWebSearch}
-            isTestingConnection={isTestingWebSearch}
-          />
+          {/* Tab 03: Custom Capabilities (Web Search & Extended Tools) */}
+          <div className={activeTab === "capabilities" ? "block animate-in fade-in duration-200" : "hidden"}>
+            <WebSearchSection
+              apiKey={tavilyKey}
+              hasSavedKey={hasSavedTavilyKey}
+              savedKeyHint={vyraSettings?.tavilyApiKeyHint}
+              onApiKeyChange={setTavilyKey}
+              keyStatus={tavilyKeyStatus}
+              isValidKey={isValidTavilyKey}
+              onTestConnection={handleTestWebSearch}
+              isTestingConnection={isTestingWebSearch}
+            />
+          </div>
         </div>
       </div>
-    </div>
-  );
-};
+    );
+  };

@@ -337,7 +337,7 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
         if (!expert && !deep) {
             // Fast replies only investigate the attached connectors and documents, briefly.
             const found = await investigate(state, config, context, AGENT_TOOL_LIMITS.maxRoundsFast, blocks, steps);
-            blocks.push(...found.blocks);
+            blocks.splice(0, blocks.length, ...found.blocks);
             sources.push(...found.sources);
             return { grounding: blocks.length ? runtime.grounding(blocks) : "", sources, evidenceBlocks: blocks, evidenceSources: sources, steps, usage: addUsage(usage, found.usage) };
         }
@@ -357,7 +357,7 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
         }
         // With what retrieval found in hand, the agent reads whatever else it needs from connectors and documents.
         const found = await investigate(state, config, context, deep ? AGENT_TOOL_LIMITS.maxRoundsDeep : AGENT_TOOL_LIMITS.maxRounds, blocks, steps);
-        blocks.push(...found.blocks);
+        blocks.splice(0, blocks.length, ...found.blocks);
         for (const source of found.sources) if (!sources.some(existing => existing.reference === source.reference)) sources.push(source);
         usage = addUsage(usage, found.usage);
         return { grounding: runtime.grounding(blocks), sources, evidenceBlocks: blocks, evidenceSources: sources, steps, usage };
@@ -365,10 +365,14 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
 
     async function investigate(state: State, config: LangGraphRunnableConfig, context: TurnContext, rounds: number, prior: ReadonlyArray<string>, steps: DiscussionActivityStep[]) {
         const toolbox = context.collaborators.toolbox;
-        if (!toolbox?.hasTools) return { blocks: [] as string[], sources: [] as DiscussionSource[], usage: ZERO_USAGE };
+        if (!toolbox?.hasTools) return { blocks: [...prior], sources: [] as DiscussionSource[], usage: ZERO_USAGE };
         const session = toolSession ??= toolbox.start(context.taskPlan?.depth ?? "focused", environment.repositorySnapshots);
-        if (!session.definitions.length) return { blocks: [] as string[], sources: [] as DiscussionSource[], usage: ZERO_USAGE };
-        return runtime.investigate(context, session, rounds, prior, toolRunner(state, config, session, steps), config.signal);
+        if (!session.definitions.length) return { blocks: [...prior], sources: [] as DiscussionSource[], usage: ZERO_USAGE };
+        return runtime.investigate(context, session, rounds, prior, toolRunner(state, config, session, steps), async work => {
+            const { result, step } = await track(state, config, DISCUSSION_ACTIVITY_KINDS.organizingEvidence, undefined, work);
+            steps.push(step);
+            return result;
+        }, config.signal);
     }
 
     async function write(state: State, config: LangGraphRunnableConfig): Promise<Partial<State>> {

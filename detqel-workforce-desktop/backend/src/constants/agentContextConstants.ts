@@ -49,7 +49,10 @@ export const AGENT_TOOL_LIMITS = {
     repositoryInventoryDirectories: 2_000,
     repositoryInventoryPageSize: 80,
     evidenceCompactionCharacters: 64_000,
-    evidenceSummaryTokens: 3_000,
+    evidenceBatchCharacters: 24_000,
+    evidenceSummaryWords: 600,
+    // Includes reasoning overhead; the requested visible summary is much smaller.
+    evidenceSummaryTokens: 8_192,
     /** Tool calls in one investigation, across all rounds. */
     maxCalls: 12,
     /** Tool calls the model may ask for in one round. */

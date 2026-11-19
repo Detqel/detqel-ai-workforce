@@ -47,6 +47,8 @@ export type ReasoningEffort = (typeof LITELLM_REASONING_EFFORTS)[keyof typeof LI
 
 export interface ChatCompletionRequest {
     readonly model: string;
+    /** Local diagnostic label; never sent as a provider parameter or prompt. */
+    readonly purpose?: "planning" | "research" | "evidence-summary" | "draft" | "review" | "memory" | "answer";
     readonly messages: ReadonlyArray<ChatMessage>;
     readonly temperature?: number;
     readonly maxTokens?: number;
@@ -289,17 +291,17 @@ export class LiteLlmClient {
         };
         const message = payload.choices?.[0]?.message;
         const finishReason = payload.choices?.[0]?.finish_reason;
-        if (finishReason === "length" || finishReason === "content_filter") throw new AppError(502, "The model stopped before completing its response. An incomplete document was not handed over.");
-        const toolCalls = toolCallsOf(message?.tool_calls);
-        // A reply that only asks for tools carries no text.
-        const content = typeof message?.content === "string" ? message.content : toolCalls.length > 0 ? "" : null;
-        if (content === null) throw new AppError(502, LITELLM_ERROR_MESSAGES.inferenceFailed);
         const usage: CallUsage = {
             inputTokens: numberOrZero(payload.usage?.prompt_tokens),
             outputTokens: numberOrZero(payload.usage?.completion_tokens),
             cachedTokens: numberOrZero(payload.usage?.prompt_tokens_details?.cached_tokens),
             costUsd: numberOrZero(Number(headers.get(LITELLM_HEADERS.responseCost))),
         };
+        this.assertCompleted(request, finishReason, usage);
+        const toolCalls = toolCallsOf(message?.tool_calls);
+        // A reply that only asks for tools carries no text.
+        const content = typeof message?.content === "string" ? message.content : toolCalls.length > 0 ? "" : null;
+        if (content === null) throw new AppError(502, LITELLM_ERROR_MESSAGES.inferenceFailed);
         return { content, tokensUsed: numberOrZero(payload.usage?.total_tokens), usage, toolCalls };
     }
 
@@ -328,6 +330,7 @@ export class LiteLlmClient {
         let received = 0;
         let content = "";
         let usage: StreamUsage | undefined;
+        let finishReason: string | null | undefined;
         const readEvent = (line: string) => {
             const trimmed = line.trim();
             if (!trimmed.startsWith(LITELLM_STREAM.dataPrefix)) return;
@@ -344,7 +347,7 @@ export class LiteLlmClient {
                 logger.error({ path: LITELLM_ENDPOINTS.chatCompletions }, "Gateway reported an error during a streamed completion");
                 throw new AppError(502, LITELLM_ERROR_MESSAGES.inferenceFailed);
             }
-            if (chunk.choices?.some(choice => choice.finish_reason === "length" || choice.finish_reason === "content_filter")) throw new AppError(502, "The model stopped before completing its response. An incomplete document was not handed over.");
+            if (chunk.choices?.[0]?.finish_reason) finishReason = chunk.choices[0].finish_reason;
             const text = chunk.choices?.[0]?.delta?.content;
             if (typeof text === "string" && text.length > 0) {
                 content += text;
@@ -383,6 +386,7 @@ export class LiteLlmClient {
             cachedTokens: numberOrZero(usage?.prompt_tokens_details?.cached_tokens),
             costUsd: numberOrZero(usage?.cost),
         };
+        this.assertCompleted(request, finishReason, callUsage);
         return { content, tokensUsed: numberOrZero(usage?.total_tokens), usage: callUsage, toolCalls: [] };
     }
 
@@ -447,6 +451,21 @@ export class LiteLlmClient {
         } catch {
             throw new AppError(502, LITELLM_ERROR_MESSAGES.unreadableResponse);
         }
+    }
+
+    private assertCompleted(request: ChatCompletionRequest, finishReason: string | null | undefined, usage: CallUsage): void {
+        if (finishReason !== "length" && finishReason !== "content_filter") return;
+        const phase = request.purpose ?? "answer";
+        const labels: Record<NonNullable<ChatCompletionRequest["purpose"]>, string> = {
+            planning: "Task planning", research: "Repository investigation", "evidence-summary": "Repository evidence organization",
+            draft: "Document drafting", review: "Final content review", memory: "Discussion memory summarization", answer: "Answer generation",
+        };
+        const details = { phase, finishReason, maxTokens: request.maxTokens, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens };
+        logger.error(details, "Model completion ended before its stage finished");
+        throw new AppError(finishReason === "content_filter" ? 422 : 502,
+            finishReason === "content_filter" ? `${labels[phase]} was blocked by the configured provider's content policy.`
+                : `${labels[phase]} reached the model output-token limit before it finished. The unfinished response was not delivered as a completed document.`,
+            details, true);
     }
 
     /** Sends one request and returns the successful response, unread. A failure status throws a clean error. */

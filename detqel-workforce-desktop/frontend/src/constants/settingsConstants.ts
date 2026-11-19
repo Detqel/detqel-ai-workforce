@@ -1,6 +1,6 @@
 import type { ComponentType } from "react";
-import { Box, FileText, ShieldAlert, ShieldCheck, Sliders, Target, UserCheck, Zap } from "lucide-react";
-import type { AgentTrait, VyraInstructions } from "@/lib/api";
+import { Box, FileText, ShieldAlert, Sliders, UserCheck } from "lucide-react";
+import type { VyraInstructions } from "@/lib/api";
 
 export type InstructionTabKey = keyof VyraInstructions;
 
@@ -16,15 +16,6 @@ export const INSTRUCTION_CHARACTER_LIMIT = 4000;
 export const INSTRUCTION_ENHANCE_DELAY_MS = 600;
 export const SETTINGS_SAVE_SUCCESS_DURATION_MS = 2500;
 
-export const AGENT_BANNER_TRAITS: AgentTrait[] = [
-  { title: "Adaptable", description: "Across tasks and domains", icon: "zap" },
-  { title: "Reliable", description: "Follows your guidelines", icon: "shield-check" },
-  { title: "Goal-Oriented", description: "Built to get things done", icon: "target" },
-];
-
-export const AGENT_BANNER_QUOTE = "Your intelligent AI agent for deeper insights, smarter decisions, and seamless execution.";
-
-export const PREVIEW_MODES = { chat: "chat", structured: "structured" } as const;
 export const AI_PROVIDER_ICON_KEYS = {
   openai: "openai",
   anthropic: "anthropic",
@@ -35,16 +26,6 @@ export const AI_PROVIDER_ICON_KEYS = {
 } as const;
 
 export const AI_PROVIDER_ICON_COLORS = { anthropic: "#D97757", grok: "#F55036" } as const;
-
-export const AGENT_TRAIT_ICON_COMPONENTS = new Map([
-  ["zap", Zap],
-  ["lightning", Zap],
-  ["shield-check", ShieldCheck],
-  ["shield", ShieldCheck],
-  ["target", Target],
-  ["goal", Target],
-]);
-export const AGENT_TRAIT_DEFAULT_ICON = Target;
 
 export const INSTRUCTION_ENHANCEMENT_TEXT = {
   core: `You are VYRA, an autonomous AI agent engineered for enterprise workflows.\nUnderstand user intent with high contextual awareness, proactively clarify ambiguities,\nand leverage connected tools to deliver structured, deterministic, and verifiable outcomes.`,

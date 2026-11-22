@@ -8,14 +8,14 @@ export const createAgentSchema = z.object({
     instructions: z.string().min(1),
     // "platform" agents are shared by every workspace and are provisioned by the product, not created through the API.
     agentType: z.enum(["custom", "marketplace"]).default("custom"),
-    scope: z.record(z.unknown()).default({}),
+    scope: z.record(z.string(), z.unknown()).default({}),
     capabilities: z.array(z.unknown()).default([]),
-    approvalPolicy: z.record(z.unknown()).default({}),
+    approvalPolicy: z.record(z.string(), z.unknown()).default({}),
     createdBy: z.string().uuid().optional(),
 });
 export const connectAgentSchema = z.object({
     connectionId: z.string().uuid(),
-    permissions: z.record(z.unknown()).default({}),
+    permissions: z.record(z.string(), z.unknown()).default({}),
 });
 export const agentMemorySchema = z.object({
     memoryType: z.enum(["fact", "context", "lesson", "preference", "interaction"]),

@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { AppError } from "../../../shared/errors/app-error.js";
 import type { DatabaseSession } from "../../../infrastructure/database/connection.js";
 import {
     chatMessageSources,
@@ -14,6 +15,7 @@ import {
     type PendingTurn,
 } from "../../../infrastructure/database/schema/discussions.js";
 import type { CreateMessageWithSources, IDiscussionRepository, UsageDelta } from "./discussion.repository.js";
+import type { ConversationContext } from "../../../shared/agents/context/conversation-context.js";
 
 export class DiscussionRepository implements IDiscussionRepository {
     constructor(private readonly database: DatabaseSession) {}
@@ -47,17 +49,23 @@ export class DiscussionRepository implements IDiscussionRepository {
     }
 
     async listMessages(sessionId: string): Promise<ChatMessage[]> {
-        return this.database.select().from(chatMessages).where(eq(chatMessages.sessionId, sessionId)).orderBy(asc(chatMessages.createdAt));
+        return this.database.select().from(chatMessages).where(eq(chatMessages.sessionId, sessionId)).orderBy(asc(chatMessages.createdAt), asc(chatMessages.id));
     }
 
     async appendMessage(message: NewChatMessage): Promise<ChatMessage> {
-        const [created] = await this.database.insert(chatMessages).values(message).returning();
-        await this.touchSession(message.sessionId);
-        return created;
+        return this.database.transaction(async tx => {
+            const [session] = await tx.select().from(chatSessions).where(eq(chatSessions.id, message.sessionId)).for("update");
+            if (!session || (message.role === "assistant" && session.pendingTurn?.turnId !== message.turnId)) throw new AppError(409, "The discussion checkpoint changed before this message was saved.");
+            const [created] = await tx.insert(chatMessages).values(message).returning();
+            await tx.update(chatSessions).set({ updatedAt: new Date() }).where(eq(chatSessions.id, message.sessionId));
+            return created;
+        });
     }
 
     async appendMessageWithSources(input: CreateMessageWithSources): Promise<ChatMessage> {
         return this.database.transaction(async tx => {
+            const [session] = await tx.select().from(chatSessions).where(eq(chatSessions.id, input.message.sessionId)).for("update");
+            if (!session || session.pendingTurn?.turnId !== input.message.turnId) throw new AppError(409, "The discussion checkpoint changed before this reply was saved.");
             const [created] = await tx.insert(chatMessages).values(input.message).returning();
             if (input.sources.length > 0) {
                 await tx.insert(chatMessageSources).values(input.sources.map(source => ({ ...source, messageId: created.id })));
@@ -107,8 +115,9 @@ export class DiscussionRepository implements IDiscussionRepository {
         return rows.length > 0;
     }
 
-    async setPendingTurn(sessionId: string, pending: PendingTurn | null): Promise<void> {
-        await this.database.update(chatSessions).set({ pendingTurn: pending }).where(eq(chatSessions.id, sessionId));
+    async setPendingTurn(sessionId: string, pending: PendingTurn | null, expectedTurnId?: string): Promise<void> {
+        const updated = await this.database.update(chatSessions).set({ pendingTurn: pending }).where(and(eq(chatSessions.id, sessionId), expectedTurnId ? sql`${chatSessions.pendingTurn}->>'turnId' = ${expectedTurnId}` : undefined)).returning({ id: chatSessions.id });
+        if (!updated.length) throw new AppError(409, "The discussion checkpoint changed before this execution plan was saved.");
     }
 
     async addUsage(sessionId: string, usage: UsageDelta): Promise<ChatSession> {
@@ -122,11 +131,28 @@ export class DiscussionRepository implements IDiscussionRepository {
         return updated;
     }
 
-    async updateMemory(sessionId: string, summary: string, summarizedMessageCount: number): Promise<void> {
-        await this.database.update(chatSessions).set({ summary, summarizedMessageCount }).where(eq(chatSessions.id, sessionId));
+    async updateMemory(sessionId: string, summary: string, summarizedMessageCount: number, revision: number): Promise<boolean> {
+        const rows = await this.database.update(chatSessions).set({ summary, summarizedMessageCount, memoryRevision: sql`${chatSessions.memoryRevision} + 1` })
+            .where(and(eq(chatSessions.id, sessionId), eq(chatSessions.memoryRevision, revision))).returning({ id: chatSessions.id });
+        return rows.length === 1;
     }
 
-    private async touchSession(sessionId: string): Promise<void> {
-        await this.database.update(chatSessions).set({ updatedAt: new Date() }).where(eq(chatSessions.id, sessionId));
+    async updateContext(sessionId: string, contextState: ConversationContext, revision: number): Promise<void> {
+        await this.database.update(chatSessions).set({ contextState }).where(and(eq(chatSessions.id, sessionId), eq(chatSessions.memoryRevision, revision)));
     }
+
+    async restoreCheckpoint(sessionId: string, messageId: string, pendingTurn: PendingTurn): Promise<ChatSession | null> {
+        return this.database.transaction(async tx => {
+            await tx.select({ id: chatSessions.id }).from(chatSessions).where(eq(chatSessions.id, sessionId)).for("update");
+            const [target] = await tx.select().from(chatMessages).where(and(eq(chatMessages.id, messageId), eq(chatMessages.sessionId, sessionId), eq(chatMessages.role, "user")));
+            if (!target) return null;
+            await tx.update(chatMessages).set({ turnId: pendingTurn.turnId }).where(eq(chatMessages.id, messageId));
+            // Compare database timestamps directly; JS Dates lose PostgreSQL's sub-millisecond precision.
+            await tx.delete(chatMessages).where(and(eq(chatMessages.sessionId, sessionId), sql`(${chatMessages.createdAt}, ${chatMessages.id}) > (SELECT checkpoint.created_at, checkpoint.id FROM chat_messages checkpoint WHERE checkpoint.id = ${messageId}::uuid AND checkpoint.session_id = ${sessionId}::uuid)`));
+            const [updated] = await tx.update(chatSessions).set({ summary: null, summarizedMessageCount: 0, contextState: null,
+                memoryRevision: sql`${chatSessions.memoryRevision} + 1`, pendingTurn, updatedAt: new Date() }).where(eq(chatSessions.id, sessionId)).returning();
+            return updated ?? null;
+        });
+    }
+
 }

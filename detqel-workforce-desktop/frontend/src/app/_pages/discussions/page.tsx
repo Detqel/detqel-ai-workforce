@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useWorkspace } from "@/context/WorkspaceContext";
 import {
   apiGetTeams,
@@ -55,6 +55,7 @@ export default function DiscussionsPage() {
   const [isRightPaneOpen, setIsRightPaneOpen] = useState(true);
   const [isHistoryOpen, setIsHistoryOpen] = useState(true);
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
+  const creatingSession = useRef(false);
   const [initialMessages, setInitialMessages] = useState<ChatMessage[]>([]);
   const [historyVersion, setHistoryVersion] = useState(0);
   const [initialUsage, setInitialUsage] = useState<SessionUsage>(EMPTY_USAGE);
@@ -98,16 +99,10 @@ export default function DiscussionsPage() {
     }
   }, [workspaceId, toast, showHistory]);
 
-  /** Opens the session for a target if one exists in `known`, otherwise creates it on the server. */
-  const openOrCreateSession = useCallback(async (target: DiscussionTarget, known: DiscussionSession[]) => {
-    if (!workspaceId) return;
-    const existing = known.find((s) => s.targetId === target.id);
-    if (existing) {
-      setActiveTarget(target);
-      setActiveSessionId(existing.id);
-      await loadSessionMessages(existing.id, target);
-      return;
-    }
+  /** Selecting a new discussion always creates an independent conversation with this target. */
+  const openOrCreateSession = useCallback(async (target: DiscussionTarget) => {
+    if (!workspaceId || creatingSession.current) return;
+    creatingSession.current = true;
     try {
       const session = await apiCreateDiscussionSession({
         workspaceId,
@@ -127,8 +122,8 @@ export default function DiscussionsPage() {
       showHistory([]);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not start the discussion.");
-    }
-  }, [workspaceId, toSidebarSession, loadSessionMessages, showHistory, toast]);
+    } finally { creatingSession.current = false; }
+  }, [workspaceId, toSidebarSession, showHistory, toast]);
 
   // Load workspace teams and recruited agents
   const loadData = useCallback(async () => {
@@ -167,7 +162,7 @@ export default function DiscussionsPage() {
       const incoming = getDiscussionTarget();
       if (incoming) {
         clearDiscussionTarget();
-        await openOrCreateSession(incoming, sidebarSessions);
+        await openOrCreateSession(incoming);
       }
     } catch (error) {
       setTeams([]);
@@ -184,7 +179,7 @@ export default function DiscussionsPage() {
     return () => { active = false; };
   }, [loadData]);
 
-  const handleSelectTarget = (target: DiscussionTarget) => { void openOrCreateSession(target, sessions); };
+  const handleSelectTarget = (target: DiscussionTarget) => { void openOrCreateSession(target); };
 
   const handleDeleteSession = useCallback(async (session: DiscussionSession) => {
     if (!workspaceId) return;

@@ -7,6 +7,7 @@ export const API_PATHS = {
   prefix: "/api/",
   authLicenseOptions: "/api/auth/license-options",
   authLogin: "/api/auth/login",
+  authPasswordReset: "/api/auth/password-reset-requests",
   authRegister: "/api/auth/register",
   authMe: "/api/auth/me",
   workspaces: "/api/workspaces",

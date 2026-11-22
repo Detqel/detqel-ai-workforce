@@ -4,6 +4,7 @@ import { connections } from "./connections.js";
 import { organizationAgents } from "./recruit.js";
 import { agentTeams } from "./teams.js";
 import type { DiscussionActivityStep } from "../../../shared/types/discussion-activity.js";
+import type { ConversationContext } from "../../../shared/agents/context/conversation-context.js";
 import type { TaskExecutionPlan, RepositorySnapshot } from "../../../shared/agents/graphs/task-plan.js";
 
 /** An agent still due to speak in the current turn: the lead or solo agent, a delegate, or a teammate the user named. */
@@ -19,6 +20,7 @@ export interface PendingResponder {
 
 /** The queue of teammates who still have to reply in the current turn, in speaking order, with the turn's settings. */
 export interface PendingTurn {
+    readonly delivery?: { readonly sourceMessageId: string; readonly format: "md" | "docx" | "pdf" };
     readonly taskPlan?: TaskExecutionPlan | null;
     readonly repositorySnapshots?: ReadonlyArray<RepositorySnapshot>;
     readonly turnId: string;
@@ -51,6 +53,8 @@ export const chatSessions = pgTable("chat_sessions", {
     // Memory: a summary of messages older than the recent window, and how many messages it covers.
     summary: text("summary"),
     summarizedMessageCount: integer("summarized_message_count").notNull().default(0),
+    memoryRevision: integer("memory_revision").notNull().default(0),
+    contextState: jsonb("context_state").$type<ConversationContext | null>(),
     // Teammates still due to reply in the current turn.
     pendingTurn: jsonb("pending_turn").$type<PendingTurn | null>(),
     // Running gateway usage for every model call made in this session, including memory summaries.

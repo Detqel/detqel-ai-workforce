@@ -5,6 +5,17 @@ export type DiscussionScope = "conversations" | "teams";
 export type ResponseMode = "brief" | "detailed";
 export type CapabilityMode = "fast" | "expert";
 
+export interface ConversationContext {
+  model: string;
+  inputTokens: number;
+  maxInputTokens: number;
+  reservedOutputTokens: number;
+  thresholdTokens: number;
+  measuredAt: string;
+  compactionCount: number;
+  lastCompactedAt: string | null;
+}
+
 /** Running gateway totals for a session, as reported by LiteLLM. */
 export interface SessionUsage {
   inputTokens: number;
@@ -88,6 +99,7 @@ export interface PendingSpeaker {
 
 /** Events of a streamed turn, in the order the server writes them. */
 export type TurnEvent =
+  | { type: "context"; context: ConversationContext }
   | { type: "turn"; userMessage: ChatMessage }
   | { type: "routed"; agentId: string }
   | { type: "speaker"; agentId: string; name: string; role: string; isLead: boolean; turnRole: TurnRole }
@@ -141,6 +153,20 @@ async function failure(response: Response, fallback: string): Promise<never> {
 
 const sessionsUrl = `${API_BASE_URL}${API_PATHS.discussionSessions}`;
 const workspaceUrl = (workspaceId: string) => `${API_BASE_URL}${API_PATHS.discussions}/${encodeURIComponent(workspaceId)}/sessions`;
+
+export async function apiRestoreDiscussionCheckpoint(workspaceId: string, sessionId: string, messageId: string, settings: { responseMode: ResponseMode; capabilityMode: CapabilityMode; webEnabled: boolean }): Promise<ChatSession> {
+  const response = await authorizedFetch(`${workspaceUrl(workspaceId)}/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}/restore`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(settings),
+  });
+  if (!response.ok) return failure(response, "Could not restore the checkpoint");
+  return response.json();
+}
+
+export async function apiGetDiscussionContext(workspaceId: string, sessionId: string, compact = false): Promise<ConversationContext | null> {
+  const response = await authorizedFetch(`${workspaceUrl(workspaceId)}/${encodeURIComponent(sessionId)}/context${compact ? "/compact" : ""}`, { method: compact ? "POST" : "GET" });
+  if (!response.ok) return failure(response, "Could not load the conversation context");
+  return (await response.json()).context;
+}
 
 /** Creates a session with exactly one target: a recruited agent or a team. */
 export async function apiCreateDiscussionSession(payload: { workspaceId: string; title?: string; agentId?: string; teamId?: string }): Promise<ChatSession> {

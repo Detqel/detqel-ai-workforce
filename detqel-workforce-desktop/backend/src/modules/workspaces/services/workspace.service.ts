@@ -1,3 +1,4 @@
+import { storageFolderName } from "../../../shared/rag/named-directories.js";
 import type { IUnitOfWork } from "../../../shared/contracts/unit-of-work.js";
 import { AppError } from "../../../shared/errors/app-error.js";
 export interface CreateWorkspaceDTO {
@@ -38,6 +39,7 @@ export class WorkspaceService {
     }
     private async createInTransaction(dto: CreateWorkspaceDTO) {
         const trimmedName = dto.name.trim();
+        storageFolderName(trimmedName);
         const trimmedIndustry = (dto.industry || "").trim();
         const creator = await this.dbCtx.users.findById(dto.createdBy);
         if (!creator) throw new AppError(404, "Workspace creator not found");
@@ -98,6 +100,7 @@ export class WorkspaceService {
      * Update workspace details and synchronize linked business profile
      */
     async updateWorkspace(id: string, dto: UpdateWorkspaceDTO) {
+        if (dto.name !== undefined) storageFolderName(dto.name);
         return this.dbCtx.transaction(repositories => new WorkspaceService(repositories).updateInTransaction(id, dto));
     }
     private async updateInTransaction(id: string, dto: UpdateWorkspaceDTO) {

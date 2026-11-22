@@ -1,3 +1,4 @@
+import { NamedDirectories, type SessionNames } from "./named-directories.js";
 import { createHash, randomBytes } from "node:crypto";
 import { DOCUMENT_ASSET_PATTERN, DOCUMENT_IMAGE_ERRORS, DOCUMENT_RENDER_LIMITS } from "../../constants/documentImageConstants.js";
 import { homedir } from "node:os";
@@ -52,14 +53,16 @@ export function resolveFileServerBase(): string {
  */
 export class FileServer {
     private readonly base: string;
+    private readonly named: NamedDirectories | undefined;
 
-    constructor(base: string = resolveFileServerBase()) {
+    constructor(base: string = resolveFileServerBase(), names?: SessionNames) {
         this.base = resolve(base);
+        this.named = names ? new NamedDirectories(this.base, names) : undefined;
     }
 
     /** Ensures a session's chat and knowledge directories exist and returns the session directory path. */
     async ensureSession(location: SessionLocation): Promise<string> {
-        const sessionDirectory = this.sessionDirectory(location);
+        const sessionDirectory = (await this.sessionDirectory(location));
         for (const sub of Object.values(FILE_SERVER_SESSION_DIRECTORIES)) {
             await this.makeHardenedDirectory(join(sessionDirectory, sub));
         }
@@ -105,7 +108,7 @@ export class FileServer {
     async storeArtifactIfAbsent(location: SessionLocation, fileName: string, mimeType: string, contents: Buffer): Promise<StoredFile | null> {
         this.assertSafeFileName(fileName);
         this.assertAllowedType(fileName, mimeType);
-        const directory = join(this.sessionDirectory(location), FILE_SERVER_SESSION_DIRECTORIES.artifacts);
+        const directory = join((await this.sessionDirectory(location)), FILE_SERVER_SESSION_DIRECTORIES.artifacts);
         await this.makeHardenedDirectory(directory);
         const target = join(directory, fileName);
         const temporary = join(directory, `${FILE_SERVER_TEMP.prefix}${randomBytes(FILE_SERVER_TEMP.randomBytes).toString(FILE_SERVER_TEMP.encoding)}${FILE_SERVER_TEMP.suffix}`);
@@ -139,11 +142,10 @@ export class FileServer {
     async readDocumentAsset(location: SessionLocation, source: string): Promise<Buffer> {
         const match = DOCUMENT_ASSET_PATTERN.exec(source);
         if (!match) throw new AppError(400, DOCUMENT_IMAGE_ERRORS.unavailableAsset);
-        const target = join(this.sessionDirectory(location), FILE_SERVER_SESSION_DIRECTORIES.documentAssets, match[1]);
+        const target = join((await this.sessionDirectory(location)), FILE_SERVER_SESSION_DIRECTORIES.documentAssets, match[1]);
         try {
-            const base = await realpath(this.base);
             const physical = await realpath(target);
-            const expected = join(base, location.workspaceId, location.scope, location.sessionId, FILE_SERVER_SESSION_DIRECTORIES.documentAssets, match[1]);
+            const expected = join(await realpath(await this.sessionDirectory(location)), FILE_SERVER_SESSION_DIRECTORIES.documentAssets, match[1]);
             const equal = process.platform === "win32" ? physical.toLowerCase() === expected.toLowerCase() : physical === expected;
             if (!equal || (await lstat(target)).isSymbolicLink()) throw new Error("Invalid asset location");
             const handle = await open(target, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
@@ -172,7 +174,7 @@ export class FileServer {
     private async remove(location: SessionLocation, folder: string, fileName: string): Promise<boolean> {
         this.assertSafeFileName(fileName);
         try {
-            await unlink(join(this.sessionDirectory(location), folder, fileName));
+            await unlink(join((await this.sessionDirectory(location)), folder, fileName));
             return true;
         } catch (error) {
             if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
@@ -184,7 +186,7 @@ export class FileServer {
     async hasArtifact(location: SessionLocation, fileName: string): Promise<boolean> {
         this.assertSafeFileName(fileName);
         try {
-            return (await stat(join(this.sessionDirectory(location), FILE_SERVER_SESSION_DIRECTORIES.artifacts, fileName))).isFile();
+            return (await stat(join((await this.sessionDirectory(location)), FILE_SERVER_SESSION_DIRECTORIES.artifacts, fileName))).isFile();
         } catch {
             return false;
         }
@@ -193,7 +195,7 @@ export class FileServer {
     private async store(location: SessionLocation, folder: string, fileName: string, mimeType: string, contents: Buffer): Promise<StoredFile> {
         this.assertSafeFileName(fileName);
         this.assertAllowedType(fileName, mimeType);
-        const directory = join(this.sessionDirectory(location), folder);
+        const directory = join((await this.sessionDirectory(location)), folder);
         await this.makeHardenedDirectory(directory);
         const target = join(directory, fileName);
         const temporary = join(directory, `${FILE_SERVER_TEMP.prefix}${randomBytes(FILE_SERVER_TEMP.randomBytes).toString(FILE_SERVER_TEMP.encoding)}${FILE_SERVER_TEMP.suffix}`);
@@ -209,7 +211,7 @@ export class FileServer {
     }
 
     private async list(location: SessionLocation, folder: string): Promise<StoredFile[]> {
-        const directory = join(this.sessionDirectory(location), folder);
+        const directory = join((await this.sessionDirectory(location)), folder);
         let entries: string[];
         try {
             entries = await readdir(directory);
@@ -229,7 +231,7 @@ export class FileServer {
 
     private async read(location: SessionLocation, folder: string, fileName: string): Promise<Buffer> {
         this.assertSafeFileName(fileName);
-        const path = join(this.sessionDirectory(location), folder, fileName);
+        const path = join((await this.sessionDirectory(location)), folder, fileName);
         try {
             return await readFile(path);
         } catch (error) {
@@ -240,11 +242,13 @@ export class FileServer {
 
     /** Removes a session's entire directory tree. Used during full session cleanup. */
     async deleteSession(location: SessionLocation): Promise<void> {
-        await rm(this.sessionDirectory(location), { recursive: true, force: true });
+        await rm((await this.sessionDirectory(location)), { recursive: true, force: true });
         logger.info({ workspaceId: location.workspaceId, sessionId: location.sessionId }, "Deleted session file tree");
     }
 
-    private sessionDirectory(location: SessionLocation): string {
+    private async sessionDirectory(location: SessionLocation): Promise<string> {
+        [location.workspaceId, location.scope, location.sessionId].forEach(segment => this.assertSafeId(segment));
+        if (this.named) return this.named.directory(location);
         const segments = [location.workspaceId, location.scope, location.sessionId].map(segment => this.assertSafeId(segment));
         const directory = resolve(join(this.base, ...segments));
         // Defence in depth: the resolved directory must stay within the base even though segments are validated.
@@ -256,6 +260,9 @@ export class FileServer {
 
     private async makeHardenedDirectory(directory: string): Promise<void> {
         await mkdir(directory, { recursive: true, mode: FILE_SERVER_FILE_MODES.directory });
+        const physical = await realpath(directory);
+        const expected = resolve(directory);
+        if ((await lstat(directory)).isSymbolicLink() || (process.platform === "win32" ? physical.toLowerCase() !== expected.toLowerCase() : physical !== expected)) throw new AppError(422, "Chat storage directories cannot be symbolic links or junctions.");
         if (process.platform !== DESKTOP_PLATFORM.windows) await chmod(directory, FILE_SERVER_FILE_MODES.directory);
     }
 

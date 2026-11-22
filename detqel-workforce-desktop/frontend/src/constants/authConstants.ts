@@ -7,6 +7,7 @@ export const AUTH_STORAGE_KEYS = {
 
 // Account rules enforced by the DETQEL License Portal, checked here first for immediate feedback.
 export const MIN_USERNAME_LENGTH = 3;
+export const MAX_USERNAME_LENGTH = 64;
 export const USERNAME_PATTERN = /^[a-zA-Z0-9._-]+$/;
 export const MIN_PASSWORD_LENGTH = 12;
 export const PHONE_DIGITS = { minimum: 6, maximum: 15 } as const;

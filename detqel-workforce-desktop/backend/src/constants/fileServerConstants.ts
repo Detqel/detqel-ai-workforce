@@ -1,7 +1,8 @@
 /**
  * The file server is the on-disk home for per-session knowledge-base uploads and chat artifacts. Its base path
  * is platform-resolved (and env-overridable) so the same logical layout works on Windows, macOS, and Linux.
- * The tree is: <base>/<workspaceId>/<scope>/<sessionId>/{chat,knowledge,artifacts}. Uploaded files are stored under the
+ * The tree uses workspace and chat display names, with hidden immutable ownership metadata and collision suffixes.
+ * Existing UUID directories are migrated in place. Uploaded files are stored under the
  * session's knowledge directory; documents and uploaded files under its artifacts directory. The whole tree is created
  * with owner-only permissions.
  */

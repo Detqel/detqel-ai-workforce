@@ -40,5 +40,8 @@
   },
   "allowScripts": {
     "unrs-resolver@1.12.2": true
+  },
+  "overrides": {
+    "katex": "0.19.1"
   }
 }

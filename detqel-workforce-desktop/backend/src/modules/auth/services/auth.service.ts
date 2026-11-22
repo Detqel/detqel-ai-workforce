@@ -6,7 +6,7 @@ import type { NewUser, User } from "../../../shared/types/entities.js";
 import type { IUserRepository } from "../../users/repositories/user.repository.js";
 import type { IWorkspaceRepository } from "../../workspaces/repositories/workspace.repository.js";
 import type { SessionService } from "../../../shared/security/session.js";
-import type { RegisterInput } from "../validation/auth.schemas.js";
+import type { RegisterInput, PasswordResetInput } from "../validation/auth.schemas.js";
 function profile(user: User) {
     return {
         id: user.id, name: user.name, email: user.email, username: user.username, avatarUrl: user.avatarUrl, status: user.status,
@@ -58,9 +58,11 @@ export class AuthService {
         const result = await this.portal.register(registration);
         return { status: result.status, licenseId: result.licenseId, message: result.message };
     }
+    requestPasswordReset(input: PasswordResetInput) { return this.portal.requestPasswordReset(input); }
     async login(username: string, password: string) {
         const grant = await this.portal.login(username, password, this.installation);
         const claims = await this.licenses.verify(grant.token);
+        await this.portal.verifySession(grant.token, claims.sub);
         const user = await this.syncUser(claims, grant.token, password);
         if (user.status !== "active")
             throw new AppError(403, "This account has been disabled on this KIN installation.");

@@ -31,6 +31,21 @@ export const discussionRoutes: FastifyPluginAsync = async (app) => {
         schema: { tags: [API_TAG_NAMES.discussions], summary: "Rename a discussion" },
     }, controller.renameSession.bind(controller));
 
+    app.post("/discussions/workspaces/:workspaceId/sessions/:sessionId/messages/:messageId/restore", {
+        preHandler: write, bodyLimit: 2048,
+        schema: { tags: [API_TAG_NAMES.discussions], summary: "Restore this user message and discard later conversation context" },
+    }, controller.restoreCheckpoint.bind(controller));
+
+    app.get("/discussions/workspaces/:workspaceId/sessions/:sessionId/context", {
+        preHandler: read,
+        schema: { tags: [API_TAG_NAMES.discussions], summary: "Get active model context measured by LiteLLM" },
+    }, controller.getContext.bind(controller));
+
+    app.post("/discussions/workspaces/:workspaceId/sessions/:sessionId/context/compact", {
+        preHandler: write,
+        schema: { tags: [API_TAG_NAMES.discussions], summary: "Compact conversation context while preserving the original chat history" },
+    }, controller.compactContext.bind(controller));
+
     app.post("/discussions/workspaces/:workspaceId/sessions/:sessionId/messages/:messageId/export", {
         preHandler: write,
         schema: { tags: [API_TAG_NAMES.discussions], summary: "Download an agent reply as Markdown, Word, or PDF" },

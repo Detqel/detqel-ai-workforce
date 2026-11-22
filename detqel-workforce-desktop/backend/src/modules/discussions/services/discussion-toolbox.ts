@@ -267,7 +267,7 @@ class ToolSession implements AgentToolSession {
             }
             case AGENT_TOOL_NAMES.callMcpTool: {
                 const connector = this.connector(args.connector, AGENT_CONNECTOR_KINDS.mcp);
-                const input = z.object({ connector: z.string(), tool: text(200), arguments: z.record(z.unknown()).default({}) }).parse(args);
+                const input = z.object({ connector: z.string(), tool: text(200), arguments: z.record(z.string(), z.unknown()).default({}) }).parse(args);
                 return this.read(connector, { kind: AGENT_CONNECTOR_KINDS.mcp, operation: "call", tool: input.tool, arguments: input.arguments }, input.tool);
             }
             default:

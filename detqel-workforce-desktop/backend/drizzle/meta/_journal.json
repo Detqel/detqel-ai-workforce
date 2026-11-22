@@ -176,6 +176,13 @@
       "when": 1794901957867,
       "tag": "0024_connector_uploads_and_examples",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1795349021912,
+      "tag": "0025_discussion_checkpoints_context",
+      "breakpoints": true
     }
   ]
 }

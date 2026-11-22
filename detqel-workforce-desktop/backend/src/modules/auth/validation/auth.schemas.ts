@@ -27,3 +27,10 @@ export const registerSchema = z.object({
 }).strict().refine(input => input.password === input.confirmPassword, { path: ["confirmPassword"], message: "Passwords do not match" });
 
 export type RegisterInput = z.infer<typeof registerSchema>;
+
+export const passwordResetRequestSchema = z.object({
+    identifier: z.string().trim().min(1).max(254).refine(value => /^[a-zA-Z0-9._-]{2,64}$/.test(value) || z.string().email().safeParse(value).success, "Enter your account username or email.").transform(value => value.toLowerCase()),
+    newPassword: z.string().min(PORTAL_PASSWORD_LENGTH.minimum).max(PORTAL_PASSWORD_LENGTH.maximum),
+    confirmPassword: z.string().min(PORTAL_PASSWORD_LENGTH.minimum).max(PORTAL_PASSWORD_LENGTH.maximum),
+}).strict().refine(input => input.newPassword === input.confirmPassword, { path: ["confirmPassword"], message: "Passwords do not match." });
+export type PasswordResetInput = z.infer<typeof passwordResetRequestSchema>;

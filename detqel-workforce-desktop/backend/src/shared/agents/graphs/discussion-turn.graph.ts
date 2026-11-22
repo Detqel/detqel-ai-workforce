@@ -76,7 +76,7 @@ export interface TurnPorts {
     /** Retain unfinished content privately so an interrupted attempt can be recovered without exporting it. */
     retainDraft(agentId: string, content: string): void;
     /** The session's memory for the next speaker, including the replies already given in this turn. */
-    memory(): Promise<{ summary: string | null; transcript: TranscriptMessage[] }>;
+    memory(plan: SpeakerPlan): Promise<{ summary: string | null; transcript: TranscriptMessage[] }>;
     /**
      * Saves a reply, the speakers still due, and a document still to be written, and returns the events describing
      * what was saved.
@@ -173,6 +173,7 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
     const contextFor = (state: State): TurnContext => {
         const plan = state.current as SpeakerPlan;
         return {
+            retainDraft: content => environment.ports.retainDraft(plan.participant.agentId, content),
             assessEvidence: toolSession ? content => toolSession!.completionIssues?.(content) ?? [] : undefined,
             taskPlan: state.taskPlan ?? undefined,
             allowedAgentIds: environment.allowedAgentIds,
@@ -237,7 +238,7 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
 
     async function next(state: State, config: LangGraphRunnableConfig): Promise<Partial<State>> {
         const [current, ...rest] = state.queue;
-        const memory = await environment.ports.memory();
+        const memory = await environment.ports.memory(current);
         const { participant } = current;
         emit(config, {
             type: DISCUSSION_STREAM_EVENTS.speaker,
@@ -389,7 +390,8 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
     }
 
     async function draft(state: State, config: LangGraphRunnableConfig): Promise<Partial<State>> {
-        const { result, step } = await track(state, config, DISCUSSION_ACTIVITY_KINDS.drafting, undefined,
+        const document = documentFor(state);
+        const { result, step } = await track(state, config, document ? DISCUSSION_ACTIVITY_KINDS.writingDocument : DISCUSSION_ACTIVITY_KINDS.drafting, document ? { title: document.title, count: document.imageCount } : undefined,
             () => runtime.draft(contextFor(state), state.grounding, config.signal));
         environment.ports.retainDraft(speakerId(state), result.content);
         return { draftText: result.content, usage: addUsage(state.usage, result.usage), steps: [...state.steps, step] };
@@ -414,7 +416,7 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
         if (state.taskPlan?.repository && plan.participant.agentId === state.taskPlan.ownerAgentId) content += toolSession?.coverageReport?.() ?? "";
         let usage = state.usage;
         if (document) {
-            const { result, step } = await track(state, config, DISCUSSION_ACTIVITY_KINDS.savingDocument, { title: document.title, count: document.imageCount },
+            const { result, step } = await track(state, config, DISCUSSION_ACTIVITY_KINDS.savingDocument, { title: document.title, count: document.imageCount, requiredSections: document.requiredSections },
                 () => environment.ports.saveDocument(document.title, content, plan, document, config.signal), saved => ({ fileName: saved.fileName }));
             steps = [...steps, step];
             content = result.content;

@@ -11,6 +11,8 @@ export const LICENSE_PORTAL_PATHS = {
     licenses: "/api/client/licenses",
     register: "/api/client/register",
     login: "/api/client/login",
+    passwordReset: "/api/client/password-reset-requests",
+    verifySession: "/api/client/session/verify",
     jwks: "/api/auth/jwks",
 } as const;
 export const LICENSE_PORTAL_HEADERS = {

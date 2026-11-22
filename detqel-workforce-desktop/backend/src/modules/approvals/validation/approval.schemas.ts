@@ -4,7 +4,7 @@ export const createApprovalSchema = z.object({
     missionId: z.string().uuid().optional(),
     title: z.string().min(1),
     description: z.string().min(1),
-    requestedAction: z.record(z.unknown()),
+    requestedAction: z.record(z.string(), z.unknown()),
     riskLevel: z.enum(["low", "medium", "high", "critical"]).default("medium"),
     requestedBy: z.string().uuid().optional(),
 });

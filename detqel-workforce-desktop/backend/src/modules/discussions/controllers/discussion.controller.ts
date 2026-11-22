@@ -1,4 +1,5 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
+import { restoreCheckpointSchema } from "../validation/discussion.schemas.js";
 import { requireUserId } from "../../../shared/security/request-context.js";
 import { workspaceParamsSchema } from "../../../shared/validation/http.schemas.js";
 import type { DiscussionService } from "../services/discussion.service.js";
@@ -81,6 +82,24 @@ export class DiscussionController {
         const { sessionId } = sessionIdParamsSchema.parse(request.params);
         const { title } = renameSessionSchema.parse(request.body);
         return reply.send(await this.service.renameSession(workspaceId, sessionId, title));
+    }
+
+    async restoreCheckpoint(request: FastifyRequest, reply: FastifyReply) {
+        const { workspaceId } = workspaceParamsSchema.parse(request.params);
+        const { sessionId, messageId } = messageParamsSchema.parse(request.params);
+        return reply.send(await this.service.restoreCheckpoint(workspaceId, sessionId, messageId, restoreCheckpointSchema.parse(request.body)));
+    }
+
+    async getContext(request: FastifyRequest, reply: FastifyReply) {
+        const { workspaceId } = workspaceParamsSchema.parse(request.params);
+        const { sessionId } = sessionIdParamsSchema.parse(request.params);
+        return reply.header("Cache-Control", "private, no-store").send({ context: await this.service.getContext(workspaceId, sessionId) });
+    }
+
+    async compactContext(request: FastifyRequest, reply: FastifyReply) {
+        const { workspaceId } = workspaceParamsSchema.parse(request.params);
+        const { sessionId } = sessionIdParamsSchema.parse(request.params);
+        return reply.send({ context: await this.service.compactContext(workspaceId, sessionId) });
     }
 
     async exportMessage(request: FastifyRequest, reply: FastifyReply) {

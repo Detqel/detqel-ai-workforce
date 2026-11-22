@@ -3,7 +3,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { AuthController } from "../controllers/auth.controller.js";
 export const authRoutes: FastifyPluginAsync = async (app) => {
     const controller = new AuthController(app.services.auth);
-    // These three routes are the only ones reachable without a session.
+    // Account access and recovery are delegated to the License Portal without a local session.
     const publicRoute = { public: true };
     app.get("/auth/license-options", {
         config: publicRoute,
@@ -26,6 +26,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
             summary: "Register a DETQEL account and request a KIN license from the License Portal",
         },
     }, controller.register.bind(controller));
+    app.post("/auth/password-reset-requests", { bodyLimit: 2048, config: publicRoute }, controller.requestPasswordReset.bind(controller));
     app.get("/auth/me", {
         schema: {
             tags: [API_TAG_NAMES.auth],

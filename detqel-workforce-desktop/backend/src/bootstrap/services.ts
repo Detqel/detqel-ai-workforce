@@ -1,4 +1,5 @@
 import { AnalyticsService } from "../modules/analytics/services/analytics.service.js";
+import { AppError } from "../shared/errors/app-error.js";
 import { ApprovalService } from "../modules/approvals/services/approval.service.js";
 import { AuthService } from "../modules/auth/services/auth.service.js";
 import { AutomationService } from "../modules/automations/services/automation.service.js";
@@ -67,7 +68,7 @@ export function createServices(unit: IUnitOfWork, checkDatabase: () => Promise<v
         business: new BusinessService(unit.business),
         workforce: new WorkforceService(unit.workforce, unit.connections),
         connections,
-        workspaceAccess: new WorkspaceAccessService(sessions, unit.users, unit.workspaces),
+        workspaceAccess: new WorkspaceAccessService(sessions, unit.users, unit.workspaces, licensePortal),
         sessions,
         missions: new MissionService(unit),
         approvals: new ApprovalService(unit),
@@ -109,7 +110,11 @@ function createDiscussionService(unit: IUnitOfWork, config: Environment, setting
     const runtime = new DiscussionRuntime(gateway, keys, promptLoader);
     const milvus = new MilvusClient({ address: config.MILVUS_ADDRESS ?? "", token: config.MILVUS_TOKEN });
     const rag = new RagService(gateway, keys, milvus);
-    const fileServer = new FileServer();
+    const fileServer = new FileServer(undefined, async location => {
+        const [workspace, session] = await Promise.all([unit.workspaces.findById(location.workspaceId), unit.discussions.findSessionInWorkspace(location.sessionId, location.workspaceId)]);
+        if (!workspace || !session || session.scope !== location.scope) throw new AppError(404, "The chat storage owner was not found in this workspace.");
+        return { workspace: workspace.name, session: session.title };
+    });
     const participants = new DiscussionParticipants(unit.workforce, promptLoader);
     // Each workspace searches the web with the Tavily key it saved in Settings.
     const webSearch = new WorkspaceWebSearch(workspaceId => settings.resolveWebSearchKey(workspaceId));

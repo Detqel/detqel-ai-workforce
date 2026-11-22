@@ -1,3 +1,4 @@
+import type { LicensePortalClient } from "../../../shared/licensing/license-portal.client.js";
 import { AppError } from "../../../shared/errors/app-error.js";
 import { hasActiveLicense } from "../../../shared/licensing/license-token.verifier.js";
 import type { SessionService } from "../../../shared/security/session.js";
@@ -24,14 +25,15 @@ const ACCESS_DENIED: Record<WorkspaceAccess, string> = {
 };
 
 export class WorkspaceAccessService {
-    constructor(private readonly sessions: SessionService, private readonly users: IUserRepository, private readonly workspaces: IWorkspaceRepository) {}
+    constructor(private readonly sessions: SessionService, private readonly users: IUserRepository, private readonly workspaces: IWorkspaceRepository, private readonly portal: LicensePortalClient) {}
 
-    /** Verifies the bearer token and that its user still exists, is active and holds an unexpired license. */
+    /** Verifies the bearer token and that its user still exists, is active and holds a current portal-authorized license. */
     async authenticate(authorization: string | undefined): Promise<string> {
         const userId = this.sessions.verify(authorization);
         const user = await this.users.findById(userId);
         if (!user || user.status !== "active") throw new AppError(401, "An active user session is required");
         if (!hasActiveLicense(user)) throw new AppError(401, "A valid KIN license is required. Sign in again to continue");
+        await this.portal.verifySession(user.licenseToken, user.portalUserId);
         return userId;
     }
 

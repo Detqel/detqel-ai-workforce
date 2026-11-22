@@ -3,8 +3,8 @@ export const createMissionSchema = z.object({
     workspaceId: z.string().uuid(),
     title: z.string().min(1),
     userRequest: z.string().min(1),
-    intent: z.record(z.unknown()).default({}),
-    plan: z.record(z.unknown()).optional(),
+    intent: z.record(z.string(), z.unknown()).default({}),
+    plan: z.record(z.string(), z.unknown()).optional(),
     priority: z.enum(["low", "medium", "high", "critical"]).default("medium"),
     initiatedBy: z.string().uuid().optional(),
     assignedAgents: z
@@ -30,7 +30,7 @@ export const logEventSchema = z.object({
     ]),
     title: z.string().min(1),
     description: z.string().optional(),
-    payload: z.record(z.unknown()).optional(),
+    payload: z.record(z.string(), z.unknown()).optional(),
     agentId: z.string().uuid().optional(),
 });
 export const addSourceSchema = z.object({
@@ -38,7 +38,7 @@ export const addSourceSchema = z.object({
     sourceReference: z.string().min(1),
     title: z.string().optional(),
     url: z.string().url().optional(),
-    metadata: z.record(z.unknown()).optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
 });
 export const updateStatusSchema = z.object({
     status: z.enum([

@@ -32,8 +32,8 @@ const claimsSchema = z.object({
 export type LicenseClaims = z.infer<typeof claimsSchema>;
 
 /**
- * Verifies license tokens offline against the portal's published Ed25519 keys. The key set is fetched once
- * and cached, so sign-in costs one portal round trip and no request after it needs the portal at all.
+ * Verifies token signatures and identity claims against the portal's cached Ed25519 keys.
+ * Session authorization additionally requires a current portal activation check on each request.
  */
 export class LicenseTokenVerifier {
     private readonly keys: ReturnType<typeof createRemoteJWKSet>;

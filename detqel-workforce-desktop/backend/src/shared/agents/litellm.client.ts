@@ -53,6 +53,8 @@ export interface ChatCompletionRequest {
     readonly temperature?: number;
     readonly maxTokens?: number;
     readonly responseFormatJson?: boolean;
+    /** The same schema used by the caller to validate an internal structured response. */
+    readonly responseSchema?: { readonly name: string; readonly schema: Readonly<Record<string, unknown>> };
     /** How much hidden reasoning the model may spend. Omitted means the provider's default. */
     readonly reasoningEffort?: ReasoningEffort;
     /** Functions the model may call. A model without function calling answers in text instead. */
@@ -161,6 +163,7 @@ export interface GenerateVirtualKeyParams {
  */
 export class LiteLlmClient {
     private readonly baseUrl: string;
+    private readonly contextLimits = new Map<string, { expires: number; input: number; output: number }>();
 
     constructor(private readonly config: LiteLlmGatewayConfig) {
         this.baseUrl = (config.baseUrl ?? "").replace(/\/+$/, "");
@@ -169,6 +172,31 @@ export class LiteLlmClient {
     /** Throws a clear error when the gateway was not configured, so features fail fast at the point of use. */
     private assertConfigured(): void {
         if (!this.baseUrl || !this.config.masterKey) throw new AppError(503, LITELLM_ERROR_MESSAGES.gatewayUnconfigured);
+    }
+
+    async modelContextLimits(model: string, signal?: AbortSignal): Promise<{ input: number; output: number }> {
+        this.assertConfigured();
+        const cached = this.contextLimits.get(model);
+        if (cached && cached.expires > Date.now()) return cached;
+        const { payload } = await this.send(`${LITELLM_ENDPOINTS.modelInfo}?model=${encodeURIComponent(model)}`, "GET", this.config.masterKey, undefined, LITELLM_TIMEOUTS_MS.admin, "LiteLLM could not report the configured model's context limits.", signal);
+        const rows = (payload as { data?: Array<{ model_name?: string; model_info?: { max_input_tokens?: unknown; max_output_tokens?: unknown } }> }).data;
+        const matches = rows?.filter(row => row.model_name === model) ?? [];
+        if (!matches.length || matches.some(row => !Number.isSafeInteger(row.model_info?.max_input_tokens) || Number(row.model_info?.max_input_tokens) <= 0 || !Number.isSafeInteger(row.model_info?.max_output_tokens) || Number(row.model_info?.max_output_tokens) <= 0)) {
+            throw new AppError(503, "LiteLLM has no valid context limits for the configured model. Configure its max_input_tokens and max_output_tokens before continuing.", undefined, true);
+        }
+        const limits = { input: Math.min(...matches.map(row => Number(row.model_info!.max_input_tokens))), output: Math.min(...matches.map(row => Number(row.model_info!.max_output_tokens))), expires: Date.now() + 300_000 };
+        this.contextLimits.set(model, limits);
+        return limits;
+    }
+
+    async countTokens(request: ChatCompletionRequest, signal?: AbortSignal): Promise<number> {
+        this.assertConfigured();
+        const body = this.chatBody(request);
+        const messages = request.responseSchema ? [...request.messages.map(wireMessage), { role: "system", content: JSON.stringify(request.responseSchema.schema) }] : body.messages;
+        const { payload } = await this.send(LITELLM_ENDPOINTS.tokenCounter, "POST", this.config.masterKey, { model: request.model, messages, ...(body.tools ? { tools: body.tools } : {}) }, LITELLM_TIMEOUTS_MS.admin, "LiteLLM could not measure this conversation's context.", signal);
+        const count = (payload as { total_tokens?: unknown }).total_tokens;
+        if (!Number.isSafeInteger(count) || Number(count) < 0) throw new AppError(502, "LiteLLM returned an invalid context token count.", undefined, true);
+        return Number(count);
     }
 
     /** Image inference uses a model-scoped capability key, never a provider or administrative key. */
@@ -208,6 +236,7 @@ export class LiteLlmClient {
     /** Registers a provider model on the gateway under a stable alias. Returns the alias for later key scoping. */
     async registerModel(params: RegisterModelParams, signal?: AbortSignal): Promise<string> {
         this.assertConfigured();
+        this.contextLimits.delete(params.modelAlias);
         const body = {
             model_name: params.modelAlias,
             litellm_params: {
@@ -270,11 +299,12 @@ export class LiteLlmClient {
             } : {}),
             ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
             ...(request.maxTokens !== undefined ? { max_tokens: request.maxTokens } : {}),
-            ...(request.responseFormatJson ? { response_format: { type: "json_object" } } : {}),
+            ...(request.responseSchema ? { response_format: { type: "json_schema", json_schema: { ...request.responseSchema, strict: true } } }
+                : request.responseFormatJson ? { response_format: { type: "json_object" } } : {}),
             ...(request.reasoningEffort ? { reasoning_effort: request.reasoningEffort } : {}),
-            // A parameter the selected provider does not support (for example reasoning effort on a non-reasoning
-            // model) is dropped by the gateway instead of failing the call.
-            drop_params: true,
+            // Structured stages must retain their protocol parameters. Unsupported structured-output models
+            // fail explicitly; ordinary prose calls may omit optional provider-specific tuning.
+            drop_params: !request.responseSchema,
         };
     }
 

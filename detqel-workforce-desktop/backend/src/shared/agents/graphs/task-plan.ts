@@ -30,15 +30,16 @@ export interface RepositorySnapshot { readonly connectionId: string; readonly re
 /** Explicit requests are checked independently of the planner so it cannot quietly weaken them. */
 export function explicitDeliverableRequirements(message: string) {
     const text = message.toLowerCase();
-    const document = /\b(create|generate|write|draft|prepare|produce|make|update|revise)\b[\s\S]{0,120}\b(document|report|proposal|synopsis|pdf|word|docx)\b/.test(text);
+    const document = /\b(create|generate|write|draft|prepare|produce|make|build|update|revise|compile|convert|export|deliver|save|need|want|provide|give)\b[\s\S]{0,180}\b(document|report|proposal|synopsis|prd|specification|pdf|word|docx)\b/.test(text);
     const synopsis = /\bsynopsis\b/.test(text) && !/\b(no|without|exclude|omit)\s+(?:a\s+|the\s+)?synopsis\b/.test(text);
-    const images = !/\b(no|without|exclude|omit)\s+(?:any\s+|the\s+)?(images|illustrations|pictures)\b/.test(text)
-        && /\b(add|include|generate|create|insert|with|use|want|need)\b[\s\S]{0,90}\b(images?|illustrations?|pictures?|visuals?|diagrams?)\b/.test(text);
+    const images = !/\b(no|without|exclude|omit)\s+(?:any\s+|the\s+)?(images|illustrations|pictures|infographics)\b/.test(text)
+        && /\b(add|include|contain|generate|generated|create|insert|with|use|want|need)\b[\s\S]{0,90}\b(images?|illustrations?|pictures?|visuals?|diagrams?|infographics?)\b/.test(text);
     const words: Readonly<Record<string, number>> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
-    const counts = [...text.matchAll(/\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:(?:original|generated|distinct)\s+)?(?:images?|illustrations?|pictures?|figures?|diagrams?)\b/g)].map(match => words[match[1]] ?? Number(match[1]));
-    const deepRepository = /\b(?:entire|whole|complete|full)\s+(?:source\s+)?(?:repository|codebase)\b/.test(text)
+    const counts = [...text.matchAll(/\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:(?:original|generated|distinct)\s+)?(?:images?|illustrations?|pictures?|figures?|diagrams?|infographics?)\b/g)].map(match => words[match[1]] ?? Number(match[1]));
+    const deepRepository = /\b(?:entire|whole|complete|completed|full)\s+(?:source\s+)?(?:repository|codebase)\b/.test(text)
         || /\b(?:deep|comprehensive|in-depth)\s+(?:analysis|review|audit)\b[\s\S]{0,80}\b(?:repository|codebase)\b/.test(text);
-    return { document, synopsis, images, deepRepository, minimumImages: images ? Math.max(1, ...counts) : 0 };
+    const repository = deepRepository || (document && /\b(?:repository|repo|codebase)\b/.test(text));
+    return { document, synopsis, images, repository, deepRepository, minimumImages: images ? Math.max(1, ...counts) : 0 };
 }
 
 export function validateExecutionPlan(plan: TaskExecutionPlan, allowedAgentIds: ReadonlyArray<string>, webEnabled: boolean): void {

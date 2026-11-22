@@ -2,6 +2,7 @@
 
 import {
   MIN_USERNAME_LENGTH,
+  MAX_USERNAME_LENGTH,
   MIN_PASSWORD_LENGTH,
   PHONE_DIGITS,
   USERNAME_PATTERN,
@@ -28,9 +29,10 @@ import {
   MapPin,
   BadgeCheck,
 } from "lucide-react";
+import { PasswordResetFields } from "./PasswordResetFields";
 import { PuzzleCaptcha } from "./PuzzleCaptcha";
 import { useWorkspace } from "@/context/WorkspaceContext";
-import { apiLicenseOptions, apiLogin, apiRegister, type LicenseOption } from "@/lib/api";
+import { apiLicenseOptions, apiLogin, apiRegister, apiRequestPasswordReset, type LicenseOption } from "@/lib/api";
 import { loadCountries, type CountryOption } from "@/lib/country-regions";
 import { PrimaryButton } from "@/components/ui/primary-button";
 import { IconOnlyButton } from "@/components/ui/icon-only-button";
@@ -56,11 +58,13 @@ export const LoginForm: React.FC = () => {
   const [showSignInPassword, setShowSignInPassword] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(false);
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [resetSubmitted, setResetSubmitted] = useState(false);
-  const [forgotEmail, setForgotEmail] = useState("");
+  const [resetReference, setResetReference] = useState("");
+  const [resetIdentifier, setResetIdentifier] = useState("");
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetConfirmation, setResetConfirmation] = useState("");
 
   const [signInUsername, setSignInUsername] = useState("");
   const [signInPassword, setSignInPassword] = useState("");
@@ -145,11 +149,31 @@ export const LoginForm: React.FC = () => {
     setAuthSuccess(null);
 
     if (isForgotPassword) {
-      if (!forgotEmail || !forgotEmail.includes("@")) {
-        setAuthError("Please provide a valid email address.");
+      if (resetSubmitted || isSubmitting) return;
+      const identifier = resetIdentifier.trim();
+      if (!/^[a-zA-Z0-9._-]{2,64}$/.test(identifier) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier)) {
+        setAuthError("Enter your account username or email.");
         return;
       }
-      setResetSubmitted(true);
+      if (resetPassword.length < MIN_PASSWORD_LENGTH || resetPassword.length > 128) {
+        setAuthError(`Use a new password between ${MIN_PASSWORD_LENGTH} and 128 characters.`);
+        return;
+      }
+      if (resetPassword !== resetConfirmation) {
+        setAuthError("New passwords do not match.");
+        return;
+      }
+      setIsSubmitting(true);
+      try {
+        const result = await apiRequestPasswordReset({ identifier, newPassword: resetPassword, confirmPassword: resetConfirmation });
+        setAuthSuccess(result.message);
+        setResetReference(result.requestReference);
+        setResetSubmitted(true);
+        setResetPassword("");
+        setResetConfirmation("");
+      } catch (error) {
+        setAuthError(error instanceof Error ? error.message : "The reset request could not be submitted.");
+      } finally { setIsSubmitting(false); }
       return;
     }
 
@@ -161,6 +185,12 @@ export const LoginForm: React.FC = () => {
     if (activeTab === "signin") {
       if (!signInUsername.trim()) {
         setAuthError("Please enter your username.");
+        return;
+      }
+      if (signInUsername.trim().length < MIN_USERNAME_LENGTH || signInUsername.trim().length > MAX_USERNAME_LENGTH || !USERNAME_PATTERN.test(signInUsername.trim())) {
+        setAuthError(/\s/.test(signInUsername.trim())
+          ? "Enter your account username, not your full name. Usernames cannot contain spaces."
+          : `Your username must be ${MIN_USERNAME_LENGTH} to ${MAX_USERNAME_LENGTH} characters using letters, numbers, dots, dashes or underscores.`);
         return;
       }
       if (!signInPassword) {
@@ -343,9 +373,9 @@ export const LoginForm: React.FC = () => {
 
           {isForgotPassword && (
             <div className="mb-6">
-              <h3 className="text-xl font-bold text-slate-900">Reset Password</h3>
+              <h3 className="text-xl font-bold text-slate-900">Request Password Reset</h3>
               <p className="text-xs sm:text-sm text-slate-500 mt-1">
-                Enter your email address and we will send you a password reset link.
+                Choose a new password for your account. An administrator must verify your identity and approve the request before your password changes.
               </p>
             </div>
           )}
@@ -377,26 +407,9 @@ export const LoginForm: React.FC = () => {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {isForgotPassword ? (
-              <div>
-                <label
-                  htmlFor="forgotEmail"
-                  className="block text-xs font-medium text-slate-700 mb-1.5"
-                >
-                  Account Email
-                </label>
-                <div className="flex items-center px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/70 transition-colors focus-within:border-[#8a2be2] focus-within:bg-white focus-within:ring-2 focus-within:ring-[#8a2be2]/10">
-                  <Mail className="w-4 h-4 text-slate-400 mr-2.5 flex-shrink-0" />
-                  <input
-                    id="forgotEmail"
-                    type="email"
-                    required
-                    value={forgotEmail}
-                    onChange={(e) => setForgotEmail(e.target.value)}
-                    placeholder="you@company.com"
-                    className="w-full bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
-                  />
-                </div>
-              </div>
+              <PasswordResetFields identifier={resetIdentifier} password={resetPassword} confirmation={resetConfirmation}
+                onIdentifier={setResetIdentifier} onPassword={setResetPassword} onConfirmation={setResetConfirmation}
+                disabled={isSubmitting || resetSubmitted} />
             ) : activeTab === "signin" ? (
               <>
                 <Field id="signInUsername" label="Username">
@@ -407,12 +420,18 @@ export const LoginForm: React.FC = () => {
                       type="text"
                       required
                       autoComplete="username"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      maxLength={MAX_USERNAME_LENGTH}
+                      aria-describedby="signInUsernameHint"
                       value={signInUsername}
                       onChange={(e) => setSignInUsername(e.target.value)}
                       placeholder="Your DETQEL username"
                       className={INPUT_TEXT}
                     />
                   </div>
+                  <p id="signInUsernameHint" className="mt-1.5 text-[11px] text-slate-500">Use your account username, not your full name.</p>
                 </Field>
 
                 <div>
@@ -450,31 +469,13 @@ export const LoginForm: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between pt-1">
-                  <label
-                    htmlFor="rememberMe"
-                    className="flex items-center gap-2 cursor-pointer select-none"
-                  >
-                    <button
-                      type="button"
-                      id="rememberMe"
-                      role="checkbox"
-                      aria-checked={rememberMe}
-                      onClick={() => setRememberMe(!rememberMe)}
-                      className={`w-4 h-4 rounded flex items-center justify-center border transition-colors cursor-pointer ${
-                        rememberMe
-                          ? "bg-[#8a2be2] border-[#8a2be2] text-white"
-                          : "bg-white border-slate-300"
-                      }`}
-                    >
-                      {rememberMe && <Check className="w-3 h-3 stroke-[3]" />}
-                    </button>
-                    <span className="text-xs text-slate-600">Remember me</span>
-                  </label>
-
+                <div className="flex items-center justify-end pt-1">
                   <button
                     type="button"
-                    onClick={() => setIsForgotPassword(true)}
+                    onClick={() => {
+                      setResetIdentifier(signInUsername.trim()); setResetPassword(""); setResetConfirmation(""); setSignInPassword("");
+                      setResetSubmitted(false); setResetReference(""); setAuthError(null); setAuthSuccess(null); setIsForgotPassword(true);
+                    }}
                     className="text-xs font-semibold hover:underline cursor-pointer transition-colors"
                     style={{ color: "#8a2be2" }}
                   >
@@ -505,7 +506,7 @@ export const LoginForm: React.FC = () => {
                   <Field id="username" label="Username">
                     <div className={INPUT_SHELL}>
                       <AtSign className="w-4 h-4 text-slate-400 mr-2.5 flex-shrink-0" />
-                      <input id="username" type="text" required minLength={MIN_USERNAME_LENGTH} maxLength={64} autoComplete="username"
+                      <input id="username" type="text" required minLength={MIN_USERNAME_LENGTH} maxLength={MAX_USERNAME_LENGTH} autoComplete="username"
                         value={username} onChange={(e) => setUsername(e.target.value)} placeholder="janedoe" className={INPUT_TEXT} />
                     </div>
                   </Field>
@@ -664,22 +665,22 @@ export const LoginForm: React.FC = () => {
               </div>
             )}
 
-            {isForgotPassword && resetSubmitted && (
-              <div className="p-3.5 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-800 text-xs">
-                Reset instructions have been sent to <strong>{forgotEmail}</strong> if it exists in our system.
-              </div>
-            )}
+            {isForgotPassword && resetSubmitted && <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
+              <label htmlFor="resetReference" className="mb-1.5 block font-semibold text-slate-700">Request reference</label>
+              <input id="resetReference" data-chat-text readOnly value={resetReference} onFocus={event => event.target.select()} className="w-full select-text rounded-lg border border-slate-200 bg-white px-2 py-2 font-mono text-slate-900" />
+              <p className="mt-2 text-slate-500">Keep this reference and share it with your administrator during identity verification. A reference does not confirm that the account exists or that a new request was created. If the administrator cannot find it, check your login username or registered email and submit again. Never share your password.</p>
+            </div>}
 
             <div className="pt-2">
               <PrimaryButton
                 type="submit"
-                disabled={isSubmitting}
+                disabled={isSubmitting || (isForgotPassword && resetSubmitted)}
                 className="w-full py-3.5 text-sm shadow-md hover:shadow-lg"
                 value={
                   isSubmitting
-                    ? activeTab === "signup" ? "Submitting..." : "Authenticating..."
+                    ? isForgotPassword ? "Submitting request..." : activeTab === "signup" ? "Submitting..." : "Authenticating..."
                     : isForgotPassword
-                    ? "Send Reset Link"
+                    ? resetSubmitted ? "Submission received" : "Request Password Reset"
                     : activeTab === "signin"
                     ? "Sign In"
                     : "Create Account"
@@ -701,7 +702,8 @@ export const LoginForm: React.FC = () => {
                   type="button"
                   onClick={() => {
                     setIsForgotPassword(false);
-                    setResetSubmitted(false);
+                    setResetSubmitted(false); setResetReference("");
+                    setResetPassword(""); setResetConfirmation("");
                     setAuthError(null);
                     setAuthSuccess(null);
                   }}

@@ -11,6 +11,7 @@ export const LITELLM_ENDPOINTS = {
     modelNew: "/model/new",
     modelDelete: "/model/delete",
     modelInfo: "/model/info",
+    tokenCounter: "/utils/token_counter",
     keyGenerate: "/key/generate",
     keyDelete: "/key/delete",
     keyInfo: "/key/info",

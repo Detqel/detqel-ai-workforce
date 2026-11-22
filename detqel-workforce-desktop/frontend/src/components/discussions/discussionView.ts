@@ -58,9 +58,9 @@ export const isHandoff = (message: ChatMessage) => message.turnRole === "delegat
 
 /** The document a reply is, from its document steps: its title, and the file once it is saved. */
 export function documentOf(message: ChatMessage): { title: string; fileName?: string; saved: boolean } | null {
-  const title = message.activity?.find((step) => step.kind === "writingDocument")?.detail?.title;
-  if (!title) return null;
   const saving = message.activity?.find((step) => step.kind === "savingDocument" && step.status === "done");
+  const title = saving?.detail?.title ?? message.activity?.find((step) => step.kind === "writingDocument" || step.kind === "savingDocument")?.detail?.title;
+  if (!title) return null;
   return { title, fileName: saving?.detail?.fileName, saved: Boolean(saving) };
 }
 

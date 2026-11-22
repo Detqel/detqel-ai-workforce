@@ -3,6 +3,8 @@ import type { TaskExecutionPlan } from "../agents/graphs/task-plan.js";
 
 /** Facts about a step the UI shows next to it, such as how many sources a search found. */
 export interface DiscussionActivityDetail {
+    readonly sourceMessageId?: string;
+    readonly requiredSections?: ReadonlyArray<string>;
     readonly interruption?: string;
     readonly plan?: TaskExecutionPlan;
     readonly decisions?: ReadonlyArray<{ readonly name: string; readonly task: string; readonly reason: string }>;

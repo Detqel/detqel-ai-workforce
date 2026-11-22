@@ -8,6 +8,7 @@ export const PROMPT_DISCUSSION_IDS = {
     delegationNone: "discussion-delegation-none", leadHandoff: "discussion-lead-handoff",
     leadWrapUp: "discussion-lead-wrap-up", document: "discussion-document", assignment: "discussion-assignment",
     addressed: "discussion-addressed", selfCheck: "discussion-self-check", summary: "discussion-summary",
+    owner: "discussion-owner",
 } as const;
 export const PROMPT_GLOBAL_GUIDANCE_ID = "global-guidance";
 export const PROMPT_FILE_MODES = { directory: 0o700, file: 0o600 } as const;

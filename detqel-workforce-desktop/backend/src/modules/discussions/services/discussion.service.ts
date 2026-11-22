@@ -1,3 +1,10 @@
+import { createHash } from "node:crypto";
+import { existingDocumentDelivery } from "../../../shared/documents/delivery-intent.js";
+import { documentImageAssets, documentImageRequests, documentRequirementIssues } from "../../../shared/documents/document-requirements.js";
+import { explicitDeliverableRequirements } from "../../../shared/agents/graphs/task-plan.js";
+import { ZERO_USAGE } from "../../../shared/agents/graphs/discussion-runtime.js";
+import { storageFolderName } from "../../../shared/rag/named-directories.js";
+import { CONTEXT_COMPACTION, type ConversationContext } from "../../../shared/agents/context/conversation-context.js";
 import type { DiscussionActivityStep } from "../../../shared/types/discussion-activity.js";
 import { randomUUID } from "node:crypto";
 import { AppError } from "../../../shared/errors/app-error.js";
@@ -43,7 +50,6 @@ import {
     DISCUSSION_CAPABILITY_MODES,
     DISCUSSION_ERRORS,
     DISCUSSION_LIMITS,
-    DISCUSSION_MEMORY,
     DISCUSSION_MESSAGE_ROLES,
     DISCUSSION_SPEAKER_ROLES,
     DISCUSSION_STREAM_EVENTS,
@@ -150,9 +156,15 @@ function usageOf(session: ChatSession): SessionUsage {
 }
 
 function toTranscript(messages: ReadonlyArray<ChatMessage>): TranscriptMessage[] {
+    const previousContent = new Set<string>();
     return messages.filter(message => !message.activity?.some(step => step.detail?.interruption)).map(message => ({
         role: message.role === DISCUSSION_MESSAGE_ROLES.assistant ? "assistant" as const : "user" as const,
-        content: message.content,
+        content: (() => {
+            const delivery = message.activity?.find(step => step.detail?.sourceMessageId);
+            const duplicate = Boolean(delivery && previousContent.has(message.content));
+            previousContent.add(message.content);
+            return duplicate ? `The completed document "${delivery?.detail?.title ?? "Document"}" was packaged without content changes. Its full content appears earlier in this conversation.` : message.content;
+        })(),
         speakerName: message.speakerName ?? null,
     }));
 }
@@ -198,7 +210,7 @@ export class DiscussionService {
     /** The turn currently running for each session. */
     private readonly running = new Map<string, RunningTurn>();
     /** Sessions whose memory summary is being refreshed. */
-    private readonly memoryInFlight = new Set<string>();
+    private readonly sessionMutations = new Map<string, Promise<unknown>>();
 
     constructor(
         private readonly unit: IUnitOfWork,
@@ -215,9 +227,12 @@ export class DiscussionService {
 
     /** Renames a discussion. The title is what the discussion list shows. */
     async renameSession(workspaceId: string, sessionId: string, title: string): Promise<ChatSession> {
-        await this.getSession(workspaceId, sessionId);
+        storageFolderName(title);
+        if (!await this.unit.discussions.findSessionInWorkspace(sessionId, workspaceId)) throw new AppError(404, DISCUSSION_ERRORS.sessionNotFound);
+        await this.stopRunningTurn(sessionId);
         const renamed = await this.unit.discussions.renameSession(sessionId, title.trim());
         if (!renamed) throw new AppError(404, DISCUSSION_ERRORS.sessionNotFound);
+        await this.fileServer.ensureSession(this.locationOf(renamed));
         return renamed;
     }
 
@@ -340,6 +355,7 @@ export class DiscussionService {
         } else {
             throw new AppError(400, DISCUSSION_ERRORS.targetRequired);
         }
+        storageFolderName(input.title?.trim() || defaultTitle);
         const session = await this.unit.discussions.createSession({
             workspaceId: input.workspaceId,
             scope,
@@ -352,13 +368,16 @@ export class DiscussionService {
         return session;
     }
 
-    listSessions(workspaceId: string): Promise<ChatSession[]> {
-        return this.unit.discussions.listSessions(workspaceId);
+    async listSessions(workspaceId: string): Promise<ChatSession[]> {
+        const sessions = await this.unit.discussions.listSessions(workspaceId);
+        for (const session of sessions) await this.fileServer.ensureSession(this.locationOf(session));
+        return sessions;
     }
 
     async getSession(workspaceId: string, sessionId: string): Promise<ChatSession> {
         const session = await this.unit.discussions.findSessionInWorkspace(sessionId, workspaceId);
         if (!session) throw new AppError(404, DISCUSSION_ERRORS.sessionNotFound);
+        await this.fileServer.ensureSession(this.locationOf(session));
         return session;
     }
 
@@ -445,7 +464,11 @@ export class DiscussionService {
      * Saves the user's message and prepares the turn that answers it. A turn still running in the session is
      * stopped first: a new message starts a new turn, and teammates still due from the previous one do not reply.
      */
-    async startMessage(input: PostMessageInput): Promise<PreparedTurn> {
+    startMessage(input: PostMessageInput): Promise<PreparedTurn> {
+        return this.mutateSession(input.sessionId, () => this.prepareMessage(input));
+    }
+
+    private async prepareMessage(input: PostMessageInput): Promise<PreparedTurn> {
         const message = input.message;
         if (message.trim().length === 0) throw new AppError(400, DISCUSSION_ERRORS.emptyMessage);
         if (message.length > DISCUSSION_LIMITS.maxMessageCharacters) throw new AppError(400, DISCUSSION_ERRORS.messageTooLong);
@@ -453,16 +476,23 @@ export class DiscussionService {
         const settings: TurnSettings = { responseMode: input.responseMode, capabilityMode: input.capabilityMode, webEnabled: input.webEnabled };
         // Provision, check web search, and resolve the speakers before saving the message, so a configuration
         // problem does not leave an unanswered message behind.
-        await this.prepare(input.workspaceId);
+        const deliveryIntent = existingDocumentDelivery(message);
+        if (!deliveryIntent) await this.prepare(input.workspaceId);
         const table = await this.resolveTable(session);
 
         await this.stopRunningTurn(session.id);
+        const deliverySource = deliveryIntent ? await this.deliverySource(session.id) : null;
         const slot = this.claim(session.id);
         try {
             const turnId = randomUUID();
             const userMessage = await this.unit.discussions.appendMessage({ sessionId: session.id, role: DISCUSSION_MESSAGE_ROLES.user, content: message, turnId });
-            const queue = this.firstSpeakers(table);
-            await this.storeQueue(session.id, turnId, queue, settings);
+            const queue = deliverySource ? [this.deliverySpeaker(table, deliverySource)] : this.firstSpeakers(table);
+            await this.storeQueue(session.id, turnId, queue, settings, null, null, undefined, true);
+            if (deliverySource && deliveryIntent) {
+                const current = await this.getSession(session.workspaceId, session.id);
+                if (!current.pendingTurn || current.pendingTurn.turnId !== turnId) throw new AppError(409, "The discussion changed before document delivery started.");
+                await this.unit.discussions.setPendingTurn(session.id, { ...current.pendingTurn, delivery: { sourceMessageId: deliverySource.id, ...deliveryIntent } }, turnId);
+            }
             return {
                 run: (emit, signal) => {
                     emit({ type: DISCUSSION_STREAM_EVENTS.turn, userMessage });
@@ -476,7 +506,11 @@ export class DiscussionService {
     }
 
     /** Prepares the rest of a turn the user left before every speaker replied. */
-    async startContinue(workspaceId: string, sessionId: string): Promise<PreparedTurn> {
+    startContinue(workspaceId: string, sessionId: string): Promise<PreparedTurn> {
+        return this.mutateSession(sessionId, () => this.prepareContinue(workspaceId, sessionId));
+    }
+
+    private async prepareContinue(workspaceId: string, sessionId: string): Promise<PreparedTurn> {
         const session = await this.getSession(workspaceId, sessionId);
         const pending = session.pendingTurn;
         if (!pending || pending.queue.length === 0) throw new AppError(409, DISCUSSION_ERRORS.nothingPending);
@@ -486,11 +520,19 @@ export class DiscussionService {
             capabilityMode: pending.capabilityMode as DiscussionCapabilityMode,
             webEnabled: pending.webEnabled,
         };
-        await this.prepare(workspaceId);
         const table = await this.resolveTable(session);
         const userMessage = (await this.unit.discussions.listMessages(sessionId))
             .find(message => message.turnId === pending.turnId && message.role === DISCUSSION_MESSAGE_ROLES.user);
         if (!userMessage) throw new AppError(409, DISCUSSION_ERRORS.nothingPending);
+        const deliveryIntent = pending.delivery ?? existingDocumentDelivery(userMessage.content);
+        if (deliveryIntent) {
+            const source = await this.deliverySource(sessionId, pending.delivery?.sourceMessageId);
+            const queue = [this.deliverySpeaker(table, source)];
+            await this.unit.discussions.setPendingTurn(sessionId, { ...pending, queue: queue.map(toResponder), document: null, taskPlan: null, repositorySnapshots: [], delivery: { sourceMessageId: source.id, format: deliveryIntent.format } }, pending.turnId);
+            const slot = this.claim(sessionId);
+            return { run: (emit, signal) => this.runTurn(session, table, pending.turnId, userMessage.content, settings, queue, null, slot, emit, signal) };
+        }
+        await this.prepare(workspaceId);
         // Agents removed from the team since the turn started are skipped.
         const queue = pending.queue.flatMap(entry => {
             const plan = this.planFor(table, entry, pending.leadName);
@@ -500,6 +542,71 @@ export class DiscussionService {
         const slot = this.claim(sessionId);
         const document = pending.document ?? null;
         return { run: (emit, signal) => this.runTurn(session, table, pending.turnId, userMessage.content, settings, queue, document, slot, emit, signal, pending.taskPlan, pending.repositorySnapshots) };
+    }
+
+    private async deliverySource(sessionId: string, messageId?: string): Promise<ChatMessage> {
+        const messages = await this.unit.discussions.listMessages(sessionId);
+        const source = [...messages].reverse().find(item => (!messageId || item.id === messageId) && item.role === "assistant" && item.turnRole !== "delegate" && item.content.trim() && !item.activity.some(step => step.detail?.interruption));
+        if (!source) throw new AppError(422, "There is no completed response to turn into a document. Finish the original request first; an unfinished draft cannot be handed over as complete.");
+        return source;
+    }
+
+    private deliverySpeaker(table: Table, source: ChatMessage): SpeakerPlan {
+        const roster = table.kind === "team" ? table.team.members : [table.agent];
+        const participant = roster.find(item => item.agentId === source.speakerAgentId) ?? this.firstSpeakers(table)[0].participant;
+        return { participant, speakerRole: DISCUSSION_SPEAKER_ROLES.addressed };
+    }
+
+    private async deliverExistingDocument(session: ChatSession, turnId: string, settings: TurnSettings, plan: SpeakerPlan, delivery: NonNullable<PendingTurn["delivery"]>, emit: (event: TurnStreamEvent) => void, signal: AbortSignal): Promise<void> {
+        const source = await this.deliverySource(session.id, delivery.sourceMessageId);
+        if (documentImageRequests(source.content).length) throw new AppError(422, "The existing response still contains unrendered image instructions. Complete its document generation before exporting it; a format-only request does not regenerate content or images.");
+        const history = await this.unit.discussions.listMessages(session.id);
+        const original = history.find(item => item.role === "user" && item.turnId === source.turnId);
+        const explicit = explicitDeliverableRequirements(original?.content ?? "");
+        const saved = source.activity.find(step => step.kind === DISCUSSION_ACTIVITY_KINDS.savingDocument && step.status === "done");
+        const document: DocumentRequest = {
+            title: (saved?.detail?.title ?? /^#\s+(.+)$/m.exec(source.content)?.[1] ?? `${session.title} document`).slice(0, DOCUMENT_LIMITS.maxTitleCharacters),
+            imageCount: Math.max(saved?.detail?.count ?? 0, explicit.minimumImages, documentImageAssets(source.content).length),
+            requiredSections: saved?.detail?.requiredSections ?? (explicit.synopsis ? ["Synopsis"] : []),
+        };
+        const issues = documentRequirementIssues(source.content, document);
+        if (issues.length) throw new AppError(422, `The existing response cannot be delivered unchanged: ${issues.join(" ")}`);
+        const started = Date.now();
+        const step: DiscussionActivityStep = { id: randomUUID(), kind: DISCUSSION_ACTIVITY_KINDS.savingDocument, status: "running", startedAt: new Date().toISOString(), detail: { title: document.title, count: document.imageCount, requiredSections: document.requiredSections, sourceMessageId: source.id } };
+        emit({ type: DISCUSSION_STREAM_EVENTS.speaker, agentId: plan.participant.agentId, name: plan.participant.name, role: plan.participant.role, isLead: plan.participant.isLead, turnRole: plan.speakerRole });
+        emit({ type: DISCUSSION_STREAM_EVENTS.activity, agentId: plan.participant.agentId, step });
+        const location = this.locationOf(session);
+        for (const asset of documentImageAssets(source.content)) { signal.throwIfAborted(); await this.fileServer.readDocumentAsset(location, asset); }
+        let content = source.content;
+        let fileName: string | undefined;
+        let usage = ZERO_USAGE;
+        if (delivery.format === DOCUMENT_FORMATS.markdown && saved?.detail?.fileName && extname(saved.detail.fileName) === ".md" && await this.fileServer.hasArtifact(location, saved.detail.fileName)) {
+            const stored = await this.fileServer.readArtifact(location, saved.detail.fileName);
+            const expected = Buffer.from(source.content.trim() + "\n", "utf8");
+            if (createHash("sha256").update(stored).digest("hex") === createHash("sha256").update(expected).digest("hex")) fileName = saved.detail.fileName;
+        }
+        if (!fileName) {
+            if (delivery.format === DOCUMENT_FORMATS.markdown) {
+                const completed = await this.saveDocument(session, document.title, content, plan, document, signal);
+                fileName = completed.fileName; content = completed.content; usage = completed.usage;
+            } else {
+                const info: DocumentInfo = { title: document.title, subtitle: session.title, author: source.speakerName ?? plan.participant.name, exportedAt: exportTimestamp() };
+                const exported = await this.exporter.export(delivery.format, info, content, asset => this.fileServer.readDocumentAsset(location, asset));
+                const stem = fileStem(document.title);
+                if (!stem) throw new AppError(422, "The existing response needs a valid document title before it can be saved.");
+                for (const candidate of numberedNames(stem, exported.extension)) {
+                    signal.throwIfAborted();
+                    if (await this.fileServer.storeArtifactIfAbsent(location, candidate, exported.mimeType, exported.contents)) { fileName = candidate; break; }
+                }
+                if (!fileName) throw new AppError(409, DOCUMENT_ERRORS.namesExhausted);
+            }
+        }
+        if (!fileName) throw new AppError(500, "Document delivery finished without a saved artifact.");
+        const completedStep: DiscussionActivityStep = { ...step, status: "done", durationMs: Date.now() - started, detail: { ...step.detail, fileName } };
+        emit({ type: DISCUSSION_STREAM_EVENTS.activity, agentId: plan.participant.agentId, step: completedStep });
+        const sources = (await this.unit.discussions.listMessageSources(source.id)).map(item => ({ type: item.sourceType, title: item.title ?? item.reference, reference: item.reference, ...(item.url ? { url: item.url } : {}) }));
+        for (const event of await this.saveReply(session, turnId, settings, { plan, content, sources, usage, steps: [completedStep] }, [], null)) emit(event);
+        logger.info({ workspaceId: session.workspaceId, sessionId: session.id, sourceMessageId: source.id, format: delivery.format }, "Delivered existing document without model regeneration");
     }
 
     /** Ensure the configured model before saving; web credentials are checked only if the plan needs a search. */
@@ -546,7 +653,6 @@ export class DiscussionService {
         const stop = () => slot.controller.abort();
         signal.addEventListener("abort", stop, { once: true });
         if (signal.aborted) stop();
-        let finished = false;
         // Keep the current response until it is saved or deliberately replaced by routing.
         // Failure snapshots use the same durable message history as completed responses.
         const attempt: { progress: ReplyProgress | null } = { progress: null };
@@ -566,8 +672,19 @@ export class DiscussionService {
             emit(event);
         };
         try {
+            const pending = (await this.getSession(session.workspaceId, session.id)).pendingTurn;
+            if (pending?.turnId === turnId && pending.delivery) {
+                await this.deliverExistingDocument(session, turnId, settings, queue[0], pending.delivery, forward, slot.controller.signal);
+                emit({ type: DISCUSSION_STREAM_EVENTS.done, usage: usageOf(await this.getSession(session.workspaceId, session.id)) });
+                return;
+            }
             const toolbox = await this.toolboxFor(session);
             const collaborators: DiscussionCollaborators = {
+                compactHistory: (context, signal) => this.memory(session, { participant: context.participant, speakerRole: context.speakerRole, assignment: context.assignment }, table, message, settings, collaborators, turnId, signal, true),
+                observeContext: async measurement => {
+                    const state = await this.recordContext(session, measurement, turnId);
+                    forward({ type: "context", context: state });
+                },
                 documentImages: await this.exporter.imageCapability(session.workspaceId),
                 // Small knowledge bases stay in the cacheable prefix; larger ones are retrieved during investigation.
                 // Web access is available only when enabled, and the plan decides whether it is needed.
@@ -592,13 +709,12 @@ export class DiscussionService {
                     retainDraft: (agentId, content) => {
                         if (attempt.progress?.agentId === agentId) attempt.progress.draft = content.slice(0, 1_000_000);
                     },
-                    memory: () => this.memory(session),
+                    memory: plan => this.memory(session, plan, table, message, settings, collaborators, turnId, slot.controller.signal),
                     saveReply: (reply, remaining, pendingDocument, plan, snapshots) => this.saveReply(session, turnId, settings, reply, remaining, pendingDocument, plan, snapshots),
                     checkpoint: (remaining, pendingDocument, plan, snapshots) => this.storeQueue(session.id, turnId, remaining, settings, pendingDocument, plan, snapshots),
                     saveDocument: (title, content, plan, request, signal) => this.saveDocument(session, title, content, plan, request, signal),
                 },
             }, queue, forward, slot.controller.signal);
-            finished = true;
             const current = await this.getSession(session.workspaceId, session.id);
             emit({ type: DISCUSSION_STREAM_EVENTS.done, usage: usageOf(current) });
         } catch (error) {
@@ -609,7 +725,7 @@ export class DiscussionService {
             // Keep the checkpointed queue on failure; continuation must use the same plan and commit.
             const current = await this.getSession(session.workspaceId, session.id);
             const first = queue[0];
-            const active = current.pendingTurn?.queue.length ? attempt.progress ?? (first ? {
+            const active = current.pendingTurn?.turnId === turnId && current.pendingTurn.queue.length ? attempt.progress ?? (first ? {
                 agentId: first.participant.agentId, name: first.participant.name, role: first.participant.role,
                 isLead: first.participant.isLead, turnRole: first.speakerRole, content: "", draft: "", steps: new Map<string, DiscussionActivityStep>(),
             } : null) : null;
@@ -641,14 +757,88 @@ export class DiscussionService {
         } finally {
             signal.removeEventListener("abort", stop);
             this.release(session.id, slot);
-            if (finished) this.scheduleMemory(session.workspaceId, session.id);
+
         }
     }
 
-    private async memory(session: ChatSession): Promise<{ summary: string | null; transcript: TranscriptMessage[] }> {
-        const current = await this.getSession(session.workspaceId, session.id);
-        const messages = await this.unit.discussions.listMessages(session.id);
-        return { summary: current.summary, transcript: toTranscript(messages.slice(current.summarizedMessageCount)) };
+    private async memory(session: ChatSession, plan: SpeakerPlan, table: Table, message: string, settings: TurnSettings, collaborators: DiscussionCollaborators, turnId: string, signal?: AbortSignal, force = false): Promise<{ summary: string | null; transcript: TranscriptMessage[] }> {
+        for (let attempt = 0; attempt < 3; attempt++) {
+            signal?.throwIfAborted();
+            const current = await this.getSession(session.workspaceId, session.id);
+            const messages = await this.unit.discussions.listMessages(session.id);
+            const transcript = toTranscript(messages.slice(current.summarizedMessageCount).filter(item => item.turnId !== turnId || item.role !== "user"));
+            const measurement = await this.runtime.measureContext({ workspaceId: session.workspaceId, participant: plan.participant, speakerRole: plan.speakerRole,
+                team: table.kind === "team" ? table.team : null, summary: current.summary, transcript, message, ...settings, collaborators,
+                taskPlan: current.pendingTurn?.taskPlan ?? undefined }, signal);
+            let latestUser = messages.length - 1;
+            while (latestUser >= 0 && messages[latestUser].role !== "user") latestUser--;
+            let coverUntil = Math.min(messages.length - CONTEXT_COMPACTION.keepRecentMessages, latestUser);
+            while (coverUntil > current.summarizedMessageCount && messages[coverUntil]?.role !== "user") coverUntil--;
+            if (coverUntil <= current.summarizedMessageCount || attempt > 0) coverUntil = latestUser;
+            if ((measurement.inputTokens >= measurement.thresholdTokens || force) && coverUntil > current.summarizedMessageCount && attempt < 2) {
+                const folded = toTranscript(messages.slice(current.summarizedMessageCount, coverUntil));
+                const result = await this.runtime.summarize(session.workspaceId, current.summary, folded, signal);
+                await this.unit.discussions.addUsage(session.id, result.usage);
+                if (await this.unit.discussions.updateMemory(session.id, result.summary, coverUntil, current.memoryRevision)) {
+                    const refreshed = await this.getSession(session.workspaceId, session.id);
+                    await this.unit.discussions.updateContext(session.id, { ...measurement, compactionCount: (current.contextState?.compactionCount ?? 0) + 1, lastCompactedAt: new Date().toISOString() }, refreshed.memoryRevision);
+                }
+                force = false;
+                continue;
+            }
+            const state = await this.recordContext(current, measurement);
+            await collaborators.observeContext?.(measurement);
+            logger.debug({ sessionId: session.id, inputTokens: state.inputTokens, maxInputTokens: state.maxInputTokens }, "Measured active discussion context");
+            return { summary: current.summary, transcript };
+        }
+        throw new AppError(409, "The conversation changed during context compaction. Retry this turn.");
+    }
+
+    private async recordContext(session: ChatSession, measurement: Omit<ConversationContext, "compactionCount" | "lastCompactedAt">, turnId?: string): Promise<ConversationContext> {
+        const current = await this.unit.discussions.findSessionInWorkspace(session.id, session.workspaceId);
+        if (!current) throw new AppError(404, DISCUSSION_ERRORS.sessionNotFound);
+        if (turnId && current.pendingTurn?.turnId !== turnId) throw new AppError(409, "This context belongs to a replaced discussion checkpoint.");
+        const state = { ...measurement, compactionCount: current.contextState?.compactionCount ?? 0, lastCompactedAt: current.contextState?.lastCompactedAt ?? null };
+        await this.unit.discussions.updateContext(session.id, state, current.memoryRevision);
+        return state;
+    }
+
+    async getContext(workspaceId: string, sessionId: string): Promise<ConversationContext | null> {
+        return (await this.getSession(workspaceId, sessionId)).contextState;
+    }
+
+    compactContext(workspaceId: string, sessionId: string): Promise<ConversationContext | null> {
+        return this.mutateSession(sessionId, async () => {
+            const session = await this.getSession(workspaceId, sessionId);
+            if (this.running.has(sessionId)) throw new AppError(409, "Wait until the current response finishes before compacting context.");
+            await this.prepare(workspaceId);
+            const table = await this.resolveTable(session);
+            const toolbox = await this.toolboxFor(session);
+            await this.memory(session, this.firstSpeakers(table)[0], table, "", { responseMode: "detailed", capabilityMode: "fast", webEnabled: false }, { toolbox }, "", undefined, true);
+            return this.getContext(workspaceId, sessionId);
+        });
+    }
+
+    restoreCheckpoint(workspaceId: string, sessionId: string, messageId: string, settings: TurnSettings): Promise<ChatSession> {
+        return this.mutateSession(sessionId, async () => {
+            const session = await this.getSession(workspaceId, sessionId);
+            await this.stopRunningTurn(sessionId);
+            const message = (await this.unit.discussions.listMessages(sessionId)).find(item => item.id === messageId && item.role === "user");
+            if (!message) throw new AppError(404, "The selected user message does not belong to this discussion.");
+            const table = await this.resolveTable(session);
+            const queue = this.firstSpeakers(table);
+            const pending: PendingTurn = { turnId: randomUUID(), queue: queue.map(toResponder), leadName: queue[0].participant.name, ...settings, document: null, taskPlan: null, repositorySnapshots: [] };
+            const restored = await this.unit.discussions.restoreCheckpoint(sessionId, messageId, pending);
+            if (!restored) throw new AppError(409, "The checkpoint is no longer available. Refresh the discussion.");
+            return restored;
+        });
+    }
+
+    private mutateSession<T>(sessionId: string, action: () => Promise<T>): Promise<T> {
+        const work = (this.sessionMutations.get(sessionId) ?? Promise.resolve()).catch(() => undefined).then(action);
+        this.sessionMutations.set(sessionId, work);
+        void work.finally(() => { if (this.sessionMutations.get(sessionId) === work) this.sessionMutations.delete(sessionId); }).catch(() => undefined);
+        return work;
     }
 
     /** Saves one reply with its activity and usage, then the speakers still due, and reports both to the client. */
@@ -662,6 +852,8 @@ export class DiscussionService {
         taskPlan?: TaskExecutionPlan | null,
         repositorySnapshots?: ReadonlyArray<RepositorySnapshot>,
     ): Promise<TurnStreamEvent[]> {
+        const current = await this.getSession(session.workspaceId, session.id);
+        if (current.pendingTurn?.turnId !== turnId) throw new AppError(409, "This reply belongs to a replaced conversation checkpoint.");
         const { participant } = reply.plan;
         const saved = await this.unit.discussions.appendMessageWithSources({
             message: {
@@ -694,14 +886,14 @@ export class DiscussionService {
     }
 
     /** Stores who is still due to reply, so a turn the user leaves resumes where it stopped; empty clears it. */
-    private async storeQueue(sessionId: string, turnId: string, queue: ReadonlyArray<SpeakerPlan>, settings: TurnSettings, document: TurnDocument | null = null, taskPlan: TaskExecutionPlan | null = null, repositorySnapshots?: ReadonlyArray<RepositorySnapshot>): Promise<void> {
+    private async storeQueue(sessionId: string, turnId: string, queue: ReadonlyArray<SpeakerPlan>, settings: TurnSettings, document: TurnDocument | null = null, taskPlan: TaskExecutionPlan | null = null, repositorySnapshots?: ReadonlyArray<RepositorySnapshot>, initial = false): Promise<void> {
         if (queue.length === 0) {
-            await this.unit.discussions.setPendingTurn(sessionId, null);
+            await this.unit.discussions.setPendingTurn(sessionId, null, turnId);
             return;
         }
         const leadName = queue.find(plan => plan.assignment)?.assignment?.leadName ?? queue[0].participant.name;
         const pending: PendingTurn = { turnId, queue: queue.map(toResponder), leadName, ...settings, document, taskPlan, repositorySnapshots };
-        await this.unit.discussions.setPendingTurn(sessionId, pending);
+        await this.unit.discussions.setPendingTurn(sessionId, pending, initial ? undefined : turnId);
     }
 
     private claim(sessionId: string): RunningTurn {
@@ -725,27 +917,4 @@ export class DiscussionService {
         await running.settled;
     }
 
-    /** Refreshes the memory summary in the background, so the user never waits on it. */
-    private scheduleMemory(workspaceId: string, sessionId: string): void {
-        if (this.memoryInFlight.has(sessionId)) return;
-        this.memoryInFlight.add(sessionId);
-        void this.refreshMemory(workspaceId, sessionId)
-            .catch(error => logger.warn({ sessionId, error: String(error) }, "Memory summary refresh failed; the next turn retries"))
-            .finally(() => this.memoryInFlight.delete(sessionId));
-    }
-
-    /** Folds all but the most recent messages into the summary once enough of them sit outside it. */
-    private async refreshMemory(workspaceId: string, sessionId: string): Promise<void> {
-        const session = await this.unit.discussions.findSessionInWorkspace(sessionId, workspaceId);
-        if (!session) return;
-        const messages = await this.unit.discussions.listMessages(sessionId);
-        if (messages.length - session.summarizedMessageCount <= DISCUSSION_MEMORY.triggerAfter) return;
-        const coverUntil = messages.length - DISCUSSION_MEMORY.keepRecent;
-        const folded = toTranscript(messages.slice(session.summarizedMessageCount, coverUntil));
-        const { summary, usage } = await this.runtime.summarize(workspaceId, session.summary, folded);
-        if (!summary) return;
-        await this.unit.discussions.updateMemory(sessionId, summary, coverUntil);
-        await this.unit.discussions.addUsage(sessionId, usage);
-        logger.info({ sessionId, summarizedMessageCount: coverUntil }, "Refreshed discussion memory summary");
-    }
 }

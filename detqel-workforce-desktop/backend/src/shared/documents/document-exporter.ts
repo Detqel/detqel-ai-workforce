@@ -3,7 +3,7 @@ import { DOCUMENT_ATTRIBUTION, DOCUMENT_ERRORS, DOCUMENT_FORMATS, DOCUMENT_MIME_
 import { parseMarkdown, plainText } from "./markdown-model.js";
 import { renderDocx } from "./docx-renderer.js";
 import { renderPdf } from "./pdf-renderer.js";
-import { documentImageRequests, documentRequirementIssues } from "./document-requirements.js";
+import { documentImageAssets, documentImageRequests, documentRequirementIssues } from "./document-requirements.js";
 import { createHash } from "node:crypto";
 import { DOCUMENT_IMAGE_ERRORS, DOCUMENT_RENDER_LIMITS } from "../../constants/documentImageConstants.js";
 import { prepareDocumentVisuals, type DocumentAssetResolver } from "./document-visuals.js";
@@ -48,7 +48,7 @@ export class DocumentExporter {
         const issues = documentRequirementIssues(draft, options);
         if (issues.length) throw new AppError(422, `The document is incomplete: ${issues.join(" ")}`);
         const requests = documentImageRequests(draft);
-        if (requests.length < options.imageCount || requests.length > DOCUMENT_RENDER_LIMITS.figures) throw new AppError(422, "The document does not contain the required image instructions. It was not saved as a text-only substitute.");
+        if (requests.length + documentImageAssets(draft).length < options.imageCount || requests.length + documentImageAssets(draft).length > DOCUMENT_RENDER_LIMITS.figures) throw new AppError(422, "The document does not contain its required images or image instructions. It was not saved as a text-only substitute.");
         if (requests.length && !this.images) throw new AppError(503, DOCUMENT_IMAGE_ERRORS.generationFailed);
         const controller = new AbortController();
         const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
@@ -80,6 +80,8 @@ export class DocumentExporter {
             markdown = markdown.replace(requests[index].raw, "![" + caption + "](" + source + ")\n\n");
         }
         const resolve: DocumentAssetResolver = async source => pending.get(source) ?? options.resolveAsset(source);
+        const completedIssues = documentRequirementIssues(markdown, options);
+        if (completedIssues.length) throw new AppError(422, `The generated document is incomplete: ${completedIssues.join(" ")}`);
         // Both formats share this exact prepared content, including formula outlines and figure geometry.
         const content = await this.prepare(info, markdown, resolve);
         signal.throwIfAborted();

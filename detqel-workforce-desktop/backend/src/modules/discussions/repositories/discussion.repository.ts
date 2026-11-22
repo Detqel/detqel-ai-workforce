@@ -9,6 +9,7 @@ import type {
     PendingResponder,
     PendingTurn,
 } from "../../../infrastructure/database/schema/discussions.js";
+import type { ConversationContext } from "../../../shared/agents/context/conversation-context.js";
 export type { ChatSession, NewChatSession, ChatMessage, NewChatMessage, ChatMessageSource, NewChatMessageSource, ChatSessionConnection, PendingResponder, PendingTurn };
 
 export interface UsageDelta {
@@ -37,11 +38,13 @@ export interface IDiscussionRepository {
     listMessageSources(messageId: string): Promise<ChatMessageSource[]>;
 
     /** Replaces the queue of teammates still due to reply; null clears it. */
-    setPendingTurn(sessionId: string, pending: PendingTurn | null): Promise<void>;
+    setPendingTurn(sessionId: string, pending: PendingTurn | null, expectedTurnId?: string): Promise<void>;
     /** Adds one call's gateway usage to the session's running totals atomically and returns the updated session. */
     addUsage(sessionId: string, usage: UsageDelta): Promise<ChatSession>;
     /** Stores the memory summary and how many of the session's oldest messages it covers. */
-    updateMemory(sessionId: string, summary: string, summarizedMessageCount: number): Promise<void>;
+    updateMemory(sessionId: string, summary: string, summarizedMessageCount: number, revision: number): Promise<boolean>;
+    updateContext(sessionId: string, context: ConversationContext, revision: number): Promise<void>;
+    restoreCheckpoint(sessionId: string, messageId: string, pending: PendingTurn): Promise<ChatSession | null>;
 
     listAttachedConnections(sessionId: string): Promise<ChatSessionConnection[]>;
     attachConnection(sessionId: string, connectionId: string): Promise<ChatSessionConnection>;

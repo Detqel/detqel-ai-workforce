@@ -16,6 +16,7 @@ import {
   ArrowDownLeft,
   Square,
   Play,
+  RotateCcw,
 } from "lucide-react";
 import type { DiscussionTarget } from "@/lib/discussionStore";
 import type { AgentTeam, RecruitedAgent } from "@/lib/api";
@@ -23,6 +24,9 @@ import {
   apiExportDiscussionMessage,
   apiStreamContinueTurn,
   apiStreamDiscussionMessage,
+  apiRestoreDiscussionCheckpoint,
+  apiListDiscussionMessages,
+  type ConversationContext,
   type ExportFormat,
   type PendingSpeaker,
   type ResponseMode,
@@ -31,6 +35,8 @@ import {
   type TurnEvent,
 } from "@/lib/api/discussions";
 import { useToast } from "@/context/ToastContext";
+import { useConfirm } from "@/context/ConfirmContext";
+import { ContextTracker } from "./ContextTracker";
 import { MarkdownContent } from "@/components/ui/markdown-content";
 import { listNames } from "@/constants/discussionConstants";
 import { AgentActivity } from "./AgentActivity";
@@ -101,6 +107,9 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
   onArtifactsChanged,
 }) => {
   const toast = useToast();
+  const confirm = useConfirm();
+  const [contextState, setContextState] = useState<ConversationContext | null | undefined>(undefined);
+  const [isRestoring, setIsRestoring] = useState(false);
   const [inputText, setInputText] = useState("");
   const documentAssetContext = useMemo(() => workspaceId && activeSessionId ? { workspaceId, sessionId: activeSessionId } : undefined, [workspaceId, activeSessionId]);
   const [isRecording, setIsRecording] = useState(false);
@@ -256,6 +265,9 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
       case "done":
         setUsage(event.usage);
         break;
+      case "context":
+        setContextState(event.context);
+        break;
     }
   }, [activeTarget, updateLive, flushText, onArtifactsChanged]);
 
@@ -317,8 +329,25 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
   const stopTurn = () => abortRef.current?.abort();
 
   const continueTurn = () => {
-    if (!workspaceId || !activeSessionId) return;
+    if (!workspaceId || !activeSessionId || isRestoring) return;
     void runTurn((onEvent, signal) => apiStreamContinueTurn(workspaceId, activeSessionId, onEvent, signal), { pendingAgentIds: stalled });
+  };
+
+  const restoreCheckpoint = async (message: ChatMessage) => {
+    if (!workspaceId || !activeSessionId || isStreaming || isRestoring) return;
+    const approved = await confirm({ title: "Restore checkpoint", message: "Keep this user message and earlier history, remove every later message and response, and clear the agent's summary, plan and repository snapshots. Saved files and attached sources remain available. You can then retry this request with Continue.", confirmText: "Restore checkpoint", variant: "danger" });
+    if (!approved) return;
+    setIsRestoring(true);
+    try {
+      const session = await apiRestoreDiscussionCheckpoint(workspaceId, activeSessionId, message.id, { responseMode, capabilityMode, webEnabled });
+      const history = await apiListDiscussionMessages(workspaceId, activeSessionId);
+      setMessages(history.map(item => toViewMessage(item, activeTarget)));
+      setUsage({ inputTokens: session.inputTokens, outputTokens: session.outputTokens, cachedTokens: session.cachedTokens, costUsd: session.costUsd });
+      setContextState(null); setViewingId(null); setTurnError(null); setUpNext([]);
+      setStalled(session.pendingTurn?.queue.map(item => item.agentId) ?? []);
+      toast.success("Checkpoint restored. Continue will retry this message with fresh agent context.");
+    } catch (failure) { toast.error(failure instanceof Error ? failure.message : "The checkpoint could not be restored."); }
+    finally { setIsRestoring(false); }
   };
 
   // Keep the session list in sync with the last message.
@@ -387,7 +416,7 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const text = inputText;
-    if (!text.trim() || isStreaming) return;
+    if (!text.trim() || isStreaming || isRestoring) return;
     if (!workspaceId) {
       toast.error("Select a workspace before starting a discussion.");
       return;
@@ -503,6 +532,8 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
         </div>
       </header>
 
+      {workspaceId && activeSessionId && <div className="px-6 py-1.5 bg-white/60 dark:bg-slate-900/60"><ContextTracker workspaceId={workspaceId} sessionId={activeSessionId} context={contextState} busy={isStreaming || isRestoring} onContext={setContextState} /></div>}
+
       {/* Message Stream */}
       <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
         {messages.length === 0 ? (
@@ -552,6 +583,7 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
               }`}
             >
               <CopyMessageButton text={msg.content} label={msg.role === "user" ? "Copy your message" : "Copy agent response"} disabled={Boolean(msg.streaming)} className={`absolute top-0 ${msg.role === "user" ? "-left-9" : "-right-9"}`} />
+              {msg.role === "user" && !msg.id.startsWith("pending-") && <button type="button" onClick={() => { void restoreCheckpoint(msg); }} disabled={isStreaming || isRestoring} title="Restore checkpoint at this message" aria-label="Restore checkpoint at this message" className="absolute -left-9 top-8 rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-primary disabled:opacity-30 cursor-pointer"><RotateCcw className="h-3.5 w-3.5" /></button>}
               {msg.role === "assistant" && msg.sender && (
                 <div className="flex items-center gap-2 pb-1 border-b border-slate-100 dark:border-slate-800/80">
                   <span className="font-bold text-slate-900 dark:text-slate-100">
@@ -614,6 +646,7 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
           <button
             type="button"
             onClick={continueTurn}
+            disabled={isRestoring}
             className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border border-primary-border text-primary bg-primary-muted hover:opacity-90 font-semibold cursor-pointer"
           >
             <Play className="h-3 w-3" aria-hidden="true" /> Continue
@@ -670,7 +703,7 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
             value={inputText}
             onChange={setInputText}
             onSubmit={() => { void handleSendMessage(); }}
-            sending={isStreaming}
+            sending={isStreaming || isRestoring}
             placeholder={activeTarget.type === "team" ? `Dispatch directive to ${activeTarget.name} squad...` : `Instruct ${activeTarget.name}...`}
           />
 
@@ -688,7 +721,7 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
           ) : (
             <button
               type="submit"
-              disabled={!inputText.trim()}
+              disabled={!inputText.trim() || isRestoring}
               title="Send directive"
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary hover:bg-primary-hover disabled:opacity-40 text-primary-fg shadow-xs transition-all cursor-pointer"
             >

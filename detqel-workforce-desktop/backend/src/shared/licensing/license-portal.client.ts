@@ -59,6 +59,27 @@ export class LicensePortalClient {
         return this.request("POST", LICENSE_PORTAL_PATHS.login, { username, password, client }, loginResultSchema);
     }
 
+    requestPasswordReset(input: { identifier: string; newPassword: string; confirmPassword: string }) {
+        return this.request("POST", LICENSE_PORTAL_PATHS.passwordReset, input, z.object({ message: z.string().min(1).max(500), requestReference: z.string().regex(/^[a-f0-9]{32}$/) }));
+    }
+
+    private readonly sessionChecks = new Map<string, Promise<string>>();
+
+    verifySession(token: string | null, expectedSubject: string | null): Promise<void> {
+        if (!token || !expectedSubject) return Promise.reject(new AppError(401, "Sign in again to continue."));
+        const validate = (subject: string): void => {
+            if (subject !== expectedSubject) throw new AppError(401, "The license does not belong to this account. Sign in again.");
+        };
+        const pending = this.sessionChecks.get(token);
+        if (pending) return pending.then(validate);
+        if (this.sessionChecks.size >= 128) return Promise.reject(new AppError(503, "Sign-in verification is busy. Try again shortly.", undefined, true));
+        // Coalesce simultaneous checks only. No offline acceptance or stale revocation cache.
+        const check = this.request("POST", LICENSE_PORTAL_PATHS.verifySession, { token }, z.object({ active: z.literal(true), subject: z.string().uuid() }))
+            .then(result => result.subject).finally(() => this.sessionChecks.delete(token));
+        this.sessionChecks.set(token, check);
+        return check.then(validate);
+    }
+
     private async request<T>(method: "GET" | "POST", path: string, body: unknown, schema: z.ZodType<T>): Promise<T> {
         if (!this.options.productKey) {
             throw new AppError(503, "KIN is not connected to the DETQEL License Portal. Set LICENSE_PORTAL_PRODUCT_KEY and restart.", undefined, true);

@@ -1,7 +1,7 @@
-import { Lexer } from "marked";
+import { Lexer, walkTokens } from "marked";
 import { z } from "zod";
 import { AppError } from "../errors/app-error.js";
-import { DOCUMENT_RENDER_LIMITS } from "../../constants/documentImageConstants.js";
+import { DOCUMENT_ASSET_PATTERN, DOCUMENT_RENDER_LIMITS } from "../../constants/documentImageConstants.js";
 
 const figureSchema = z.object({
     prompt: z.string().trim().min(20).max(DOCUMENT_RENDER_LIMITS.imagePromptCharacters),
@@ -17,6 +17,15 @@ export function documentImageRequests(markdown: string) {
 }
 
 const normalizeHeading = (value: string) => value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+
+/** Only discussion-owned generated assets count; code samples, remote images and placeholders do not. */
+export function documentImageAssets(markdown: string): string[] {
+    const sources = new Set<string>();
+    walkTokens(new Lexer({ gfm: true }).lex(markdown), token => {
+        if (token.type === "image" && DOCUMENT_ASSET_PATTERN.test(token.href)) sources.add(token.href);
+    });
+    return [...sources];
+}
 
 /** Run before image generation, and again at artifact creation; model claims alone cannot mark it complete. */
 export function documentRequirementIssues(markdown: string, request: { imageCount?: number; requiredSections?: ReadonlyArray<string> }): string[] {
@@ -37,8 +46,9 @@ export function documentRequirementIssues(markdown: string, request: { imageCoun
     }
     try {
         const figures = documentImageRequests(markdown);
-        if (figures.length < (request.imageCount ?? 0)) issues.push(`Expected at least ${request.imageCount} original images; found ${figures.length} generation requests.`);
-        if (figures.length > DOCUMENT_RENDER_LIMITS.figures) issues.push("Too many generated figures for one document.");
+        const count = figures.length + documentImageAssets(markdown).length;
+        if (count < (request.imageCount ?? 0)) issues.push(`Expected at least ${request.imageCount} original images; found ${count} existing figures or generation requests.`);
+        if (count > DOCUMENT_RENDER_LIMITS.figures) issues.push("Too many generated figures for one document.");
     } catch { issues.push("Image requests must be standalone image code blocks containing valid prompt, caption and aspectRatio JSON."); }
     if ((request.imageCount ?? 0) > 0 && tokens.some(token => token.type === "code" && /^(mermaid|plantuml|dot|graphviz)$/i.test(token.lang ?? ""))) {
         issues.push("Diagram source code does not satisfy the requested images. Replace it with an actual image generation request.");

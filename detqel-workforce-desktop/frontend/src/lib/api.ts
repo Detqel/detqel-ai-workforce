@@ -108,11 +108,20 @@ export async function apiLogin(payload: {
 
   const data = await res.json();
   if (!res.ok) {
-    throw new Error(data.message || "Failed to authenticate with DETQEL API");
+    throw new Error(data.issues?.[0]?.message || data.message || "Failed to authenticate with DETQEL API");
   }
 
   storeAccessToken(data.accessToken);
   return data;
+}
+
+export async function apiRequestPasswordReset(input: { identifier: string; newPassword: string; confirmPassword: string }): Promise<{ message: string; requestReference: string }> {
+  const response = await desktopFetch(`${API_BASE_URL}${API_PATHS.authPasswordReset}`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
+  });
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.issues?.[0]?.message || body.message || "The reset request could not be submitted.");
+  return body;
 }
 
 /**
@@ -633,10 +642,10 @@ export async function apiTestVyraPrompt(params: {
       throw new Error(err.message || err.error || "Failed to test prompt");
     }
     return res.json();
-  } catch (error: any) {
+  } catch (error: unknown) {
     return {
       success: false,
-      output: `Error testing prompt: ${error?.message || "Failed to connect to agent"}`,
+      output: `Error testing prompt: ${error instanceof Error && error.message ? error.message : "Failed to connect to agent"}`,
       tokensUsed: 0,
       latencyMs: 0,
       timestamp: new Date().toISOString(),

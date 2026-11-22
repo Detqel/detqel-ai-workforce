@@ -8,14 +8,14 @@ export const profileSchema = z.object({
     customers: z.array(z.unknown()).default([]),
     departments: z.array(z.unknown()).default([]),
     locations: z.array(z.unknown()).default([]),
-    businessModel: z.record(z.unknown()).optional(),
+    businessModel: z.record(z.string(), z.unknown()).optional(),
 });
 export const knowledgeSchema = z.object({
     title: z.string().min(1),
     content: z.string().min(1),
     sourceType: z.enum(["document", "manual", "url", "import", "other"]).default("manual"),
     sourceReference: z.string().optional(),
-    metadata: z.record(z.unknown()).optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
 });
 export const goalSchema = z.object({
     title: z.string().min(1),
@@ -30,7 +30,7 @@ export const ruleSchema = z.object({
     name: z.string().min(1),
     description: z.string().min(1),
     ruleType: z.enum(["policy", "constraint", "approval", "operational", "financial", "custom"]),
-    ruleDefinition: z.record(z.unknown()),
+    ruleDefinition: z.record(z.string(), z.unknown()),
 });
 export const stateSchema = z.object({
     stateType: z.enum([
@@ -44,7 +44,7 @@ export const stateSchema = z.object({
         "overall",
         "custom",
     ]),
-    stateData: z.record(z.unknown()),
+    stateData: z.record(z.string(), z.unknown()),
     confidence: z.number().optional(),
     sourceCount: z.number().default(1),
     expiresAt: z.string().datetime().optional().transform((d) => (d ? new Date(d) : undefined)),
@@ -55,5 +55,5 @@ export const memorySchema = z.object({
     content: z.string().min(1),
     sourceMissionId: z.string().uuid().optional(),
     importance: z.enum(["low", "medium", "high", "critical"]).default("medium"),
-    metadata: z.record(z.unknown()).optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
 });

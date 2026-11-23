@@ -45,7 +45,7 @@ export const postMessageSchema = z.object({
     webEnabled: z.boolean().default(false),
 }).strict();
 
-export const restoreCheckpointSchema = postMessageSchema.omit({ message: true });
+export const restoreCheckpointSchema = z.object({ mode: z.literal("edit") }).strict();
 
 export const attachConnectorSchema = z.object({
     connectionId: z.string().uuid(),

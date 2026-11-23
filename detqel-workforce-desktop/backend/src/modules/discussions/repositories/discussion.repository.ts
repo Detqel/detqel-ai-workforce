@@ -12,6 +12,11 @@ import type {
 import type { ConversationContext } from "../../../shared/agents/context/conversation-context.js";
 export type { ChatSession, NewChatSession, ChatMessage, NewChatMessage, ChatMessageSource, NewChatMessageSource, ChatSessionConnection, PendingResponder, PendingTurn };
 
+export type RestoredCheckpoint = ChatSession & {
+    composerDraft: { readonly messageId: string; readonly content: string };
+    messages: ChatMessage[];
+};
+
 export interface UsageDelta {
     readonly inputTokens: number;
     readonly outputTokens: number;
@@ -22,6 +27,8 @@ export interface UsageDelta {
 export interface CreateMessageWithSources {
     readonly message: NewChatMessage;
     readonly sources: ReadonlyArray<Omit<NewChatMessageSource, "messageId">>;
+    readonly pendingTurn: PendingTurn | null;
+    readonly usage: UsageDelta;
 }
 
 export interface IDiscussionRepository {
@@ -34,7 +41,8 @@ export interface IDiscussionRepository {
 
     listMessages(sessionId: string): Promise<ChatMessage[]>;
     appendMessage(message: NewChatMessage): Promise<ChatMessage>;
-    appendMessageWithSources(input: CreateMessageWithSources): Promise<ChatMessage>;
+    /** Commits the reply, sources, usage and next queue in one transaction. */
+    appendMessageWithSources(input: CreateMessageWithSources): Promise<{ message: ChatMessage; session: ChatSession }>;
     listMessageSources(messageId: string): Promise<ChatMessageSource[]>;
 
     /** Replaces the queue of teammates still due to reply; null clears it. */
@@ -44,7 +52,7 @@ export interface IDiscussionRepository {
     /** Stores the memory summary and how many of the session's oldest messages it covers. */
     updateMemory(sessionId: string, summary: string, summarizedMessageCount: number, revision: number): Promise<boolean>;
     updateContext(sessionId: string, context: ConversationContext, revision: number): Promise<void>;
-    restoreCheckpoint(sessionId: string, messageId: string, pending: PendingTurn): Promise<ChatSession | null>;
+    restoreCheckpoint(sessionId: string, messageId: string): Promise<RestoredCheckpoint | null>;
 
     listAttachedConnections(sessionId: string): Promise<ChatSessionConnection[]>;
     attachConnection(sessionId: string, connectionId: string): Promise<ChatSessionConnection>;

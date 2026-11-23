@@ -57,6 +57,7 @@ export default function DiscussionsPage() {
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
   const creatingSession = useRef(false);
   const [initialMessages, setInitialMessages] = useState<ChatMessage[]>([]);
+  const [initialDraft, setInitialDraft] = useState("");
   const [historyVersion, setHistoryVersion] = useState(0);
   const [initialUsage, setInitialUsage] = useState<SessionUsage>(EMPTY_USAGE);
   const [initialPendingAgentIds, setInitialPendingAgentIds] = useState<string[]>([]);
@@ -80,6 +81,7 @@ export default function DiscussionsPage() {
    */
   const showHistory = useCallback((messages: ChatMessage[], session?: ChatSession) => {
     setInitialMessages(messages);
+    setInitialDraft(session?.composerDraft?.content ?? "");
     setInitialUsage(session ? { inputTokens: session.inputTokens, outputTokens: session.outputTokens, cachedTokens: session.cachedTokens, costUsd: session.costUsd } : EMPTY_USAGE);
     setInitialPendingAgentIds(session?.pendingTurn?.queue.map((entry) => entry.agentId) ?? []);
     setHistoryVersion((version) => version + 1);
@@ -298,6 +300,7 @@ export default function DiscussionsPage() {
         activeSessionId={activeSessionId}
         workspaceId={workspaceId ?? null}
         initialMessages={initialMessages}
+        initialDraft={initialDraft}
         initialUsage={initialUsage}
         initialPendingAgentIds={initialPendingAgentIds}
         teams={teams}

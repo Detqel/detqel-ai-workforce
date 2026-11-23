@@ -148,6 +148,7 @@ class ToolSession implements AgentToolSession {
     coverage(): string { return this.repositoryInvestigation.coverage(); }
     investigationNeeds(): ReadonlyArray<string> { return this.repositoryInvestigation.investigationNeeds(); }
     completionIssues(content: string): ReadonlyArray<string> { return this.repositoryInvestigation.completionIssues(content); }
+    completionEvidence() { return this.repositoryInvestigation.completionEvidence(); }
     coverageReport(): string { return this.repositoryInvestigation.report(); }
     repositorySnapshots(): ReadonlyArray<RepositorySnapshot> { return this.repositoryInvestigation.snapshots(); }
 

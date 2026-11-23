@@ -9,6 +9,7 @@ import type { DiscussionActivityStep } from "../../../shared/types/discussion-ac
 import { randomUUID } from "node:crypto";
 import { AppError } from "../../../shared/errors/app-error.js";
 import type { TaskExecutionPlan, RepositorySnapshot } from "../../../shared/agents/graphs/task-plan.js";
+import type { TurnCheckpoint } from "../../../shared/agents/graphs/turn-checkpoint.js";
 import { createScopedLogger } from "../../../shared/logging/logger.js";
 import type { IUnitOfWork } from "../../../shared/contracts/unit-of-work.js";
 import type { FileServer } from "../../../shared/rag/file-server.js";
@@ -57,7 +58,7 @@ import {
     type DiscussionResponseMode,
 } from "../../../constants/discussionConstants.js";
 import { FILE_SERVER_SCOPES, type FileServerScope } from "../../../constants/fileServerConstants.js";
-import type { ChatMessage, ChatSession, PendingResponder, PendingTurn } from "../repositories/discussion.repository.js";
+import type { ChatMessage, ChatSession, PendingResponder, PendingTurn, RestoredCheckpoint } from "../repositories/discussion.repository.js";
 import type { DiscussionParticipants } from "./discussion-participants.js";
 import type { DiscussionToolboxFactory } from "./discussion-toolbox.js";
 import { workspaceBrief } from "./workspace-brief.js";
@@ -528,7 +529,7 @@ export class DiscussionService {
         if (deliveryIntent) {
             const source = await this.deliverySource(sessionId, pending.delivery?.sourceMessageId);
             const queue = [this.deliverySpeaker(table, source)];
-            await this.unit.discussions.setPendingTurn(sessionId, { ...pending, queue: queue.map(toResponder), document: null, taskPlan: null, repositorySnapshots: [], delivery: { sourceMessageId: source.id, format: deliveryIntent.format } }, pending.turnId);
+            await this.unit.discussions.setPendingTurn(sessionId, { ...pending, checkpoint: undefined, queue: queue.map(toResponder), document: null, taskPlan: null, repositorySnapshots: [], delivery: { sourceMessageId: source.id, format: deliveryIntent.format } }, pending.turnId);
             const slot = this.claim(sessionId);
             return { run: (emit, signal) => this.runTurn(session, table, pending.turnId, userMessage.content, settings, queue, null, slot, emit, signal) };
         }
@@ -536,7 +537,22 @@ export class DiscussionService {
         // Agents removed from the team since the turn started are skipped.
         const queue = pending.queue.flatMap(entry => {
             const plan = this.planFor(table, entry, pending.leadName);
-            return plan ? [plan] : [];
+            if (!plan) return [];
+            if (!pending.taskPlan) return [plan];
+            const assignment = pending.taskPlan.assignments.find(item => item.agentId === entry.agentId);
+            if (!assignment) throw new AppError(409, "The queued agent is not assigned to the saved task plan.");
+            const contributors = pending.taskPlan.assignments.filter(item => item.agentId !== pending.taskPlan!.ownerAgentId);
+            const owner = entry.agentId === pending.taskPlan.ownerAgentId;
+            // Assignment text alone cannot distinguish a document owner from a delegate on resume.
+            return [{ ...plan,
+                speakerRole: owner ? contributors.length ? DISCUSSION_SPEAKER_ROLES.wrapUp : DISCUSSION_SPEAKER_ROLES.addressed : DISCUSSION_SPEAKER_ROLES.delegate,
+                assignment: { leadName: pending.leadName, task: assignment.task },
+                ...(owner && contributors.length && table.kind === "team" ? { contributors: contributors.map(item => {
+                    const member = table.team.members.find(candidate => candidate.agentId === item.agentId);
+                    if (!member) throw new AppError(409, "A contributor assigned to this task is no longer in the team. Restore the agent or start a new turn.");
+                    return member.name;
+                }) } : {}),
+            }];
         });
         if (pending.taskPlan && queue.length !== pending.queue.length) throw new AppError(409, "An agent assigned to this task is no longer in the team. Restore that agent or start a new turn so a new plan can be made.");
         const slot = this.claim(sessionId);
@@ -673,6 +689,7 @@ export class DiscussionService {
         };
         try {
             const pending = (await this.getSession(session.workspaceId, session.id)).pendingTurn;
+            if (pending?.turnId !== turnId) throw new AppError(409, "This turn belongs to a replaced conversation checkpoint.");
             if (pending?.turnId === turnId && pending.delivery) {
                 await this.deliverExistingDocument(session, turnId, settings, queue[0], pending.delivery, forward, slot.controller.signal);
                 emit({ type: DISCUSSION_STREAM_EVENTS.done, usage: usageOf(await this.getSession(session.workspaceId, session.id)) });
@@ -704,6 +721,7 @@ export class DiscussionService {
                 document,
                 taskPlan,
                 repositorySnapshots,
+                checkpoint: pending.checkpoint,
                 allowedAgentIds: queue.some(item => item.speakerRole === DISCUSSION_SPEAKER_ROLES.lead) && table.kind === "team" ? table.team.members.map(member => member.agentId) : queue.map(item => item.participant.agentId),
                 ports: {
                     retainDraft: (agentId, content) => {
@@ -711,7 +729,7 @@ export class DiscussionService {
                     },
                     memory: plan => this.memory(session, plan, table, message, settings, collaborators, turnId, slot.controller.signal),
                     saveReply: (reply, remaining, pendingDocument, plan, snapshots) => this.saveReply(session, turnId, settings, reply, remaining, pendingDocument, plan, snapshots),
-                    checkpoint: (remaining, pendingDocument, plan, snapshots) => this.storeQueue(session.id, turnId, remaining, settings, pendingDocument, plan, snapshots),
+                    checkpoint: (remaining, pendingDocument, plan, snapshots, progress) => this.storeQueue(session.id, turnId, remaining, settings, pendingDocument, plan, snapshots, false, progress),
                     saveDocument: (title, content, plan, request, signal) => this.saveDocument(session, title, content, plan, request, signal),
                 },
             }, queue, forward, slot.controller.signal);
@@ -819,16 +837,14 @@ export class DiscussionService {
         });
     }
 
-    restoreCheckpoint(workspaceId: string, sessionId: string, messageId: string, settings: TurnSettings): Promise<ChatSession> {
+    restoreCheckpoint(workspaceId: string, sessionId: string, messageId: string): Promise<RestoredCheckpoint> {
         return this.mutateSession(sessionId, async () => {
             const session = await this.getSession(workspaceId, sessionId);
+            if (session.composerDraft?.messageId !== messageId && !(await this.unit.discussions.listMessages(sessionId)).some(item => item.id === messageId && item.role === "user")) {
+                throw new AppError(409, "The checkpoint is no longer available. Refresh the discussion.");
+            }
             await this.stopRunningTurn(sessionId);
-            const message = (await this.unit.discussions.listMessages(sessionId)).find(item => item.id === messageId && item.role === "user");
-            if (!message) throw new AppError(404, "The selected user message does not belong to this discussion.");
-            const table = await this.resolveTable(session);
-            const queue = this.firstSpeakers(table);
-            const pending: PendingTurn = { turnId: randomUUID(), queue: queue.map(toResponder), leadName: queue[0].participant.name, ...settings, document: null, taskPlan: null, repositorySnapshots: [] };
-            const restored = await this.unit.discussions.restoreCheckpoint(sessionId, messageId, pending);
+            const restored = await this.unit.discussions.restoreCheckpoint(sessionId, messageId);
             if (!restored) throw new AppError(409, "The checkpoint is no longer available. Refresh the discussion.");
             return restored;
         });
@@ -855,7 +871,9 @@ export class DiscussionService {
         const current = await this.getSession(session.workspaceId, session.id);
         if (current.pendingTurn?.turnId !== turnId) throw new AppError(409, "This reply belongs to a replaced conversation checkpoint.");
         const { participant } = reply.plan;
-        const saved = await this.unit.discussions.appendMessageWithSources({
+        const { message: saved, session: totals } = await this.unit.discussions.appendMessageWithSources({
+            pendingTurn: this.pendingQueue(turnId, remaining, settings, pendingDocument, taskPlan, repositorySnapshots),
+            usage: reply.usage,
             message: {
                 sessionId: session.id,
                 role: DISCUSSION_MESSAGE_ROLES.assistant,
@@ -877,8 +895,6 @@ export class DiscussionService {
             },
             sources: reply.sources.map(source => ({ sourceType: source.type, title: source.title, reference: source.reference, url: source.url })),
         });
-        const totals = await this.unit.discussions.addUsage(session.id, reply.usage);
-        await this.storeQueue(session.id, turnId, remaining, settings, pendingDocument, taskPlan, repositorySnapshots);
         return [
             { type: DISCUSSION_STREAM_EVENTS.reply, agentId: participant.agentId, message: saved, sources: reply.sources, usage: usageOf(totals) },
             { type: DISCUSSION_STREAM_EVENTS.pending, speakers: remaining.map(toPendingSpeaker) },
@@ -886,14 +902,15 @@ export class DiscussionService {
     }
 
     /** Stores who is still due to reply, so a turn the user leaves resumes where it stopped; empty clears it. */
-    private async storeQueue(sessionId: string, turnId: string, queue: ReadonlyArray<SpeakerPlan>, settings: TurnSettings, document: TurnDocument | null = null, taskPlan: TaskExecutionPlan | null = null, repositorySnapshots?: ReadonlyArray<RepositorySnapshot>, initial = false): Promise<void> {
-        if (queue.length === 0) {
-            await this.unit.discussions.setPendingTurn(sessionId, null, turnId);
-            return;
-        }
-        const leadName = queue.find(plan => plan.assignment)?.assignment?.leadName ?? queue[0].participant.name;
-        const pending: PendingTurn = { turnId, queue: queue.map(toResponder), leadName, ...settings, document, taskPlan, repositorySnapshots };
+    private async storeQueue(sessionId: string, turnId: string, queue: ReadonlyArray<SpeakerPlan>, settings: TurnSettings, document: TurnDocument | null = null, taskPlan: TaskExecutionPlan | null = null, repositorySnapshots?: ReadonlyArray<RepositorySnapshot>, initial = false, checkpoint?: TurnCheckpoint): Promise<void> {
+        const pending = this.pendingQueue(turnId, queue, settings, document, taskPlan, repositorySnapshots, checkpoint);
         await this.unit.discussions.setPendingTurn(sessionId, pending, initial ? undefined : turnId);
+    }
+
+    private pendingQueue(turnId: string, queue: ReadonlyArray<SpeakerPlan>, settings: TurnSettings, document: TurnDocument | null = null, taskPlan: TaskExecutionPlan | null = null, repositorySnapshots?: ReadonlyArray<RepositorySnapshot>, checkpoint?: TurnCheckpoint): PendingTurn | null {
+        if (!queue.length) return null;
+        const leadName = queue.find(plan => plan.assignment)?.assignment?.leadName ?? queue[0].participant.name;
+        return { turnId, queue: queue.map(toResponder), leadName, ...settings, document, taskPlan, repositorySnapshots, checkpoint };
     }
 
     private claim(sessionId: string): RunningTurn {

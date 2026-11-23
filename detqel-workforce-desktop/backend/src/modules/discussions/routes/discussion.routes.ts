@@ -33,7 +33,7 @@ export const discussionRoutes: FastifyPluginAsync = async (app) => {
 
     app.post("/discussions/workspaces/:workspaceId/sessions/:sessionId/messages/:messageId/restore", {
         preHandler: write, bodyLimit: 2048,
-        schema: { tags: [API_TAG_NAMES.discussions], summary: "Restore this user message and discard later conversation context" },
+        schema: { tags: [API_TAG_NAMES.discussions], summary: "Rewind before this user message and return its text to the composer" },
     }, controller.restoreCheckpoint.bind(controller));
 
     app.get("/discussions/workspaces/:workspaceId/sessions/:sessionId/context", {

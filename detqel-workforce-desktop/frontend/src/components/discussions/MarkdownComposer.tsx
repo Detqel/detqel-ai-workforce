@@ -15,6 +15,8 @@ interface MarkdownComposerProps {
   value: string;
   placeholder: string;
   sending: boolean;
+  disabled?: boolean;
+  focusRequest?: number;
   onChange: (markdown: string) => void;
   onSubmit: () => void;
 }
@@ -49,7 +51,7 @@ const ImageSource = Node.create({
 });
 
 /** One editable formatted surface; only Markdown crosses the chat API boundary. */
-export function MarkdownComposer({ value, placeholder, sending, onChange, onSubmit }: MarkdownComposerProps) {
+export function MarkdownComposer({ value, placeholder, sending, disabled = false, focusRequest = 0, onChange, onSubmit }: MarkdownComposerProps) {
   const published = useRef(value);
   const extensions = useMemo(() => [
     StarterKit.configure({
@@ -155,6 +157,12 @@ export function MarkdownComposer({ value, placeholder, sending, onChange, onSubm
     published.current = value;
     if (editor.isFocused) editor.commands.setTextSelection(editor.state.doc.content.size);
   }, [editor, value]);
+
+  useEffect(() => { editor?.setEditable(!disabled, false); }, [editor, disabled]);
+
+  useEffect(() => {
+    if (editor && focusRequest > 0 && !disabled) editor.commands.focus("end");
+  }, [editor, focusRequest, disabled]);
 
   return <EditorContent
     editor={editor}

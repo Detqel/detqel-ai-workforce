@@ -3,6 +3,7 @@ import { AGENT_CONNECTOR_KINDS, AGENT_TOOL_LIMITS } from "../../../constants/age
 import { isProtectedFile, untrusted } from "../../../shared/agents/context/data-guard.js";
 import { AppError } from "../../../shared/errors/app-error.js";
 import type { RepositorySnapshot } from "../../../shared/agents/graphs/task-plan.js";
+import { repositoryCompletionIssues, type RepositoryCompletionEvidence } from "../../../shared/agents/graphs/turn-checkpoint.js";
 import type { AgentConnector, IAgentConnectorAccess } from "../../connections/services/agent-connector-access.service.js";
 
 const excludedDirectories = new Set([".git", "node_modules", "vendor", "dist", "build", "target", ".next", "coverage", ".venv", "venv", "__pycache__"]);
@@ -142,15 +143,14 @@ export class RepositoryInvestigation {
         return needs;
     }
 
-    completionIssues(content: string): string[] {
+    completionEvidence(): RepositoryCompletionEvidence {
         const inventories = [...this.inventories.values()];
-        const issues: string[] = [];
-        if (!inventories.length || inventories.every(inventory => !inventory.reads.size)) issues.push("Repository claims have no inspected source-file evidence. Do not present the requested repository analysis as complete.");
-        const incomplete = inventories.some(inventory => !this.summary(inventory).exhaustiveSourceRead);
-        if (incomplete && /\b(?:fully|completely|exhaustively)\s+(?:analy[sz]ed|reviewed|inspected)\s+(?:the\s+)?(?:entire\s+|whole\s+)?(?:repository|codebase)\b|\b(?:every|all)\s+(?:source\s+)?files?\s+(?:was|were|have been)\s+(?:read|reviewed|inspected)\b/i.test(content)) {
-            issues.push("Remove unsupported exhaustive-analysis claims. Describe actual inspected coverage and remaining gaps.");
-        }
-        return issues;
+        return { hasSourceReads: inventories.some(inventory => inventory.reads.size > 0),
+            exhaustive: inventories.length > 0 && inventories.every(inventory => this.summary(inventory).exhaustiveSourceRead), report: this.report() };
+    }
+
+    completionIssues(content: string): string[] {
+        return repositoryCompletionIssues(content, this.completionEvidence());
     }
 
     report(): string {

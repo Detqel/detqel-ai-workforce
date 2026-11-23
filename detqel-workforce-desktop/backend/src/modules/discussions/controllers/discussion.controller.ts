@@ -3,6 +3,7 @@ import { restoreCheckpointSchema } from "../validation/discussion.schemas.js";
 import { requireUserId } from "../../../shared/security/request-context.js";
 import { workspaceParamsSchema } from "../../../shared/validation/http.schemas.js";
 import type { DiscussionService } from "../services/discussion.service.js";
+import type { PendingTurn } from "../../../infrastructure/database/schema/discussions.js";
 import { sendEventStream } from "../../../shared/http/event-stream.js";
 import {
     addKnowledgeSchema,
@@ -20,6 +21,12 @@ import {
     uploadArtifactSchema,
 } from "../validation/discussion.schemas.js";
 
+function sessionForClient<T extends { pendingTurn: PendingTurn | null }>(session: T) {
+    if (!session.pendingTurn) return session;
+    const { checkpoint, ...pendingTurn } = session.pendingTurn;
+    return { ...session, pendingTurn };
+}
+
 export class DiscussionController {
     constructor(private readonly service: DiscussionService) {}
 
@@ -32,18 +39,18 @@ export class DiscussionController {
             teamId: body.teamId,
             createdBy: requireUserId(request),
         });
-        return reply.status(201).send(session);
+        return reply.status(201).send(sessionForClient(session));
     }
 
     async listSessions(request: FastifyRequest, reply: FastifyReply) {
         const { workspaceId } = workspaceParamsSchema.parse(request.params);
-        return reply.send(await this.service.listSessions(workspaceId));
+        return reply.header("Cache-Control", "private, no-store").send((await this.service.listSessions(workspaceId)).map(sessionForClient));
     }
 
     async getSession(request: FastifyRequest, reply: FastifyReply) {
         const { workspaceId } = workspaceParamsSchema.parse(request.params);
         const { sessionId } = sessionIdParamsSchema.parse(request.params);
-        return reply.send(await this.service.getSession(workspaceId, sessionId));
+        return reply.header("Cache-Control", "private, no-store").send(sessionForClient(await this.service.getSession(workspaceId, sessionId)));
     }
 
     async listMessages(request: FastifyRequest, reply: FastifyReply) {
@@ -81,13 +88,14 @@ export class DiscussionController {
         const { workspaceId } = workspaceParamsSchema.parse(request.params);
         const { sessionId } = sessionIdParamsSchema.parse(request.params);
         const { title } = renameSessionSchema.parse(request.body);
-        return reply.send(await this.service.renameSession(workspaceId, sessionId, title));
+        return reply.send(sessionForClient(await this.service.renameSession(workspaceId, sessionId, title)));
     }
 
     async restoreCheckpoint(request: FastifyRequest, reply: FastifyReply) {
         const { workspaceId } = workspaceParamsSchema.parse(request.params);
         const { sessionId, messageId } = messageParamsSchema.parse(request.params);
-        return reply.send(await this.service.restoreCheckpoint(workspaceId, sessionId, messageId, restoreCheckpointSchema.parse(request.body)));
+        restoreCheckpointSchema.parse(request.body);
+        return reply.header("Cache-Control", "private, no-store").send(sessionForClient(await this.service.restoreCheckpoint(workspaceId, sessionId, messageId)));
     }
 
     async getContext(request: FastifyRequest, reply: FastifyReply) {

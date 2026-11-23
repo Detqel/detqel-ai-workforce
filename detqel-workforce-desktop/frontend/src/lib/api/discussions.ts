@@ -35,6 +35,7 @@ export interface ChatSession extends SessionUsage {
   teamId: string | null;
   /** Teammates still due to reply in the current turn; null when the turn is complete. */
   pendingTurn: { turnId: string; queue: Array<{ agentId: string }> } | null;
+  composerDraft: { messageId: string; content: string } | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -154,12 +155,21 @@ async function failure(response: Response, fallback: string): Promise<never> {
 const sessionsUrl = `${API_BASE_URL}${API_PATHS.discussionSessions}`;
 const workspaceUrl = (workspaceId: string) => `${API_BASE_URL}${API_PATHS.discussions}/${encodeURIComponent(workspaceId)}/sessions`;
 
-export async function apiRestoreDiscussionCheckpoint(workspaceId: string, sessionId: string, messageId: string, settings: { responseMode: ResponseMode; capabilityMode: CapabilityMode; webEnabled: boolean }): Promise<ChatSession> {
+export interface RestoredCheckpoint extends ChatSession {
+  composerDraft: { messageId: string; content: string };
+  messages: ChatMessage[];
+}
+
+export async function apiRestoreDiscussionCheckpoint(workspaceId: string, sessionId: string, messageId: string): Promise<RestoredCheckpoint> {
   const response = await authorizedFetch(`${workspaceUrl(workspaceId)}/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}/restore`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(settings),
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "edit" }),
   });
   if (!response.ok) return failure(response, "Could not restore the checkpoint");
-  return response.json();
+  const restored = await response.json();
+  if (!restored.composerDraft || restored.composerDraft.messageId !== messageId || typeof restored.composerDraft.content !== "string" || !Array.isArray(restored.messages) || restored.pendingTurn !== null) {
+    throw new Error("KIN returned an incomplete checkpoint restore. Reopen the discussion to recover the saved draft.");
+  }
+  return restored;
 }
 
 export async function apiGetDiscussionContext(workspaceId: string, sessionId: string, compact = false): Promise<ConversationContext | null> {

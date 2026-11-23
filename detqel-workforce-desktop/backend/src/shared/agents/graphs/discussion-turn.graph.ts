@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { AppError } from "../../errors/app-error.js";
 import type { TaskExecutionPlan, RepositorySnapshot } from "./task-plan.js";
+import { repositoryCompletionIssues, type RepositoryCompletionEvidence, type TurnCheckpoint } from "./turn-checkpoint.js";
 import { Annotation, END, START, StateGraph, type LangGraphRunnableConfig } from "@langchain/langgraph";
 import type { CallUsage } from "../litellm.client.js";
 import {
@@ -82,7 +83,7 @@ export interface TurnPorts {
      * what was saved.
      */
     saveReply(reply: SpokenReply, remaining: ReadonlyArray<SpeakerPlan>, pendingDocument: TurnDocument | null, taskPlan?: TaskExecutionPlan | null, snapshots?: ReadonlyArray<RepositorySnapshot>): Promise<ReadonlyArray<TurnStreamEvent>>;
-    checkpoint(queue: ReadonlyArray<SpeakerPlan>, document: TurnDocument | null, taskPlan: TaskExecutionPlan, snapshots?: ReadonlyArray<RepositorySnapshot>): Promise<void>;
+    checkpoint(queue: ReadonlyArray<SpeakerPlan>, document: TurnDocument | null, taskPlan: TaskExecutionPlan, snapshots?: ReadonlyArray<RepositorySnapshot>, progress?: TurnCheckpoint): Promise<void>;
     /** Saves a document in the discussion's artifacts and returns the file name it was saved under. */
     saveDocument(title: string, content: string, plan: SpeakerPlan, document?: DocumentRequest, signal?: AbortSignal): Promise<{ fileName: string; content: string; usage: CallUsage }>;
 }
@@ -94,6 +95,7 @@ export interface TurnSettings {
 }
 
 export interface TurnEnvironment {
+    readonly checkpoint?: TurnCheckpoint;
     readonly repositorySnapshots?: ReadonlyArray<RepositorySnapshot>;
     readonly taskPlan?: TaskExecutionPlan | null;
     readonly allowedAgentIds?: ReadonlyArray<string>;
@@ -112,6 +114,8 @@ const replace = <T>(initial: () => T) => Annotation<T>({ reducer: (_current, nex
 
 /** Graph state. Per-speaker fields are reset when the next speaker starts. */
 const TurnState = Annotation.Root({
+    resumeStage: replace<TurnCheckpoint["stage"] | null>(() => null),
+    reviewRevision: replace<number>(() => 0),
     taskPlan: replace<TaskExecutionPlan | null>(() => null),
     dispatched: replace<boolean>(() => false),
     planningTrace: replace<DiscussionActivityStep[]>(() => []),
@@ -165,6 +169,11 @@ export function resolveHandoffs(planned: ReadonlyArray<PlannedHandoff>, team: Te
 export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment: TurnEnvironment) {
     const expert = environment.settings.capabilityMode === DISCUSSION_CAPABILITY_MODES.expert;
     let toolSession: AgentToolSession | undefined;
+    let resume = environment.checkpoint;
+    let resumedEvidence: RepositoryCompletionEvidence | undefined;
+    if (resume && (resume.version !== 1 || !environment.taskPlan || typeof resume.candidate !== "string" || !resume.candidate.trim() || !["review", "save", "commit"].includes(resume.stage) || !Number.isInteger(resume.reviewRevision) || resume.reviewRevision < 0 || resume.reviewRevision > 1)) {
+        throw new AppError(409, "This execution checkpoint is incompatible. Restore the request to edit and send it again.");
+    }
     let checkpointedSnapshots = JSON.stringify(environment.repositorySnapshots ?? []);
 
     const emit = (config: LangGraphRunnableConfig, event: TurnStreamEvent) => config.writer?.(event);
@@ -174,7 +183,9 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
         const plan = state.current as SpeakerPlan;
         return {
             retainDraft: content => environment.ports.retainDraft(plan.participant.agentId, content),
-            assessEvidence: toolSession ? content => toolSession!.completionIssues?.(content) ?? [] : undefined,
+            assessEvidence: resumedEvidence ? content => repositoryCompletionIssues(content, resumedEvidence!) : toolSession ? content => toolSession!.completionIssues?.(content) ?? [] : undefined,
+            reviewRevision: state.reviewRevision,
+            checkpointReview: state.taskPlan ? (content, usage, revision) => checkpointProgress(state, "review", content, addUsage(state.usage, usage), state.steps, revision) : undefined,
             taskPlan: state.taskPlan ?? undefined,
             allowedAgentIds: environment.allowedAgentIds,
             workspaceId: environment.workspaceId,
@@ -194,6 +205,14 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
             document: documentFor(state) ?? undefined,
         };
     };
+
+    async function checkpointProgress(state: State, stage: TurnCheckpoint["stage"], candidate: string, usage: CallUsage, steps: ReadonlyArray<DiscussionActivityStep>, revision = state.reviewRevision): Promise<void> {
+        if (!state.taskPlan) return;
+        const plan = state.current as SpeakerPlan;
+        const progress: TurnCheckpoint = { version: 1, agentId: plan.participant.agentId, stage, candidate, reviewRevision: revision,
+            grounding: state.grounding, sources: state.sources, repositoryEvidence: resumedEvidence ?? toolSession?.completionEvidence?.(), usage, steps };
+        await environment.ports.checkpoint([plan, ...state.queue], state.document, state.taskPlan, toolSession?.repositorySnapshots?.() ?? environment.repositorySnapshots, progress);
+    }
 
     /**
      * The document this speaker's reply is, if any: the agent that was asked for it writes it, unless it handed
@@ -238,8 +257,14 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
 
     async function next(state: State, config: LangGraphRunnableConfig): Promise<Partial<State>> {
         const [current, ...rest] = state.queue;
-        const memory = await environment.ports.memory(current);
         const { participant } = current;
+        if (resume && resume.agentId !== participant.agentId) throw new AppError(409, "The execution checkpoint does not match the pending agent.");
+        const recovered = resume;
+        // Delivery of an already verified answer does not require another memory/model operation.
+        const memory = recovered?.stage === "save" || recovered?.stage === "commit"
+            ? { summary: null, transcript: [] } : await environment.ports.memory(current);
+        resume = undefined;
+        resumedEvidence = recovered?.repositoryEvidence;
         emit(config, {
             type: DISCUSSION_STREAM_EVENTS.speaker,
             agentId: participant.agentId,
@@ -254,7 +279,13 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
             emit(config, { type: DISCUSSION_STREAM_EVENTS.activity, agentId: participant.agentId, step: assigned });
             steps.push(assigned);
         }
+        if (recovered) {
+            environment.ports.retainDraft(participant.agentId, recovered.candidate);
+            for (const step of recovered.steps) emit(config, { type: DISCUSSION_STREAM_EVENTS.activity, agentId: participant.agentId, step });
+        }
         return {
+            resumeStage: recovered?.stage ?? null,
+            reviewRevision: recovered?.reviewRevision ?? 0,
             planningTrace: [],
             current,
             queue: rest,
@@ -262,12 +293,12 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
             transcript: memory.transcript,
             intent: null,
             handoffs: [],
-            grounding: "",
-            sources: [],
-            draftText: "",
-            content: "",
-            usage: state.planningTrace.length ? state.usage : ZERO_USAGE,
-            steps,
+            grounding: recovered?.grounding ?? "",
+            sources: [...(recovered?.sources ?? [])],
+            draftText: recovered?.candidate ?? "",
+            content: recovered?.stage === "save" || recovered?.stage === "commit" ? recovered.candidate : "",
+            usage: recovered?.usage ?? (state.planningTrace.length ? state.usage : ZERO_USAGE),
+            steps: recovered ? [...recovered.steps] : steps,
         };
     }
 
@@ -386,6 +417,7 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
             document ? { ...names, title: document.title } : wrappingUp ? names : undefined,
             () => runtime.write(contextFor(state), document || state.taskPlan ? () => {} : streamText(state, config), config.signal, state.grounding));
         environment.ports.retainDraft(plan.participant.agentId, result.content);
+        await checkpointProgress(state, "review", result.content, addUsage(state.usage, result.usage), [...state.steps, step]);
         return { content: result.content, draftText: document || state.taskPlan ? result.content : "", usage: addUsage(state.usage, result.usage), steps: [...state.steps, step] };
     }
 
@@ -394,6 +426,7 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
         const { result, step } = await track(state, config, document ? DISCUSSION_ACTIVITY_KINDS.writingDocument : DISCUSSION_ACTIVITY_KINDS.drafting, document ? { title: document.title, count: document.imageCount } : undefined,
             () => runtime.draft(contextFor(state), state.grounding, config.signal));
         environment.ports.retainDraft(speakerId(state), result.content);
+        await checkpointProgress(state, "review", result.content, addUsage(state.usage, result.usage), [...state.steps, step]);
         return { draftText: result.content, usage: addUsage(state.usage, result.usage), steps: [...state.steps, step] };
     }
 
@@ -402,6 +435,7 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
             () => runtime.review(contextFor(state), state.grounding, state.draftText, documentFor(state) ? () => {} : streamText(state, config), config.signal));
         if (!result.content.trim()) throw new AppError(502, "The document review did not produce a complete answer. The unchecked draft was not handed over.");
         environment.ports.retainDraft(speakerId(state), result.content);
+        await checkpointProgress(state, "save", result.content, addUsage(state.usage, result.usage), [...state.steps, step]);
         return { content: result.content, usage: addUsage(state.usage, result.usage), steps: [...state.steps, step] };
     }
 
@@ -413,15 +447,17 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
         const document = documentFor(state);
         let steps = state.steps;
         let content = state.content;
-        if (state.taskPlan?.repository && plan.participant.agentId === state.taskPlan.ownerAgentId) content += toolSession?.coverageReport?.() ?? "";
+        const committing = state.resumeStage === "commit";
+        if (!committing && state.taskPlan?.repository && plan.participant.agentId === state.taskPlan.ownerAgentId) content += resumedEvidence?.report ?? toolSession?.coverageReport?.() ?? "";
         let usage = state.usage;
-        if (document) {
+        if (document && !committing) {
             const { result, step } = await track(state, config, DISCUSSION_ACTIVITY_KINDS.savingDocument, { title: document.title, count: document.imageCount, requiredSections: document.requiredSections },
                 () => environment.ports.saveDocument(document.title, content, plan, document, config.signal), saved => ({ fileName: saved.fileName }));
             steps = [...steps, step];
             content = result.content;
             usage = addUsage(usage, result.usage);
         }
+        if (!committing) await checkpointProgress(state, "commit", content, usage, steps);
         // A document asked for but not written yet (its owner is still due) is kept for the rest of the turn.
         const pendingDocument = document ? null : state.document;
         const events = await environment.ports.saveReply({
@@ -441,6 +477,7 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
     // Fast replies research only when there is something attached to read; expert replies always research.
     const researches = expert || Boolean(environment.collaborators.toolbox?.hasTools);
     const afterSpeakerStarts = (state: State) => {
+        if (state.resumeStage) return state.resumeStage === "review" ? NODES.review : NODES.save;
         if (state.taskPlan && state.dispatched) return researches || state.taskPlan.repository || state.taskPlan.webQueries.length ? NODES.research : expert || state.taskPlan.depth === "deep" || documentFor(state) ? NODES.draft : NODES.write;
         const role = state.current?.speakerRole;
         if (role === DISCUSSION_SPEAKER_ROLES.wrapUp) return NODES.write;
@@ -461,7 +498,7 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
         .addNode(NODES.review, review)
         .addNode(NODES.save, save)
         .addConditionalEdges(START, whileSpeakersRemain, [NODES.next, END])
-        .addConditionalEdges(NODES.next, afterSpeakerStarts, [NODES.triage, NODES.research, NODES.write, NODES.draft])
+        .addConditionalEdges(NODES.next, afterSpeakerStarts, [NODES.triage, NODES.research, NODES.write, NODES.draft, NODES.review, NODES.save])
         .addConditionalEdges(NODES.triage, afterTriage, [NODES.save, NODES.dispatch, NODES.research, NODES.write])
         .addEdge(NODES.dispatch, NODES.next)
         .addConditionalEdges(NODES.research, afterResearch, [NODES.draft, NODES.write])

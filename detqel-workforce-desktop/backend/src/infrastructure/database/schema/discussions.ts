@@ -6,6 +6,7 @@ import { agentTeams } from "./teams.js";
 import type { DiscussionActivityStep } from "../../../shared/types/discussion-activity.js";
 import type { ConversationContext } from "../../../shared/agents/context/conversation-context.js";
 import type { TaskExecutionPlan, RepositorySnapshot } from "../../../shared/agents/graphs/task-plan.js";
+import type { TurnCheckpoint } from "../../../shared/agents/graphs/turn-checkpoint.js";
 
 /** An agent still due to speak in the current turn: the lead or solo agent, a delegate, or a teammate the user named. */
 export interface PendingResponder {
@@ -20,6 +21,7 @@ export interface PendingResponder {
 
 /** The queue of teammates who still have to reply in the current turn, in speaking order, with the turn's settings. */
 export interface PendingTurn {
+    readonly checkpoint?: TurnCheckpoint;
     readonly delivery?: { readonly sourceMessageId: string; readonly format: "md" | "docx" | "pdf" };
     readonly taskPlan?: TaskExecutionPlan | null;
     readonly repositorySnapshots?: ReadonlyArray<RepositorySnapshot>;
@@ -55,6 +57,8 @@ export const chatSessions = pgTable("chat_sessions", {
     summarizedMessageCount: integer("summarized_message_count").notNull().default(0),
     memoryRevision: integer("memory_revision").notNull().default(0),
     contextState: jsonb("context_state").$type<ConversationContext | null>(),
+    // A request returned to the composer by restore, retained until a new user message is accepted.
+    composerDraft: jsonb("composer_draft").$type<{ readonly messageId: string; readonly content: string } | null>(),
     // Teammates still due to reply in the current turn.
     pendingTurn: jsonb("pending_turn").$type<PendingTurn | null>(),
     // Running gateway usage for every model call made in this session, including memory summaries.

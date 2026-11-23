@@ -25,7 +25,6 @@ import {
   apiStreamContinueTurn,
   apiStreamDiscussionMessage,
   apiRestoreDiscussionCheckpoint,
-  apiListDiscussionMessages,
   type ConversationContext,
   type ExportFormat,
   type PendingSpeaker,
@@ -84,6 +83,7 @@ interface DiscussionChatWindowProps {
   activeSessionId: string;
   workspaceId: string | null;
   initialMessages?: ChatMessage[];
+  initialDraft?: string;
   /** The session's gateway usage so far. */
   initialUsage: SessionUsage;
   /** Agents still due to reply in a turn that stopped before they did, when the session was opened. */
@@ -102,6 +102,7 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
   onMessagesUpdate,
   workspaceId,
   initialMessages,
+  initialDraft,
   initialUsage,
   initialPendingAgentIds,
   onArtifactsChanged,
@@ -110,7 +111,8 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
   const confirm = useConfirm();
   const [contextState, setContextState] = useState<ConversationContext | null | undefined>(undefined);
   const [isRestoring, setIsRestoring] = useState(false);
-  const [inputText, setInputText] = useState("");
+  const [inputText, setInputText] = useState(initialDraft ?? "");
+  const [composerFocusRequest, setComposerFocusRequest] = useState(0);
   const documentAssetContext = useMemo(() => workspaceId && activeSessionId ? { workspaceId, sessionId: activeSessionId } : undefined, [workspaceId, activeSessionId]);
   const [isRecording, setIsRecording] = useState(false);
   const [responseMode, setResponseMode] = useState<ResponseMode>("detailed");
@@ -149,7 +151,7 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
     while (last < messages.length - 1 && isHandoff(messages[last + 1])) last++;
     return messages.slice(first, last + 1);
   }, [messages, viewingId]);
-  const closeViewer = useCallback(() => setViewingId(null), []);
+  const closeViewer = useCallback(() => setViewingId(null), [setViewingId]);
 
   /** Exports a saved reply for download. */
   const exportReply = useCallback(async (message: ChatMessage, format: ExportFormat) => {
@@ -269,7 +271,7 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
         setContextState(event.context);
         break;
     }
-  }, [activeTarget, updateLive, flushText, onArtifactsChanged]);
+  }, [activeTarget, updateLive, flushText, onArtifactsChanged, setViewingId]);
 
   /**
    * Runs a streamed turn, retaining interrupted progress until the server history replaces it.
@@ -335,17 +337,25 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
 
   const restoreCheckpoint = async (message: ChatMessage) => {
     if (!workspaceId || !activeSessionId || isStreaming || isRestoring) return;
-    const approved = await confirm({ title: "Restore checkpoint", message: "Keep this user message and earlier history, remove every later message and response, and clear the agent's summary, plan and repository snapshots. Saved files and attached sources remain available. You can then retry this request with Continue.", confirmText: "Restore checkpoint", variant: "danger" });
+    const approved = await confirm({ title: "Restore checkpoint", message: `Remove this user message and everything after it, clear pending responses and agent memory, and put this request back in the chat box so you can edit and send it again. Earlier history, saved files and attached sources remain available.${inputText ? " Your current unsent draft will be replaced." : ""}`, confirmText: "Restore checkpoint", variant: "danger" });
     if (!approved) return;
     setIsRestoring(true);
     try {
-      const session = await apiRestoreDiscussionCheckpoint(workspaceId, activeSessionId, message.id, { responseMode, capabilityMode, webEnabled });
-      const history = await apiListDiscussionMessages(workspaceId, activeSessionId);
-      setMessages(history.map(item => toViewMessage(item, activeTarget)));
+      if (isRecording && recognitionRef.current) {
+        recognitionRef.current.onresult = null;
+        setIsRecording(false);
+        recognitionRef.current.stop();
+      }
+      const session = await apiRestoreDiscussionCheckpoint(workspaceId, activeSessionId, message.id);
+      setMessages(session.messages.map(item => toViewMessage(item, activeTarget)));
+      setInputText(session.composerDraft.content);
       setUsage({ inputTokens: session.inputTokens, outputTokens: session.outputTokens, cachedTokens: session.cachedTokens, costUsd: session.costUsd });
       setContextState(null); setViewingId(null); setTurnError(null); setUpNext([]);
-      setStalled(session.pendingTurn?.queue.map(item => item.agentId) ?? []);
-      toast.success("Checkpoint restored. Continue will retry this message with fresh agent context.");
+      setStalled([]);
+      queued.current = []; speaking.current = null; liveIds.current.clear(); pendingText.current.clear();
+      if (frame.current !== null) { cancelAnimationFrame(frame.current); frame.current = null; }
+      setComposerFocusRequest(value => value + 1);
+      toast.success("Checkpoint restored. Edit the request in the chat box and send it when ready.");
     } catch (failure) { toast.error(failure instanceof Error ? failure.message : "The checkpoint could not be restored."); }
     finally { setIsRestoring(false); }
   };
@@ -576,10 +586,10 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
             )}
 
             <MessageSurface timestamp={msg.timestamp}
-              className={`relative select-text min-w-0 max-w-xl rounded-2xl p-4 shadow-xs text-xs ${
+              className={`relative select-text min-w-0 rounded-2xl p-4 shadow-xs text-xs ${
                 msg.role === "user"
-                  ? "bg-slate-200/70 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-tr-none ml-12"
-                  : "bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 text-slate-800 dark:text-slate-200 rounded-tl-none mr-12"
+                  ? "max-w-xl bg-slate-200/70 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-tr-none ml-12"
+                  : "max-w-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 text-slate-800 dark:text-slate-200 rounded-tl-none mr-12"
               }`}
             >
               <CopyMessageButton text={msg.content} label={msg.role === "user" ? "Copy your message" : "Copy agent response"} disabled={Boolean(msg.streaming)} className={`absolute top-0 ${msg.role === "user" ? "-left-9" : "-right-9"}`} />
@@ -690,6 +700,7 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
             type="button"
             onClick={toggleVoiceRecording}
             title={isRecording ? "Stop voice recognition" : "Activate voice recognition"}
+            disabled={isRestoring}
             className={`shrink-0 p-2 rounded-xl transition-all cursor-pointer ${
               isRecording
                 ? "bg-red-500 text-white animate-pulse"
@@ -704,6 +715,8 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
             onChange={setInputText}
             onSubmit={() => { void handleSendMessage(); }}
             sending={isStreaming || isRestoring}
+            disabled={isRestoring}
+            focusRequest={composerFocusRequest}
             placeholder={activeTarget.type === "team" ? `Dispatch directive to ${activeTarget.name} squad...` : `Instruct ${activeTarget.name}...`}
           />
 

@@ -1,4 +1,5 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, isNull, sql } from "drizzle-orm";
+import { userActivities } from "../../../infrastructure/database/schema/activities.js";
 import { AppError } from "../../../shared/errors/app-error.js";
 import type { DatabaseSession } from "../../../infrastructure/database/connection.js";
 import {
@@ -6,6 +7,8 @@ import {
     chatMessages,
     chatSessionConnections,
     chatSessions,
+    chatQuestions,
+    type ChatQuestion,
     type ChatMessage,
     type ChatMessageSource,
     type ChatSession,
@@ -52,22 +55,35 @@ export class DiscussionRepository implements IDiscussionRepository {
         return this.database.select().from(chatMessages).where(eq(chatMessages.sessionId, sessionId)).orderBy(asc(chatMessages.createdAt), asc(chatMessages.id));
     }
 
-    async appendMessage(message: NewChatMessage): Promise<ChatMessage> {
+    async appendMessage(message: NewChatMessage, answerToQuestionId?: string, pendingTurn?: PendingTurn | null, actorUserId?: string): Promise<ChatMessage> {
         return this.database.transaction(async tx => {
             const [session] = await tx.select().from(chatSessions).where(eq(chatSessions.id, message.sessionId)).for("update");
             if (!session || (message.role === "assistant" && session.pendingTurn?.turnId !== message.turnId)) throw new AppError(409, "The discussion checkpoint changed before this message was saved.");
+            if (answerToQuestionId) {
+                const [question] = await tx.select().from(chatQuestions).where(and(eq(chatQuestions.id, answerToQuestionId), eq(chatQuestions.sessionId, message.sessionId), isNull(chatQuestions.answerMessageId))).for("update");
+                if (message.role !== "user" || !question) throw new AppError(409, "This question was already answered or is no longer pending. Refresh the discussion.");
+            }
             const [created] = await tx.insert(chatMessages).values(message).returning();
-            await tx.update(chatSessions).set({ updatedAt: new Date(), ...(message.role === "user" ? { composerDraft: null } : {}) }).where(eq(chatSessions.id, message.sessionId));
+            if (answerToQuestionId) {
+                await tx.update(chatQuestions).set({ answerMessageId: created.id }).where(eq(chatQuestions.id, answerToQuestionId));
+                await tx.insert(userActivities).values({ workspaceId: session.workspaceId, userId: actorUserId ?? null, activityType: "decisions", title: "Answered an agent question", entityType: "discussion", entityId: session.id, metadata: { event: "question-answered", messageId: created.id, questionId: answerToQuestionId } });
+            }
+            await tx.update(chatSessions).set({ updatedAt: new Date(), ...(message.role === "user" ? { composerDraft: null, ...(pendingTurn !== undefined ? { pendingTurn } : {}) } : {}) }).where(eq(chatSessions.id, message.sessionId));
             return created;
         });
     }
 
-    async appendMessageWithSources(input: CreateMessageWithSources): Promise<{ message: ChatMessage; session: ChatSession }> {
+    async appendMessageWithSources(input: CreateMessageWithSources): Promise<{ message: ChatMessage; session: ChatSession; question?: ChatQuestion }> {
         return this.database.transaction(async tx => {
             const [session] = await tx.select().from(chatSessions).where(eq(chatSessions.id, input.message.sessionId)).for("update");
             if (!session || !session.pendingTurn || session.pendingTurn.turnId !== input.message.turnId || session.pendingTurn.queue[0]?.agentId !== input.message.speakerAgentId
                 || (input.pendingTurn && input.pendingTurn.turnId !== input.message.turnId)) throw new AppError(409, "The discussion checkpoint changed before this reply was saved.");
             const [created] = await tx.insert(chatMessages).values(input.message).returning();
+            let question: ChatQuestion | undefined;
+            if (input.clarification) {
+                if (input.pendingTurn) throw new AppError(409, "A turn waiting for the user cannot also schedule agent work.");
+                [question] = await tx.insert(chatQuestions).values({ sessionId: session.id, messageId: created.id, ...input.clarification }).returning();
+            }
             if (input.sources.length > 0) {
                 await tx.insert(chatMessageSources).values(input.sources.map(source => ({ ...source, messageId: created.id })));
             }
@@ -77,8 +93,34 @@ export class DiscussionRepository implements IDiscussionRepository {
                 cachedTokens: sql`${chatSessions.cachedTokens} + ${input.usage.cachedTokens}`,
                 costUsd: sql`${chatSessions.costUsd} + ${input.usage.costUsd}`,
             }).where(eq(chatSessions.id, input.message.sessionId)).returning();
-            return { message: created, session: updated };
+            const categories = input.clarification ? ["decisions"] : ["discussions"];
+            if (created.activity.some(step => step.status === "done" && ["readingConnector", "readingKnowledge", "searchingKnowledge", "searchingWeb"].includes(step.kind))) categories.push("investigations");
+            if (created.activity.some(step => step.kind === "savingDocument" && step.status === "done")) categories.push("documents");
+            await tx.insert(userActivities).values(categories.map(activityType => ({ workspaceId: session.workspaceId, activityType, title: input.clarification ? "Agent requested your input" : "Agent completed a reply", entityType: "discussion", entityId: session.id, metadata: { event: input.clarification ? "question-asked" : "reply-completed", messageId: created.id, turnId: created.turnId, speakerName: created.speakerName } })));
+            return { message: created, session: updated, question };
         });
+    }
+
+    async listPendingQuestions(workspaceId: string, options: { sessionId?: string; focusQuestionId?: string; limit: number; offset: number }) {
+        const condition = and(eq(chatSessions.workspaceId, workspaceId), isNull(chatQuestions.answerMessageId), options.sessionId ? eq(chatQuestions.sessionId, options.sessionId) : undefined);
+        const [items, counts] = await Promise.all([
+            this.database.select({ id: chatQuestions.id, sessionId: chatQuestions.sessionId, messageId: chatQuestions.messageId, questions: chatQuestions.questions, createdAt: chatQuestions.createdAt, sessionTitle: chatSessions.title, speakerName: chatMessages.speakerName })
+                .from(chatQuestions).innerJoin(chatSessions, eq(chatSessions.id, chatQuestions.sessionId)).innerJoin(chatMessages, eq(chatMessages.id, chatQuestions.messageId))
+                .where(condition).orderBy(...(options.focusQuestionId ? [sql`CASE WHEN ${chatQuestions.id} = ${options.focusQuestionId}::uuid THEN 0 ELSE 1 END`] : []), asc(chatQuestions.createdAt), asc(chatQuestions.id)).limit(options.limit).offset(options.offset),
+            this.database.select({ total: sql<number>`count(*)::int` }).from(chatQuestions).innerJoin(chatSessions, eq(chatSessions.id, chatQuestions.sessionId)).where(condition),
+        ]);
+        return { items, total: counts[0]?.total ?? 0 };
+    }
+
+    async findPendingQuestion(workspaceId: string, sessionId: string, questionId: string): Promise<ChatQuestion | null> {
+        const [question] = await this.database.select(getTableColumns(chatQuestions)).from(chatQuestions).innerJoin(chatSessions, eq(chatSessions.id, chatQuestions.sessionId))
+            .where(and(eq(chatSessions.workspaceId, workspaceId), eq(chatQuestions.sessionId, sessionId), eq(chatQuestions.id, questionId), isNull(chatQuestions.answerMessageId))).limit(1);
+        return question ?? null;
+    }
+
+    async findQuestionForAnswer(sessionId: string, answerMessageId: string): Promise<ChatQuestion | null> {
+        const [question] = await this.database.select().from(chatQuestions).where(and(eq(chatQuestions.sessionId, sessionId), eq(chatQuestions.answerMessageId, answerMessageId))).limit(1);
+        return question ?? null;
     }
 
     async listMessageSources(messageId: string): Promise<ChatMessageSource[]> {
@@ -158,7 +200,8 @@ export class DiscussionRepository implements IDiscussionRepository {
                 const messages = await tx.select().from(chatMessages).where(eq(chatMessages.sessionId, sessionId)).orderBy(asc(chatMessages.createdAt), asc(chatMessages.id));
                 return { ...session, composerDraft: session.composerDraft, messages };
             }
-            const composerDraft = { messageId: target.id, content: target.content };
+            const [answeredQuestion] = await tx.select({ id: chatQuestions.id }).from(chatQuestions).where(and(eq(chatQuestions.sessionId, sessionId), eq(chatQuestions.answerMessageId, target.id))).limit(1);
+            const composerDraft = { messageId: target.id, content: target.content, ...(answeredQuestion ? { answerToQuestionId: answeredQuestion.id } : {}) };
             // Compare database timestamps directly; JS Dates lose PostgreSQL's sub-millisecond precision.
             await tx.delete(chatMessages).where(and(eq(chatMessages.sessionId, sessionId), sql`(${chatMessages.createdAt}, ${chatMessages.id}) >= (SELECT checkpoint.created_at, checkpoint.id FROM chat_messages checkpoint WHERE checkpoint.id = ${messageId}::uuid AND checkpoint.session_id = ${sessionId}::uuid)`));
             const [updated] = await tx.update(chatSessions).set({ summary: null, summarizedMessageCount: 0, contextState: null, composerDraft,

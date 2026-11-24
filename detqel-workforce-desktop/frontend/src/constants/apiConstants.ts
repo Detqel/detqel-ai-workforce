@@ -22,8 +22,7 @@ export const API_PATHS = {
   testAgentPrompt: "/api/settings/vyra/test-prompt",
   testWebSearch: "/api/settings/web-search/test-connection",
   connections: "/api/connections",
-  connectorCatalog: "/api/connector-catalog",
-  lookups: "/api/lookups",
+  connectionDefinitions: "/api/connection-definitions",
   agents: "/api/agents",
   agentSections: "/api/agents/sections",
   agentTemplates: "/api/agents/templates",
@@ -34,7 +33,6 @@ export const API_PATHS = {
   discussions: "/api/discussions/workspaces",
 } as const;
 
-export const LOOKUP_RESOURCES = { root: "lookups", connectorTypes: "connector-types" } as const;
 
 export const API_ACTIONS = {
   providerModels: "models",

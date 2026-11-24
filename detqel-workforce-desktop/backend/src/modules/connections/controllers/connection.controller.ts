@@ -3,9 +3,10 @@ import { idParamsSchema, workspaceQuerySchema } from "../../../shared/validation
 import { requireUserId } from "../../../shared/security/request-context.js";
 import type { WorkspaceAccess, WorkspaceAccessService } from "../../workspaces/services/workspace-access.service.js";
 import type { ConnectionService } from "../services/connection.service.js";
-import { catalogQuerySchema, createConnectionSchema, testConnectionSchema, updateConnectionSchema } from "../validation/connection.schemas.js";
+import { createConnectionSchema, discoverConnectorSchema, testConnectionSchema, updateConnectionSchema } from "../validation/connection.schemas.js";
+import type { ConnectorDiscoveryService } from "../services/connector-discovery.service.js";
 export class ConnectionController {
-    constructor(private readonly service: ConnectionService, private readonly access: WorkspaceAccessService) {}
+    constructor(private readonly service: ConnectionService, private readonly access: WorkspaceAccessService, private readonly discovery: ConnectorDiscoveryService) {}
     private async authorize(request: FastifyRequest, workspaceId: string, access: WorkspaceAccess): Promise<void> {
         await this.access.authorize(requireUserId(request), workspaceId, access);
     }
@@ -14,15 +15,15 @@ export class ConnectionController {
         await this.authorize(request, workspaceId, access);
         return workspaceId;
     }
-    async catalog(request: FastifyRequest, reply: FastifyReply) {
-        const query = catalogQuerySchema.parse(request.query);
-        await this.authorize(request, query.workspaceId, "read");
-        return reply.send(await this.service.listCatalog(query.connectorType, query.category));
-    }
-    async catalogById(request: FastifyRequest, reply: FastifyReply) {
-        await this.workspace(request, "read");
+    async definitionById(request: FastifyRequest, reply: FastifyReply) {
+        const workspaceId = await this.workspace(request, "read");
         const { id } = idParamsSchema.parse(request.params);
-        return reply.send(await this.service.getCatalog(id));
+        return reply.header("Cache-Control", "private, no-store").send(await this.service.getDefinition(id, workspaceId));
+    }
+    async discover(request: FastifyRequest, reply: FastifyReply) {
+        const body = discoverConnectorSchema.parse(request.body);
+        await this.authorize(request, body.workspaceId, "manage");
+        return reply.header("Cache-Control", "private, no-store").send(await this.discovery.discover(body.workspaceId, body.query));
     }
     async list(request: FastifyRequest, reply: FastifyReply) {
         const workspaceId = await this.workspace(request, "read");

@@ -1,16 +1,13 @@
-import { CONNECTOR_TYPES } from "../../../constants/connectionConstants.js";
 import { DEMO_ACTIVITY_DAY_MS } from "../../../constants/databaseSeedConstants.js";
-import { SERVICE_PORTS } from "../../../constants/networkConstants.js";
 import { eq, sql } from "drizzle-orm";
 import { hashPassword } from "../../../shared/security/password.js";
 import type { AppDatabase } from "../connection.js";
 import { userActivities } from "../schema/activities.js";
 import { users, workspaceMembers, workspaces } from "../schema/auth.js";
 import { businessGoals, businessKnowledge, businessProfile, businessRules, businessState, } from "../schema/business.js";
-import { connections } from "../schema/connections.js";
 import { missionAgents, missionEvents, missions } from "../schema/missions.js";
 import { seedHistory } from "../schema/seeds.js";
-import { agentConnections, agents } from "../schema/workforce.js";
+import { agents } from "../schema/workforce.js";
 export async function seedDemoData(database: AppDatabase) {
     await database.transaction(async (db) => {
         await db.execute(sql `SELECT pg_advisory_xact_lock(1732401, 2)`);
@@ -162,20 +159,6 @@ export async function seedDemoData(database: AppDatabase) {
             status: "active",
         })
             .onConflictDoNothing();
-        // 6. Connections
-        const [conn] = await db
-            .insert(connections)
-            .values({
-            workspaceId,
-            name: "PostgreSQL Data Warehouse",
-            provider: "Postgres",
-            connectionType: CONNECTOR_TYPES.data,
-            configuration: { host: "dw.internal.corp", port: SERVICE_PORTS.postgresql, database: "analytics_dw" },
-            status: "connected",
-            lastSyncedAt: new Date(),
-        })
-            .onConflictDoNothing()
-            .returning();
         // 7. Platform & Custom AI Agents
         const [orchestratorAgent] = await db
             .insert(agents)
@@ -211,16 +194,6 @@ export async function seedDemoData(database: AppDatabase) {
         })
             .onConflictDoNothing()
             .returning();
-        if (conn && orchestratorAgent) {
-            await db
-                .insert(agentConnections)
-                .values({
-                agentId: orchestratorAgent.id,
-                connectionId: conn.id,
-                permissions: { read: true, write: false },
-            })
-                .onConflictDoNothing();
-        }
         // 8. Sample Mission
         const [sampleMission] = await db
             .insert(missions)

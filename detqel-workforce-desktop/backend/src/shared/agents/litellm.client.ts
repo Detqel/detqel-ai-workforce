@@ -13,6 +13,26 @@ import {
 
 const logger = createScopedLogger("litellm-client");
 
+/** Only fixed diagnostics leave this classifier; provider error bodies may contain credentials or prompts. */
+function inferenceRejection(status: number, body: string) {
+    if (status === 400 && /too many states|schema.{0,160}(?:too complex|complexity|too large|too deep)|constraint.{0,100}states/i.test(body)) {
+        return { category: "schema-complexity", statusCode: 422, message: "The configured model rejected an overly complex response schema. The request was not processed; no result was generated." };
+    }
+    if (status === 400 && /unsupported.?param|not support.{0,100}(?:response_format|reasoning_effort|json_schema)|unknown name|unrecognized (?:field|parameter)/i.test(body)) {
+        return { category: "unsupported-setting", statusCode: 422, message: "The configured model rejected a request setting. Check that this model supports the required structured output and reasoning settings." };
+    }
+    if (status === 401 || status === 403) return { category: "provider-access", statusCode: 422, message: "The AI provider did not authorize the configured model request. Check the provider credentials and model access in Settings." };
+    if (status === 429) return { category: "provider-limit", statusCode: 429, message: "The configured AI provider's rate or usage limit was reached. Wait before retrying or check the provider quota." };
+    if (status === 404 || status === 400 && /model_not_found|model.{0,80}(?:not found|not supported|unavailable)/i.test(body)) {
+        return { category: "model-unavailable", statusCode: 422, message: "The configured model is unavailable to this provider account. Check the selected model in Settings." };
+    }
+    if (status === 400 && /context.{0,60}(?:limit|length)|too many (?:input )?tokens|input.{0,60}token.{0,30}limit/i.test(body)) {
+        return { category: "context-limit", statusCode: 422, message: "The configured model rejected the request's context or token limit. Refine the request or select a model with a larger context." };
+    }
+    if (status === 400 || status === 422) return { category: "request-rejected", statusCode: 422, message: "The AI provider rejected the model request. Check the configured model's supported capabilities; no result was generated." };
+    return { category: "provider-failure", statusCode: 502, message: "The configured AI provider could not complete this request. Retry when the provider is available." };
+}
+
 export interface LiteLlmGatewayConfig {
     /** Base URL of the managed gateway, for example http://127.0.0.1:50051. */
     readonly baseUrl: string;
@@ -534,9 +554,10 @@ export class LiteLlmClient {
                 : "The local AI gateway connection was interrupted. Check that the configured provider and managed AI service are available, then continue.", undefined, true);
         }
         if (!response.ok) {
-            // The body is read only to release the connection; it is never surfaced, as it may echo secrets.
+            // Classify locally; raw provider responses are never logged or exposed because they may echo secrets.
             const errorBody = await this.readBoundedBody(response).catch(() => "");
-            logger.error({ path, method, status: response.status }, "Gateway returned an error status");
+            const rejection = path === LITELLM_ENDPOINTS.chatCompletions ? inferenceRejection(response.status, errorBody) : null;
+            logger.error({ path, method, status: response.status, ...(rejection ? { category: rejection.category } : {}) }, "Gateway returned an error status");
             if (path === LITELLM_ENDPOINTS.imageGenerations) {
                 const reason = /unknown name|unsupported.?param|invalid (?:parameter|argument)/i.test(errorBody) ? "unsupported-parameter"
                     : /model.{0,80}(?:not found|not supported|unavailable)|model_not_found/i.test(errorBody) ? "model-unavailable"
@@ -546,6 +567,7 @@ export class LiteLlmClient {
                 const descriptions = { "unsupported-parameter": "The image provider rejected the generation settings.", "model-unavailable": "The configured image model is unavailable to this provider account.", "access-denied": "The provider did not authorize image generation with the configured credentials.", "rate-limit": "The image provider's usage or rate limit was reached.", "provider-error": "The image provider could not complete generation." };
                 throw new AppError(422, `${descriptions[reason]} Required images were not replaced with text diagrams.`, { category: reason, status: response.status });
             }
+            if (rejection) throw new AppError(rejection.statusCode, rejection.message, { category: rejection.category, upstreamStatus: response.status }, true);
             throw new AppError(502, failureMessage);
         }
         return response;

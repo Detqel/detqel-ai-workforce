@@ -4,7 +4,7 @@ import { BOOLEAN_CONFIGURATION_OPTIONS } from "@/constants/connectorConstants";
 
 import React, { useId, useState } from "react";
 import { OptionMenu } from "@/components/ui/option-menu";
-import type { ConfigurationSchema } from "@/lib/api/connector-catalog";
+import type { ConfigurationSchema } from "@/lib/api/connection-discovery";
 import { connectionInputClass } from "./ConnectionDialog";
 
 type Configuration = Record<string, unknown>;

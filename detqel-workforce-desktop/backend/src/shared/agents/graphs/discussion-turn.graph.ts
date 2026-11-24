@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { AppError } from "../../errors/app-error.js";
+import { clarificationContent, type ClarificationQuestion, type ClarificationRequest } from "./clarification.js";
 import type { TaskExecutionPlan, RepositorySnapshot } from "./task-plan.js";
 import { repositoryCompletionIssues, type RepositoryCompletionEvidence, type TurnCheckpoint } from "./turn-checkpoint.js";
 import { Annotation, END, START, StateGraph, type LangGraphRunnableConfig } from "@langchain/langgraph";
@@ -36,6 +37,7 @@ import {
     type TeamContext,
     type TranscriptMessage,
     type TurnContext,
+    type InvestigationResult,
 } from "./discussion-runtime.js";
 
 /** One agent's part in a turn. */
@@ -59,6 +61,7 @@ export interface TurnDocument extends DocumentRequest {
 
 /** A finished reply, ready to be saved. */
 export interface SpokenReply {
+    readonly questions?: ReadonlyArray<ClarificationQuestion>;
     readonly plan: SpeakerPlan;
     readonly content: string;
     readonly sources: ReadonlyArray<DiscussionSource>;
@@ -127,6 +130,7 @@ const TurnState = Annotation.Root({
     summary: replace<string | null>(() => null),
     transcript: replace<TranscriptMessage[]>(() => []),
     intent: replace<DiscussionIntent | null>(() => null),
+    questions: replace<ClarificationQuestion[]>(() => []),
     /** Teammates the current lead handed work to, resolved against the roster. */
     handoffs: replace<SpeakerPlan[]>(() => []),
     grounding: replace<string>(() => ""),
@@ -292,6 +296,7 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
             summary: memory.summary,
             transcript: memory.transcript,
             intent: null,
+            questions: [],
             handoffs: [],
             grounding: recovered?.grounding ?? "",
             sources: [...(recovered?.sources ?? [])],
@@ -309,9 +314,11 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
             () => runtime.triage(contextFor(state), config.signal),
             verdict => ({ conversational: verdict.intent === DISCUSSION_INTENTS.conversational }));
         const steps = [...state.steps, step];
-        if (result.intent === DISCUSSION_INTENTS.conversational && result.reply) {
-            emit(config, { type: DISCUSSION_STREAM_EVENTS.token, agentId: plan.participant.agentId, text: result.reply });
-            return { intent: result.intent, content: result.reply, usage: result.usage, steps };
+        if (result.intent !== DISCUSSION_INTENTS.task && (result.reply || result.questions.length)) {
+            const content = result.intent === DISCUSSION_INTENTS.clarification ? clarificationContent({ reply: result.reply ?? "", questions: result.questions }) : result.reply!;
+            // Publish questions from the saved reply, after their durable pending record commits.
+            if (result.intent === DISCUSSION_INTENTS.conversational) emit(config, { type: DISCUSSION_STREAM_EVENTS.token, agentId: plan.participant.agentId, text: content });
+            return { intent: result.intent, content, questions: result.questions, document: null, usage: result.usage, steps };
         }
         // The first document asked for in a turn is the one kept; a later speaker cannot replace it.
         if (!result.plan) throw new AppError(502, "The planner did not return a task contract.", undefined, true);
@@ -369,6 +376,7 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
         if (!expert && !deep) {
             // Fast replies only investigate the attached connectors and documents, briefly.
             const found = await investigate(state, config, context, AGENT_TOOL_LIMITS.maxRoundsFast, blocks, steps);
+            if (found.clarification) return pauseForQuestions(found.clarification, addUsage(usage, found.usage), steps, [...sources, ...found.sources]);
             blocks.splice(0, blocks.length, ...found.blocks);
             sources.push(...found.sources);
             return { grounding: blocks.length ? runtime.grounding(blocks) : "", sources, evidenceBlocks: blocks, evidenceSources: sources, steps, usage: addUsage(usage, found.usage) };
@@ -389,13 +397,19 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
         }
         // With what retrieval found in hand, the agent reads whatever else it needs from connectors and documents.
         const found = await investigate(state, config, context, deep ? AGENT_TOOL_LIMITS.maxRoundsDeep : AGENT_TOOL_LIMITS.maxRounds, blocks, steps);
+        if (found.clarification) return pauseForQuestions(found.clarification, addUsage(usage, found.usage), steps, [...sources, ...found.sources]);
         blocks.splice(0, blocks.length, ...found.blocks);
         for (const source of found.sources) if (!sources.some(existing => existing.reference === source.reference)) sources.push(source);
         usage = addUsage(usage, found.usage);
         return { grounding: runtime.grounding(blocks), sources, evidenceBlocks: blocks, evidenceSources: sources, steps, usage };
     }
 
-    async function investigate(state: State, config: LangGraphRunnableConfig, context: TurnContext, rounds: number, prior: ReadonlyArray<string>, steps: DiscussionActivityStep[]) {
+    function pauseForQuestions(request: ClarificationRequest, usage: CallUsage, steps: DiscussionActivityStep[], sources: DiscussionSource[]): Partial<State> {
+        const content = clarificationContent(request);
+        return { intent: DISCUSSION_INTENTS.clarification, questions: request.questions, content, usage, steps, sources, taskPlan: null, document: null, queue: [], handoffs: [] };
+    }
+
+    async function investigate(state: State, config: LangGraphRunnableConfig, context: TurnContext, rounds: number, prior: ReadonlyArray<string>, steps: DiscussionActivityStep[]): Promise<InvestigationResult> {
         const toolbox = context.collaborators.toolbox;
         if (!toolbox?.hasTools) return { blocks: [...prior], sources: [] as DiscussionSource[], usage: ZERO_USAGE };
         const session = toolSession ??= toolbox.start(context.taskPlan?.depth ?? "focused", environment.repositorySnapshots);
@@ -442,7 +456,7 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
     async function save(state: State, config: LangGraphRunnableConfig): Promise<Partial<State>> {
         // A lead that handed work out speaks again after its teammates, to give the user one complete answer.
         const closing = state.handoffs.length > 0 ? [wrapUpPlan((state.current as SpeakerPlan).participant, state.handoffs)] : [];
-        const remaining = [...state.queue, ...state.handoffs, ...closing];
+        const remaining = state.intent === DISCUSSION_INTENTS.clarification ? [] : [...state.queue, ...state.handoffs, ...closing];
         const plan = state.current as SpeakerPlan;
         const document = documentFor(state);
         let steps = state.steps;
@@ -466,6 +480,7 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
             sources: state.sources,
             usage,
             steps,
+            questions: state.questions,
         }, remaining, pendingDocument, state.taskPlan, toolSession?.repositorySnapshots?.() ?? environment.repositorySnapshots);
         // Saved records go out through the same stream as the activity, so the client sees them in order.
         for (const event of events) emit(config, event);
@@ -484,8 +499,8 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
         if (role === DISCUSSION_SPEAKER_ROLES.delegate) return researches ? NODES.research : NODES.write;
         return NODES.triage;
     };
-    const afterTriage = (state: State) => state.intent === DISCUSSION_INTENTS.conversational ? NODES.save : !state.dispatched ? NODES.dispatch : researches ? NODES.research : NODES.write;
-    const afterResearch = (state: State) => (expert || state.taskPlan?.depth === "deep" || documentFor(state) ? NODES.draft : NODES.write);
+    const afterTriage = (state: State) => state.intent !== DISCUSSION_INTENTS.task ? NODES.save : !state.dispatched ? NODES.dispatch : researches ? NODES.research : NODES.write;
+    const afterResearch = (state: State) => state.intent === DISCUSSION_INTENTS.clarification ? NODES.save : (expert || state.taskPlan?.depth === "deep" || documentFor(state) ? NODES.draft : NODES.write);
     const whileSpeakersRemain = (state: State) => (state.queue.length > 0 ? NODES.next : END);
 
     return new StateGraph(TurnState)
@@ -501,7 +516,7 @@ export function buildDiscussionTurnGraph(runtime: DiscussionRuntime, environment
         .addConditionalEdges(NODES.next, afterSpeakerStarts, [NODES.triage, NODES.research, NODES.write, NODES.draft, NODES.review, NODES.save])
         .addConditionalEdges(NODES.triage, afterTriage, [NODES.save, NODES.dispatch, NODES.research, NODES.write])
         .addEdge(NODES.dispatch, NODES.next)
-        .addConditionalEdges(NODES.research, afterResearch, [NODES.draft, NODES.write])
+        .addConditionalEdges(NODES.research, afterResearch, [NODES.draft, NODES.write, NODES.save])
         .addEdge(NODES.draft, NODES.review)
         .addEdge(NODES.review, NODES.save)
         .addConditionalEdges(NODES.write, state => documentFor(state) || state.taskPlan ? NODES.review : NODES.save, [NODES.review, NODES.save])

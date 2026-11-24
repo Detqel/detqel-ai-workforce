@@ -1,4 +1,4 @@
-import type { ConnectorAdapter, ConnectorContext, ConnectorHandle, ConnectorRuntimeOptions } from "../../../shared/types/connector-catalog.js";
+import type { ConnectorAdapter, ConnectorContext, ConnectorHandle, ConnectorRuntimeOptions } from "../../../shared/types/connection-adapter.js";
 import { repositoryOperations } from "../operations/repository-operations.js";
 import type { RepositoryProvider } from "./repository-providers.js";
 
@@ -19,6 +19,8 @@ export class RepositoryConnectorAdapter implements ConnectorAdapter {
         return {
             metadata: {
                 verification: "repository-access",
+                access: "read-only",
+                scope: "single-repository",
                 provider: this.provider.name,
                 repository: repository.fullName,
                 defaultBranch: repository.defaultBranch,

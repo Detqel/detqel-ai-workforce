@@ -3,6 +3,8 @@ import { CONTEXT_COMPACTION, type ConversationContext } from "../context/convers
 import { createScopedLogger } from "../../logging/logger.js";
 import { AppError } from "../../errors/app-error.js";
 import { z } from "zod";
+import { structuredOutputShape } from "../structured-output-schema.js";
+import { ASK_USER_QUESTION_TOOL, clarificationQuestionSchema, clarificationRequestSchema, type ClarificationQuestion, type ClarificationRequest } from "./clarification.js";
 import { documentRequirementIssues } from "../../documents/document-requirements.js";
 import { requirementVerification } from "./requirement-verification.js";
 import type { RepositoryCompletionEvidence } from "./turn-checkpoint.js";
@@ -32,13 +34,14 @@ import {
 
 const logger = createScopedLogger("discussion-runtime");
 const triagePlanSchema = z.object({
-    intent: z.enum([DISCUSSION_INTENTS.conversational, DISCUSSION_INTENTS.task]),
+    intent: z.enum([DISCUSSION_INTENTS.conversational, DISCUSSION_INTENTS.task, DISCUSSION_INTENTS.clarification]),
     reply: z.string().max(16_000),
     document: documentRequestSchema.nullable(),
     plan: taskPlanSchema.nullable(),
+    questions: z.array(clarificationQuestionSchema).max(3),
 }).strict();
-const triageResponseSchema = { name: "discussion_plan", schema: z.toJSONSchema(triagePlanSchema) };
-const planFields = new Set(["intent", "reply", "document", "plan", "title", "imageCount", "requiredSections", "objective", "depth", "repository", "webQueries", "requirements", "id", "description", "ownerAgentId", "assignments", "agentId", "task", "reason", "requirementIds"]);
+const triageResponseSchema = { name: "discussion_plan", schema: structuredOutputShape(z.toJSONSchema(triagePlanSchema)) };
+const planFields = new Set(["intent", "reply", "questions", "question", "options", "document", "plan", "title", "imageCount", "requiredSections", "objective", "depth", "repository", "webQueries", "requirements", "id", "description", "ownerAgentId", "assignments", "agentId", "task", "reason", "requirementIds"]);
 
 /** An agent taking part in a discussion. Its persona is the Markdown prompt named by promptRef. */
 export interface DiscussionParticipant {
@@ -133,6 +136,7 @@ export interface DiscussionCollaborators {
 
 /** What an investigation found: evidence for grounding, sources to cite, and its cost. */
 export interface InvestigationResult {
+    readonly clarification?: ClarificationRequest;
     readonly blocks: ReadonlyArray<string>;
     readonly sources: ReadonlyArray<DiscussionSource>;
     readonly usage: CallUsage;
@@ -184,6 +188,7 @@ export interface DocumentRequest {
 }
 
 export interface TriageResult {
+    readonly questions: ClarificationQuestion[];
     readonly plan?: TaskExecutionPlan | null;
     readonly intent: DiscussionIntent;
     /** The complete reply for a conversational message; null for a task. */
@@ -241,7 +246,11 @@ export class DiscussionRuntime {
 
     async triage(context: TurnContext, signal?: AbortSignal): Promise<TriageResult> {
         const explicit = explicitDeliverableRequirements(context.message);
-        if (explicit.repository && (context.collaborators.toolbox?.repositoryCount ?? 0) === 0) throw new AppError(422, "Attach an accessible repository connector to this discussion before requesting repository analysis.");
+        if (explicit.repository && (context.collaborators.toolbox?.repositoryCount ?? 0) === 0) return {
+            intent: DISCUSSION_INTENTS.clarification, reply: "I need the repository source before I can analyze it.",
+            questions: [{ question: "Which repository should I analyze? Attach its connection to this discussion, then reply here to continue.", options: [] }],
+            plan: null, document: null, handoffs: [], usage: ZERO_USAGE,
+        };
         if (explicit.minimumImages > DOCUMENT_RENDER_LIMITS.figures) throw new AppError(422, `One document supports at most ${DOCUMENT_RENDER_LIMITS.figures} generated images. The requested count was not silently reduced.`);
         const capability = context.collaborators.documentImages;
         const imageInstructions = capability ? capability.supported
@@ -322,7 +331,7 @@ export class DiscussionRuntime {
     ): Promise<InvestigationResult> {
         const { virtualKey, modelAlias } = await this.keys.resolveProcessKey(context.workspaceId, AGENT_RUNTIME_PROCESSES.orchestration);
         const known = prior.length ? `\n\n## Already found\n${AGENT_DATA_POLICY}\n${prior.join("\n")}` : "";
-        const messages: ChatMessage[] = await this.messages(context, AGENT_INVESTIGATION_INSTRUCTIONS);
+        const messages: ChatMessage[] = await this.messages(context, `${AGENT_INVESTIGATION_INSTRUCTIONS}\nIf essential user input is missing and cannot be obtained from the permitted sources, call ${ASK_USER_QUESTION_TOOL}. Ask at most three concise questions with optional suggested answers. Ask only when the answer materially changes correctness, scope or permissions. Do not ask for information you can inspect, routine formatting preferences, passwords, tokens or secrets. Do not broaden permissions or invent an answer. Calling this tool pauses the turn until the user replies.`);
         const baseMessages = messages.length;
         if (known) messages.push({ role: "user", content: known });
         const blocks: string[] = [...prior];
@@ -356,12 +365,26 @@ export class DiscussionRuntime {
                 model: modelAlias,
                 purpose: "research",
                 messages,
-                tools: session.definitions,
+                tools: [...session.definitions, { name: ASK_USER_QUESTION_TOOL, description: "Pause for essential user input that cannot be found in the permitted sources. Use sparingly; never request secrets.", parameters: structuredOutputShape(z.toJSONSchema(clarificationRequestSchema)) }],
                 toolChoice: "auto",
                 ...(context.taskPlan?.depth === "deep" ? { reasoningEffort: "high" as const } : {}),
             }, signal), signal);
             usage = addUsage(usage, completion.usage);
             const requested = completion.toolCalls;
+            const questionCalls = requested.filter(call => call.name === ASK_USER_QUESTION_TOOL);
+            if (questionCalls.length) {
+                const requests: ClarificationRequest[] = [];
+                for (const call of questionCalls) {
+                    let value: unknown;
+                    try { value = JSON.parse(call.arguments); } catch { throw new AppError(502, "The agent returned an unreadable question request.", undefined, true); }
+                    const parsed = clarificationRequestSchema.safeParse(value);
+                    if (!parsed.success) throw new AppError(502, "The agent returned an invalid question request.", undefined, true);
+                    requests.push(parsed.data);
+                }
+                const parsed = clarificationRequestSchema.safeParse({ reply: requests.map(request => request.reply).filter(Boolean).join("\n\n"), questions: requests.flatMap(request => request.questions) });
+                if (!parsed.success) throw new AppError(502, "The agent returned an invalid question request.", undefined, true);
+                return { blocks, sources, usage, clarification: parsed.data };
+            }
             if (requested.length > maxCalls - calls) {
                 blocks.push("Investigation stopped before this batch: the configured tool-call budget would be exceeded. Coverage is incomplete.");
                 break;
@@ -622,7 +645,7 @@ export class DiscussionRuntime {
     }
 
     private styleInstructions(context: TurnContext): string {
-        return `## Response style\n${DISCUSSION_RESPONSE_SHAPING[context.responseMode]} ${DISCUSSION_CAPABILITY_SHAPING[context.capabilityMode]}`;
+        return `## Response style\n${DISCUSSION_RESPONSE_SHAPING[context.responseMode]} ${DISCUSSION_CAPABILITY_SHAPING[context.capabilityMode]} When enough information is available, answer directly. Do not append routine follow-up questions or approval requests to completed answers.`;
     }
 
     /** Invalid plans fail explicitly rather than silently dropping a document or its image requirements. */
@@ -644,6 +667,8 @@ export class DiscussionRuntime {
         }
         const plan = parsed.data;
         const explicit = explicitDeliverableRequirements(context.message);
+        if (plan.intent === DISCUSSION_INTENTS.clarification && (!plan.questions.length || plan.document || plan.plan)) throw new AppError(502, "The model returned an inconsistent clarification request.");
+        if (plan.intent !== DISCUSSION_INTENTS.clarification && plan.questions.length) throw new AppError(502, "Questions must use the clarification intent.");
         if (plan.intent === DISCUSSION_INTENTS.conversational && (!plan.reply.trim() || plan.document || plan.plan || explicit.document)) throw new AppError(502, "The model returned an inconsistent discussion plan.");
         if (plan.intent === DISCUSSION_INTENTS.task) {
             if (!plan.plan) throw new AppError(502, "The task planner did not return an execution contract.", undefined, true);
@@ -655,7 +680,7 @@ export class DiscussionRuntime {
             if (plan.document && plan.document.imageCount < explicit.minimumImages) throw new AppError(502, "The planner omitted explicitly requested images or reduced their count.", undefined, true);
             if (plan.document && explicit.synopsis && !plan.document.requiredSections.some(title => /synopsis/i.test(title))) throw new AppError(502, "The planner omitted the requested synopsis section.", undefined, true);
         }
-        return { intent: plan.intent, reply: plan.intent === DISCUSSION_INTENTS.conversational ? plan.reply.trim() : null, plan: plan.plan, handoffs: [], document: plan.document };
+        return { intent: plan.intent, reply: plan.intent !== DISCUSSION_INTENTS.task ? plan.reply.trim() : null, plan: plan.plan, handoffs: [], document: plan.document, questions: plan.questions };
     }
 
     private render(id: string, variables?: Readonly<Record<string, string>>): Promise<string> {

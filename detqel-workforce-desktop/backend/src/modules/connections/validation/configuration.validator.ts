@@ -2,8 +2,8 @@ import { createRequire } from "node:module";
 import { Ajv, type ErrorObject } from "ajv";
 import type { FormatsPlugin } from "ajv-formats";
 import { AppError } from "../../../shared/errors/app-error.js";
-import type { ConfigurationSchema } from "../../../shared/types/connector-catalog.js";
-import { REPOSITORY_NAME_PATTERN } from "../../../constants/connectionConstants.js";
+import type { ConfigurationSchema } from "../../../shared/types/connection-adapter.js";
+import { REPOSITORY_NAME_PATTERN, REPOSITORY_SEGMENT_PATTERN } from "../../../constants/connectionConstants.js";
 const addFormats = createRequire(import.meta.url)("ajv-formats") as FormatsPlugin;
 
 /** One sentence per invalid field, named by its form label, so the user knows what to change. */
@@ -18,7 +18,7 @@ function describeIssue(schema: ConfigurationSchema, issue: ErrorObject): string 
         case "enum": return `${label} must be one of the listed options.`;
         case "format": return issue.params.format === "uri" ? `${label} must be a full URL, such as https://example.com.` : `${label} is not in the expected format.`;
         case "pattern":
-            return issue.params.pattern === REPOSITORY_NAME_PATTERN
+            return [REPOSITORY_NAME_PATTERN, REPOSITORY_SEGMENT_PATTERN].includes(issue.params.pattern)
                 ? `${label} must be the name as it appears in the repository URL: letters, numbers, "-", "_" or "." only, with no spaces and no full URL.`
                 : `${label} is not in the expected format.`;
         case "additionalProperties": return `"${String(issue.params.additionalProperty)}" is not a setting of this connector.`;

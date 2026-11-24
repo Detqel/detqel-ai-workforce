@@ -11,5 +11,6 @@ export interface IActivityRepository {
     getHeatmapData(workspaceId: string, options?: {
         userId?: string;
         days?: number;
+        timeZone?: string;
     }): Promise<ActivityHeatmapResult>;
 }

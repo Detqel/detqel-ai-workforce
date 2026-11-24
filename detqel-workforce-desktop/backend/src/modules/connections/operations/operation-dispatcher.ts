@@ -1,6 +1,6 @@
 import { AppError } from "../../../shared/errors/app-error.js";
 import { createScopedLogger } from "../../../shared/logging/logger.js";
-import type { ConnectorHandle, ConnectorOperationResult } from "../../../shared/types/connector-catalog.js";
+import type { ConnectorHandle, ConnectorOperationResult } from "../../../shared/types/connection-adapter.js";
 import {
     CONNECTOR_OPERATION_CLASSIFICATION,
     CONNECTOR_OPERATION_ERRORS,

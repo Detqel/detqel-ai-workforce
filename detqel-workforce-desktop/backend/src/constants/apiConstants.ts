@@ -15,7 +15,7 @@ export const HTTP_EVENT_STREAM = {
 export const LOG_REDACTION_PATHS = ["req.headers.authorization", "req.headers.cookie", `req.headers["${DESKTOP_TOKEN_HEADER}"]`, "password", "passwordHash"];
 export const API_TAG_NAMES = {
     system: "System", auth: "Auth", workspaces: "Workspaces", users: "Users",
-    business: "Business Brain", workforce: "AI Workforce", connections: "Connections", lookups: "Lookups",
+    business: "Business Brain", workforce: "AI Workforce", connections: "Connections",
     missions: "Missions & Command Center", approvals: "Approvals", executions: "Executions",
     analytics: "Analytics & Intelligence", automations: "Automations", notifications: "Notifications",
     domains: "Domains", settings: "Settings", discussions: "Discussions",
@@ -35,7 +35,6 @@ export const OPENAPI_TAGS = [
     { name: API_TAG_NAMES.business, description: "Profile, Knowledge, Goals, Rules, State, and Memory" },
     { name: API_TAG_NAMES.workforce, description: "Agents, connections, and agent memory" },
     { name: API_TAG_NAMES.connections, description: "Data sources and external tool integrations" },
-    { name: API_TAG_NAMES.lookups, description: "Common lookup table operations" },
     { name: API_TAG_NAMES.missions, description: "Mission lifecycles, plans, and event timelines" },
     { name: API_TAG_NAMES.approvals, description: "Human-in-the-loop governance and sign-off" },
     { name: API_TAG_NAMES.executions, description: "Action dispatching and execution status" },

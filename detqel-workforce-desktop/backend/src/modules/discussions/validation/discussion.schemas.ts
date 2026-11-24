@@ -39,10 +39,18 @@ export const uploadArtifactSchema = z.object({
 }).strict();
 
 export const postMessageSchema = z.object({
+    answerToQuestionId: z.string().uuid().optional(),
     message: z.string().min(1).max(DISCUSSION_LIMITS.maxMessageCharacters),
     responseMode: z.enum([DISCUSSION_RESPONSE_MODES.brief, DISCUSSION_RESPONSE_MODES.detailed]).default(DISCUSSION_RESPONSE_MODES.detailed),
     capabilityMode: z.enum([DISCUSSION_CAPABILITY_MODES.fast, DISCUSSION_CAPABILITY_MODES.expert]).default(DISCUSSION_CAPABILITY_MODES.fast),
     webEnabled: z.boolean().default(false),
+}).strict();
+
+export const pendingQuestionsQuerySchema = z.object({
+    focusQuestionId: z.string().uuid().optional(),
+    sessionId: z.string().uuid().optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(10),
+    offset: z.coerce.number().int().min(0).max(10000).default(0),
 }).strict();
 
 export const restoreCheckpointSchema = z.object({ mode: z.literal("edit") }).strict();

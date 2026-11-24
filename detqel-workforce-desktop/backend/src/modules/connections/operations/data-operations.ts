@@ -2,7 +2,7 @@ import { readFile, readdir, writeFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { Sql } from "postgres";
 import { AppError } from "../../../shared/errors/app-error.js";
-import type { ConnectorOperationRequest, ConnectorOperationResult } from "../../../shared/types/connector-catalog.js";
+import type { ConnectorOperationRequest, ConnectorOperationResult } from "../../../shared/types/connection-adapter.js";
 import { CONNECTOR_OPERATIONS } from "../../../constants/connectorOperationConstants.js";
 import { allowedFilesystemPath, requiredString } from "../adapters/adapter-configuration.js";
 import { AGENT_FORBIDDEN_SQL, AGENT_TOOL_ERRORS, AGENT_TOOL_LIMITS } from "../../../constants/agentContextConstants.js";

@@ -20,19 +20,6 @@ export interface ConfigurationSchema {
     [key: string]: unknown;
 }
 
-export interface ConnectorCatalogItem {
-    id: string;
-    code: string;
-    name: string;
-    connectorType: string;
-    category: string;
-    description: string | null;
-    adapterKey: string;
-    configSchema: ConfigurationSchema;
-    isEnabled: boolean;
-    createdAt: Date;
-    updatedAt: Date;
-}
 
 export interface ConnectorContext {
     workspaceId: string;

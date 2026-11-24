@@ -285,21 +285,18 @@ export async function apiGetActivityHeatmap(params: {
   workspaceId: string;
   userId?: string;
   days?: number;
-}): Promise<ActivityHeatmapResponse | null> {
-  try {
-    const query = new URLSearchParams();
-    query.set("workspaceId", params.workspaceId);
-    if (params.userId) query.set("userId", params.userId);
-    if (params.days) query.set("days", params.days.toString());
-
-    const res = await authorizedFetch(
-      `${API_BASE_URL}${API_PATHS.activityHeatmap}?${query.toString()}`
-    );
-    if (!res.ok) return null;
-    return res.json();
-  } catch {
-    return null;
+  timeZone?: string;
+}, signal?: AbortSignal): Promise<ActivityHeatmapResponse> {
+  const query = new URLSearchParams({ workspaceId: params.workspaceId });
+  if (params.userId) query.set("userId", params.userId);
+  if (params.days) query.set("days", String(params.days));
+  if (params.timeZone) query.set("timeZone", params.timeZone);
+  const response = await authorizedFetch(`${API_BASE_URL}${API_PATHS.activityHeatmap}?${query}`, { signal, cache: "no-store" });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.message || "Could not load AI activity.");
   }
+  return response.json();
 }
 
 export interface UserNotification {

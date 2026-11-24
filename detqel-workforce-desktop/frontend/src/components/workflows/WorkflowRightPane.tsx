@@ -47,6 +47,13 @@ interface WorkflowRightPaneProps {
   runResult: WorkflowRunResult | null;
 }
 
+const RUN_STATUS_COLORS = {
+  idle: { text: "text-slate-600 dark:text-slate-300", surface: "bg-slate-200/60 dark:bg-slate-800" },
+  running: { text: "text-amber-700 dark:text-amber-400", surface: "bg-amber-500/10 border border-amber-500/20" },
+  completed: { text: "text-emerald-700 dark:text-emerald-400", surface: "bg-emerald-500/10 border border-emerald-500/20" },
+  failed: { text: "text-red-700 dark:text-red-400", surface: "bg-red-500/10 border border-red-500/20" },
+} satisfies Record<WorkflowRunResult["status"], { text: string; surface: string }>;
+
 export const WorkflowRightPane: React.FC<WorkflowRightPaneProps> = ({
   isOpen,
   onToggle,
@@ -69,6 +76,7 @@ export const WorkflowRightPane: React.FC<WorkflowRightPaneProps> = ({
     JSON.stringify({ env: "production", triggerBy: "user", payload: {} }, null, 2)
   );
   const [copiedType, setCopiedType] = useState<string | null>(null);
+  const runStatus = isExecuting ? "running" : runResult?.status ?? "idle";
 
   if (!isOpen) {
     return (
@@ -227,15 +235,7 @@ export const WorkflowRightPane: React.FC<WorkflowRightPaneProps> = ({
                   Pipeline Status
                 </span>
                 <span
-                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
-                    isExecuting
-                      ? "bg-amber-500/10 text-amber-500 border border-amber-500/20 animate-pulse"
-                      : runResult?.status === "completed"
-                      ? "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20"
-                      : runResult?.status === "failed"
-                      ? "bg-red-500/10 text-red-500 border border-red-500/20"
-                      : "bg-slate-200/60 dark:bg-slate-800 text-slate-500"
-                  }`}
+                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${RUN_STATUS_COLORS[runStatus].text} ${RUN_STATUS_COLORS[runStatus].surface} ${isExecuting ? "animate-pulse" : ""}`}
                 >
                   {isExecuting ? "Executing" : runResult?.status || "Idle"}
                 </span>
@@ -245,7 +245,7 @@ export const WorkflowRightPane: React.FC<WorkflowRightPaneProps> = ({
                 <button
                   type="button"
                   onClick={onStopWorkflow}
-                  className="w-full py-2.5 rounded-xl bg-red-500 text-white font-semibold text-xs flex items-center justify-center gap-2 hover:bg-red-600 transition-colors shadow-sm cursor-pointer"
+                  className="w-full py-2.5 rounded-xl bg-red-600 text-white font-semibold text-xs flex items-center justify-center gap-2 hover:bg-red-700 transition-colors shadow-sm cursor-pointer"
                 >
                   <Square className="h-3.5 w-3.5 fill-current" />
                   <span>Abort Execution</span>
@@ -258,7 +258,7 @@ export const WorkflowRightPane: React.FC<WorkflowRightPaneProps> = ({
                   className={`w-full py-2.5 rounded-xl font-semibold text-xs flex items-center justify-center gap-2 transition-all shadow-sm ${
                     nodes.length === 0
                       ? "bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed"
-                      : "bg-primary text-primary-foreground hover:opacity-90 active:scale-98 cursor-pointer"
+                      : "bg-primary text-primary-fg hover:bg-primary-hover active:scale-98 cursor-pointer"
                   }`}
                 >
                   <Play className="h-3.5 w-3.5 fill-current" />
@@ -487,12 +487,12 @@ export const WorkflowRightPane: React.FC<WorkflowRightPaneProps> = ({
                 {logs.map((log) => {
                   const badgeColor =
                     log.level === "success"
-                      ? "text-emerald-500 bg-emerald-500/10 border-emerald-500/20"
+                      ? "text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
                       : log.level === "error"
-                      ? "text-red-500 bg-red-500/10 border-red-500/20"
+                      ? "text-red-700 dark:text-red-400 bg-red-500/10 border-red-500/20"
                       : log.level === "warn"
-                      ? "text-amber-500 bg-amber-500/10 border-amber-500/20"
-                      : "text-cyan-500 bg-cyan-500/10 border-cyan-500/20";
+                      ? "text-amber-700 dark:text-amber-400 bg-amber-500/10 border-amber-500/20"
+                      : "text-cyan-700 dark:text-cyan-400 bg-cyan-500/10 border-cyan-500/20";
 
                   return (
                     <div
@@ -574,7 +574,7 @@ export const WorkflowRightPane: React.FC<WorkflowRightPaneProps> = ({
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-slate-400">Status</span>
-                    <span className="font-mono font-bold text-emerald-500 uppercase">
+                    <span className={`font-mono font-bold uppercase ${RUN_STATUS_COLORS[runResult.status].text}`}>
                       {runResult.status}
                     </span>
                   </div>

@@ -79,7 +79,7 @@ export const WorkflowHeader: React.FC<WorkflowHeaderProps> = ({
               <button
                 type="button"
                 onClick={handleSaveName}
-                className="p-1 rounded-md text-emerald-500 hover:bg-emerald-500/10 cursor-pointer"
+                className="p-1 rounded-md text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 cursor-pointer"
               >
                 <Check className="h-3.5 w-3.5" />
               </button>
@@ -129,7 +129,7 @@ export const WorkflowHeader: React.FC<WorkflowHeaderProps> = ({
           <button
             type="button"
             onClick={onStopWorkflow}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-red-500 text-white font-semibold text-xs hover:bg-red-600 active:scale-95 transition-all shadow-xs cursor-pointer"
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-red-600 text-white font-semibold text-xs hover:bg-red-700 active:scale-95 transition-all shadow-xs cursor-pointer"
           >
             <Square className="h-3.5 w-3.5 fill-current" />
             <span>Stop Run</span>
@@ -142,7 +142,7 @@ export const WorkflowHeader: React.FC<WorkflowHeaderProps> = ({
             className={`flex items-center gap-1.5 px-4 py-1.5 rounded-xl font-semibold text-xs transition-all shadow-xs ${
               nodeCount === 0
                 ? "bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed"
-                : "bg-primary text-primary-foreground hover:opacity-90 active:scale-95 cursor-pointer"
+                : "bg-primary text-primary-fg hover:bg-primary-hover active:scale-95 cursor-pointer"
             }`}
           >
             <Play className="h-3.5 w-3.5 fill-current" />

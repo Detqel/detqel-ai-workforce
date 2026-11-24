@@ -25,5 +25,6 @@ export class AnalyticsService {
     getHeatmapData(workspaceId: string, options?: {
         userId?: string;
         days?: number;
+        timeZone?: string;
     }): Promise<ActivityHeatmapResult> { return this.activities.getHeatmapData(workspaceId, options); }
 }

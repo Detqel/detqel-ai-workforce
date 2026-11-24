@@ -5,7 +5,7 @@ import { TavilyWebSearchTool } from "./tavily.tool.js";
 export interface IWorkspaceWebSearch {
     /** Fails with an actionable message when the workspace has no usable key saved. */
     assertConfigured(workspaceId: string): Promise<void>;
-    search(workspaceId: string, query: string, maxResults: number): Promise<WebContext[]>;
+    search(workspaceId: string, query: string, maxResults: number, options?: { signal?: AbortSignal; deep?: boolean; raw?: boolean }): Promise<WebContext[]>;
 }
 
 export class WorkspaceWebSearch implements IWorkspaceWebSearch {
@@ -16,10 +16,10 @@ export class WorkspaceWebSearch implements IWorkspaceWebSearch {
         await this.resolveKey(workspaceId);
     }
 
-    async search(workspaceId: string, query: string, maxResults: number): Promise<WebContext[]> {
+    async search(workspaceId: string, query: string, maxResults: number, options: { signal?: AbortSignal; deep?: boolean; raw?: boolean } = {}): Promise<WebContext[]> {
         // The key is read per search, so a key changed in Settings applies to the very next turn.
         const tool = new TavilyWebSearchTool({ apiKey: await this.resolveKey(workspaceId) });
-        const response = await tool.search(query, { maxResults });
-        return response.results.map(result => ({ title: result.title || result.url, url: result.url, snippet: result.snippet }));
+        const response = await tool.search(query, { maxResults, deep: options.deep, raw: options.raw }, options.signal);
+        return response.results.map(result => ({ title: result.title || result.url, url: result.url, snippet: options.raw && result.rawContent ? result.rawContent : result.snippet }));
     }
 }

@@ -8,12 +8,13 @@ import type {
     ChatSessionConnection,
     PendingResponder,
     PendingTurn,
+    ChatQuestion,
 } from "../../../infrastructure/database/schema/discussions.js";
 import type { ConversationContext } from "../../../shared/agents/context/conversation-context.js";
 export type { ChatSession, NewChatSession, ChatMessage, NewChatMessage, ChatMessageSource, NewChatMessageSource, ChatSessionConnection, PendingResponder, PendingTurn };
 
 export type RestoredCheckpoint = ChatSession & {
-    composerDraft: { readonly messageId: string; readonly content: string };
+    composerDraft: { readonly messageId: string; readonly content: string; readonly answerToQuestionId?: string };
     messages: ChatMessage[];
 };
 
@@ -29,7 +30,10 @@ export interface CreateMessageWithSources {
     readonly sources: ReadonlyArray<Omit<NewChatMessageSource, "messageId">>;
     readonly pendingTurn: PendingTurn | null;
     readonly usage: UsageDelta;
+    readonly clarification?: { readonly questions: ChatQuestion["questions"]; readonly requestContent: string };
 }
+
+export type PendingQuestionSummary = Pick<ChatQuestion, "id" | "sessionId" | "messageId" | "questions" | "createdAt"> & { sessionTitle: string; speakerName: string | null };
 
 export interface IDiscussionRepository {
     createSession(session: NewChatSession): Promise<ChatSession>;
@@ -40,9 +44,12 @@ export interface IDiscussionRepository {
     deleteSession(sessionId: string): Promise<boolean>;
 
     listMessages(sessionId: string): Promise<ChatMessage[]>;
-    appendMessage(message: NewChatMessage): Promise<ChatMessage>;
+    appendMessage(message: NewChatMessage, answerToQuestionId?: string, pendingTurn?: PendingTurn | null, actorUserId?: string): Promise<ChatMessage>;
     /** Commits the reply, sources, usage and next queue in one transaction. */
-    appendMessageWithSources(input: CreateMessageWithSources): Promise<{ message: ChatMessage; session: ChatSession }>;
+    appendMessageWithSources(input: CreateMessageWithSources): Promise<{ message: ChatMessage; session: ChatSession; question?: ChatQuestion }>;
+    listPendingQuestions(workspaceId: string, options: { sessionId?: string; focusQuestionId?: string; limit: number; offset: number }): Promise<{ items: PendingQuestionSummary[]; total: number }>;
+    findPendingQuestion(workspaceId: string, sessionId: string, questionId: string): Promise<ChatQuestion | null>;
+    findQuestionForAnswer(sessionId: string, answerMessageId: string): Promise<ChatQuestion | null>;
     listMessageSources(messageId: string): Promise<ChatMessageSource[]>;
 
     /** Replaces the queue of teammates still due to reply; null clears it. */

@@ -35,7 +35,7 @@ export interface ChatSession extends SessionUsage {
   teamId: string | null;
   /** Teammates still due to reply in the current turn; null when the turn is complete. */
   pendingTurn: { turnId: string; queue: Array<{ agentId: string }> } | null;
-  composerDraft: { messageId: string; content: string } | null;
+  composerDraft: { messageId: string; content: string; answerToQuestionId?: string } | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -58,6 +58,25 @@ export interface ChatMessage {
   activity: ActivityStep[];
   tokensUsed: number;
   createdAt: string;
+}
+
+export interface PendingQuestion {
+  id: string;
+  sessionId: string;
+  messageId: string;
+  sessionTitle: string;
+  speakerName: string | null;
+  questions: Array<{ question: string; options: string[] }>;
+  createdAt: string;
+}
+
+export async function apiListDiscussionQuestions(workspaceId: string, options: { sessionId?: string; focusQuestionId?: string; limit?: number; offset?: number } = {}, signal?: AbortSignal): Promise<{ items: PendingQuestion[]; total: number }> {
+  const query = new URLSearchParams({ limit: String(options.limit ?? 10), offset: String(options.offset ?? 0) });
+  if (options.sessionId) query.set("sessionId", options.sessionId);
+  if (options.focusQuestionId) query.set("focusQuestionId", options.focusQuestionId);
+  const response = await authorizedFetch(`${API_BASE_URL}${API_PATHS.discussions}/${encodeURIComponent(workspaceId)}/questions?${query}`, { signal, cache: "no-store" });
+  if (!response.ok) return failure(response, "Could not load unanswered questions.");
+  return response.json();
 }
 
 /** How a speaker takes part in a turn: alone, as the lead, named by the user, handed work, or closing as the lead. */
@@ -101,7 +120,8 @@ export interface PendingSpeaker {
 /** Events of a streamed turn, in the order the server writes them. */
 export type TurnEvent =
   | { type: "context"; context: ConversationContext }
-  | { type: "turn"; userMessage: ChatMessage }
+  | { type: "turn"; userMessage: ChatMessage; answerToQuestionId?: string }
+  | { type: "question"; question: PendingQuestion }
   | { type: "routed"; agentId: string }
   | { type: "speaker"; agentId: string; name: string; role: string; isLead: boolean; turnRole: TurnRole }
   | { type: "activity"; agentId: string; step: ActivityStep }
@@ -156,7 +176,7 @@ const sessionsUrl = `${API_BASE_URL}${API_PATHS.discussionSessions}`;
 const workspaceUrl = (workspaceId: string) => `${API_BASE_URL}${API_PATHS.discussions}/${encodeURIComponent(workspaceId)}/sessions`;
 
 export interface RestoredCheckpoint extends ChatSession {
-  composerDraft: { messageId: string; content: string };
+  composerDraft: { messageId: string; content: string; answerToQuestionId?: string };
   messages: ChatMessage[];
 }
 
@@ -302,7 +322,7 @@ export async function apiDeleteDiscussionSession(workspaceId: string, sessionId:
 export function apiStreamDiscussionMessage(
   workspaceId: string,
   sessionId: string,
-  payload: { message: string; responseMode: ResponseMode; capabilityMode: CapabilityMode; webEnabled: boolean },
+  payload: { message: string; responseMode: ResponseMode; capabilityMode: CapabilityMode; webEnabled: boolean; answerToQuestionId?: string },
   onEvent: (event: TurnEvent) => void,
   signal: AbortSignal,
 ): Promise<void> {

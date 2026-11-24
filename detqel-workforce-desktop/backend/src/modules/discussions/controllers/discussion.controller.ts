@@ -1,5 +1,5 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
-import { restoreCheckpointSchema } from "../validation/discussion.schemas.js";
+import { pendingQuestionsQuerySchema, restoreCheckpointSchema } from "../validation/discussion.schemas.js";
 import { requireUserId } from "../../../shared/security/request-context.js";
 import { workspaceParamsSchema } from "../../../shared/validation/http.schemas.js";
 import type { DiscussionService } from "../services/discussion.service.js";
@@ -59,6 +59,12 @@ export class DiscussionController {
         return reply.send(await this.service.listMessages(workspaceId, sessionId));
     }
 
+    async listPendingQuestions(request: FastifyRequest, reply: FastifyReply) {
+        const { workspaceId } = workspaceParamsSchema.parse(request.params);
+        const query = pendingQuestionsQuerySchema.parse(request.query);
+        return reply.header("Cache-Control", "private, no-store").send(await this.service.listPendingQuestions(workspaceId, query));
+    }
+
     async deleteSession(request: FastifyRequest, reply: FastifyReply) {
         const { workspaceId } = workspaceParamsSchema.parse(request.params);
         const { sessionId } = sessionIdParamsSchema.parse(request.params);
@@ -72,7 +78,7 @@ export class DiscussionController {
         const { sessionId } = sessionIdParamsSchema.parse(request.params);
         const body = postMessageSchema.parse(request.body);
         // Problems the user must fix (no model, no web-search key) fail here as an ordinary error response.
-        const turn = await this.service.startMessage({ workspaceId, sessionId, ...body });
+        const turn = await this.service.startMessage({ workspaceId, sessionId, ...body, actorUserId: requireUserId(request) });
         return sendEventStream(reply, (emit, signal) => turn.run(emit, signal));
     }
 

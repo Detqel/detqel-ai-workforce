@@ -2,7 +2,7 @@ import { CONNECTION_FIELD_LIMITS } from "../../../constants/connectionConstants.
 import { z } from "zod";
 export const createConnectionSchema = z.object({
     workspaceId: z.string().uuid(),
-    catalogId: z.string().uuid(),
+    definitionId: z.string().uuid(),
     name: z.string().trim().min(1).max(CONNECTION_FIELD_LIMITS.name),
     dataStream: z.string().trim().max(CONNECTION_FIELD_LIMITS.dataStream).nullable().optional(),
     configuration: z.record(z.string(), z.unknown()),
@@ -19,11 +19,11 @@ export const updateConnectionSchema = z.object({
     .refine(value => !value.replaceCredentials || value.configuration !== undefined, "Replacement credentials require configuration")
     .refine(value => Object.keys(value).length > 0, "At least one field is required");
 
-export const catalogQuerySchema = z.object({
+
+export const discoverConnectorSchema = z.object({
     workspaceId: z.string().uuid(),
-    connectorType: z.string().trim().min(1).max(CONNECTION_FIELD_LIMITS.connectorType).optional(),
-    category: z.string().trim().min(1).max(CONNECTION_FIELD_LIMITS.category).optional(),
-});
+    query: z.string().trim().min(3).max(100).regex(/^[\p{L}\p{N} ._+/#()&-]+$/u, "Search using a provider or product name, without credentials or URLs."),
+}).strict();
 
 export type CreateConnectionInput = z.infer<typeof createConnectionSchema>;
 export type UpdateConnectionInput = z.infer<typeof updateConnectionSchema>;

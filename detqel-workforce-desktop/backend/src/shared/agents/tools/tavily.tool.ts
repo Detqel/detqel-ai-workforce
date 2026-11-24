@@ -29,6 +29,7 @@ function failureFor(status: number): AppError {
 }
 
 export interface WebSearchResult {
+    readonly rawContent?: string;
     readonly title: string;
     readonly url: string;
     readonly snippet: string;
@@ -42,6 +43,7 @@ export interface WebSearchResponse {
 }
 
 export interface WebSearchOptions {
+    readonly raw?: boolean;
     readonly maxResults?: number;
     readonly deep?: boolean;
 }
@@ -67,6 +69,7 @@ export class TavilyWebSearchTool {
             max_results: maxResults,
             search_depth: options.deep ? TAVILY_SEARCH_DEPTH.advanced : TAVILY_SEARCH_DEPTH.basic,
             include_answer: true,
+            ...(options.raw ? { include_raw_content: "markdown" } : {}),
         };
         const timeout = AbortSignal.timeout(TAVILY_LIMITS.requestTimeoutMs);
         const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
@@ -107,6 +110,7 @@ export class TavilyWebSearchTool {
                 url: typeof row.url === "string" ? row.url : "",
                 snippet: typeof row.content === "string" ? row.content : "",
                 score: typeof row.score === "number" ? row.score : 0,
+                ...(typeof row.raw_content === "string" ? { rawContent: row.raw_content } : {}),
             }))
             .filter(result => result.url.length > 0);
         return { query, answer: typeof payload.answer === "string" ? payload.answer : null, results };

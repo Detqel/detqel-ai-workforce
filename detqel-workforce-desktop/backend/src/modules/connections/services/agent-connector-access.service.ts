@@ -9,8 +9,9 @@ import {
 import { AppError } from "../../../shared/errors/app-error.js";
 import { createScopedLogger } from "../../../shared/logging/logger.js";
 import { isProtectedFile, redactValue } from "../../../shared/agents/context/data-guard.js";
-import type { ConnectorOperationResult } from "../../../shared/types/connector-catalog.js";
+import type { ConnectorOperationResult } from "../../../shared/types/connection-adapter.js";
 import type { ConnectionReader, ConnectionService } from "./connection.service.js";
+import { agentKindOf } from "./connector-agent-policy.js";
 
 const logger = createScopedLogger("agent-connector-access");
 
@@ -47,16 +48,6 @@ export interface IAgentConnectorAccess {
     /** KAG: the connector's structure (a database's tables and relationships, a repository's layout, MCP tools). */
     describe(workspaceId: string, connector: AgentConnector): Promise<AgentReadResult>;
     read(workspaceId: string, connector: AgentConnector, request: AgentConnectorRead): Promise<AgentReadResult>;
-}
-
-/** Decides how a connector is read from its adapter. Connectors without a safe reader are not offered to agents. */
-export function agentKindOf(adapterKey: string): AgentConnectorKind | null {
-    if (adapterKey === CONNECTOR_ADAPTER_KEYS.postgres) return AGENT_CONNECTOR_KINDS.database;
-    if (adapterKey.startsWith("repository.")) return AGENT_CONNECTOR_KINDS.repository;
-    if (adapterKey === CONNECTOR_ADAPTER_KEYS.file || adapterKey === CONNECTOR_ADAPTER_KEYS.directory) return AGENT_CONNECTOR_KINDS.files;
-    if (adapterKey === CONNECTOR_ADAPTER_KEYS.http || adapterKey === CONNECTOR_ADAPTER_KEYS.environmentHttp) return AGENT_CONNECTOR_KINDS.api;
-    if (adapterKey.startsWith("mcp.")) return AGENT_CONNECTOR_KINDS.mcp;
-    return null;
 }
 
 /** A short, readable, unique name for the agent to refer to a connector by. */

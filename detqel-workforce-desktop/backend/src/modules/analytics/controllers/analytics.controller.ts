@@ -30,10 +30,11 @@ export class AnalyticsController {
         return reply.status(201).send(simulation);
     }
     async getHeatmap(request: FastifyRequest, reply: FastifyReply) {
-        const { workspaceId, userId, days } = heatmapQuerySchema.parse(request.query);
+        const { workspaceId, userId, days, timeZone } = heatmapQuerySchema.parse(request.query);
         const heatmap = await this.service.getHeatmapData(workspaceId, {
             userId,
             days,
+            timeZone,
         });
         return reply.send(heatmap);
     }

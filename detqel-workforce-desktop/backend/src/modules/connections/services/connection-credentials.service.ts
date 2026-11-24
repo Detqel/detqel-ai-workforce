@@ -1,7 +1,7 @@
 import { CONNECTOR_CRYPTO } from "../../../constants/connectionConstants.js";
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { AppError } from "../../../shared/errors/app-error.js";
-import type { ConfigurationSchema } from "../../../shared/types/connector-catalog.js";
+import type { ConfigurationSchema } from "../../../shared/types/connection-adapter.js";
 
 export class ConnectionCredentialsUnavailableError extends AppError {
     constructor() {

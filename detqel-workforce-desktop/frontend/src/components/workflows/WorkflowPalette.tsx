@@ -224,7 +224,7 @@ const CATEGORY_METADATA: Record<
   trigger: {
     label: "Triggers",
     dotColor: "bg-amber-500",
-    textColor: "text-amber-500 dark:text-amber-400",
+    textColor: "text-amber-700 dark:text-amber-400",
     iconBg: "bg-amber-500/10 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 border-amber-500/30",
     badgeBg: "bg-amber-100 dark:bg-amber-950/60",
     badgeText: "text-amber-800 dark:text-amber-300",
@@ -234,7 +234,7 @@ const CATEGORY_METADATA: Record<
   action: {
     label: "Actions & APIs",
     dotColor: "bg-cyan-500",
-    textColor: "text-cyan-500 dark:text-cyan-400",
+    textColor: "text-cyan-700 dark:text-cyan-400",
     iconBg: "bg-cyan-500/10 dark:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 border-cyan-500/30",
     badgeBg: "bg-cyan-100 dark:bg-cyan-950/60",
     badgeText: "text-cyan-800 dark:text-cyan-300",
@@ -244,7 +244,7 @@ const CATEGORY_METADATA: Record<
   flow: {
     label: "Flow Control",
     dotColor: "bg-purple-500",
-    textColor: "text-purple-500 dark:text-purple-400",
+    textColor: "text-purple-700 dark:text-purple-400",
     iconBg: "bg-purple-500/10 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400 border-purple-500/30",
     badgeBg: "bg-purple-100 dark:bg-purple-950/60",
     badgeText: "text-purple-800 dark:text-purple-300",
@@ -254,7 +254,7 @@ const CATEGORY_METADATA: Record<
   agent: {
     label: "AI & Workforce",
     dotColor: "bg-emerald-500",
-    textColor: "text-emerald-500 dark:text-emerald-400",
+    textColor: "text-emerald-700 dark:text-emerald-400",
     iconBg: "bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border-emerald-500/30",
     badgeBg: "bg-emerald-100 dark:bg-emerald-950/60",
     badgeText: "text-emerald-800 dark:text-emerald-300",
@@ -264,7 +264,7 @@ const CATEGORY_METADATA: Record<
   output: {
     label: "Outputs & Alerts",
     dotColor: "bg-rose-500",
-    textColor: "text-rose-500 dark:text-rose-400",
+    textColor: "text-rose-700 dark:text-rose-400",
     iconBg: "bg-rose-500/10 dark:bg-rose-500/20 text-rose-600 dark:text-rose-400 border-rose-500/30",
     badgeBg: "bg-rose-100 dark:bg-rose-950/60",
     badgeText: "text-rose-800 dark:text-rose-300",

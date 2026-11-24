@@ -101,7 +101,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         {children}
         <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">{!announcement.urgent && announce}</div>
         <div className="sr-only" role="alert" aria-atomic="true">{announcement.urgent && announce}</div>
-        <section aria-label="Recent activity" className="fixed bottom-5 right-5 z-[100] flex w-[calc(100vw-2.5rem)] max-w-sm flex-col gap-3 pointer-events-none">
+        <section aria-label="Recent activity" className="fixed top-5 right-5 z-[100] flex w-[calc(100vw-2.5rem)] max-w-sm flex-col gap-3 pointer-events-none">
           {visibleToasts.map(item => <ActivityToast key={item.id} item={item} dismiss={dismiss} openHistory={openCenter} />)}
         </section>
       </NotificationContext.Provider>

@@ -1,6 +1,6 @@
 import { CONNECTOR_ADAPTER_KEYS } from "../../../constants/connectionConstants.js";
 import { AppError } from "../../../shared/errors/app-error.js";
-import type { ConnectorAdapter, ConnectorContext, ConnectorHandle, ConnectorRuntimeOptions } from "../../../shared/types/connector-catalog.js";
+import type { ConnectorAdapter, ConnectorContext, ConnectorHandle, ConnectorRuntimeOptions } from "../../../shared/types/connection-adapter.js";
 import { allowedExecutable, allowedFilesystemPath, authenticationHeaders, httpEndpoint, requiredString } from "./adapter-configuration.js";
 import { HttpConnectorAdapter } from "./data-connector.adapters.js";
 import { verifiedHttpResponse } from "./http-verification.js";

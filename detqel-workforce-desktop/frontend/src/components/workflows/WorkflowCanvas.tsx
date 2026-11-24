@@ -490,7 +490,7 @@ export const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({
             <button
               type="button"
               onClick={onAddInitialTrigger}
-              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-primary-foreground font-semibold text-xs hover:opacity-90 active:scale-95 transition-all shadow-sm cursor-pointer"
+              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-primary-fg font-semibold text-xs hover:bg-primary-hover active:scale-95 transition-all shadow-sm cursor-pointer"
             >
               <Plus className="h-4 w-4" />
               <span>Add Initial Manual Trigger</span>

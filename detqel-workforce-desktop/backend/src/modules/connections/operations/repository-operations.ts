@@ -1,7 +1,7 @@
 import { REPOSITORY_LIMITS, REPOSITORY_RESOURCES } from "../../../constants/connectionConstants.js";
 import { CONNECTOR_OPERATIONS } from "../../../constants/connectorOperationConstants.js";
 import { AppError } from "../../../shared/errors/app-error.js";
-import type { ConnectorOperationRequest, ConnectorOperationResult } from "../../../shared/types/connector-catalog.js";
+import type { ConnectorOperationRequest, ConnectorOperationResult } from "../../../shared/types/connection-adapter.js";
 import type { RepositoryClient } from "../adapters/repository-providers.js";
 
 const INVALID_REF = /[\s~^:?*[\\\u0000-\u001f\u007f]/;

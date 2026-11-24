@@ -6,7 +6,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { AppError } from "../../../shared/errors/app-error.js";
 import { CONNECTOR_OPERATIONS } from "../../../constants/connectorOperationConstants.js";
-import type { ConnectorAdapter, ConnectorContext, ConnectorHandle, ConnectorOperationRequest, ConnectorOperationResult, ConnectorRuntimeOptions } from "../../../shared/types/connector-catalog.js";
+import type { ConnectorAdapter, ConnectorContext, ConnectorHandle, ConnectorOperationRequest, ConnectorOperationResult, ConnectorRuntimeOptions } from "../../../shared/types/connection-adapter.js";
 import { allowedExecutable, authenticationHeaders, bounded, httpEndpoint, requiredString } from "./adapter-configuration.js";
 import { originRestrictedFetch } from "./http-verification.js";
 

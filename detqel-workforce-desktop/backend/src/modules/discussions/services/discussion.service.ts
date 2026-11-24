@@ -7,6 +7,7 @@ import { storageFolderName } from "../../../shared/rag/named-directories.js";
 import { CONTEXT_COMPACTION, type ConversationContext } from "../../../shared/agents/context/conversation-context.js";
 import type { DiscussionActivityStep } from "../../../shared/types/discussion-activity.js";
 import { randomUUID } from "node:crypto";
+import { answeredQuestionRequest } from "../../../shared/agents/graphs/clarification.js";
 import { AppError } from "../../../shared/errors/app-error.js";
 import type { TaskExecutionPlan, RepositorySnapshot } from "../../../shared/agents/graphs/task-plan.js";
 import type { TurnCheckpoint } from "../../../shared/agents/graphs/turn-checkpoint.js";
@@ -77,6 +78,8 @@ export interface CreateSessionInput {
 }
 
 export interface PostMessageInput {
+    readonly actorUserId?: string;
+    readonly answerToQuestionId?: string;
     readonly workspaceId: string;
     readonly sessionId: string;
     readonly message: string;
@@ -387,6 +390,11 @@ export class DiscussionService {
         return this.unit.discussions.listMessages(sessionId);
     }
 
+    async listPendingQuestions(workspaceId: string, options: { sessionId?: string; focusQuestionId?: string; limit: number; offset: number }) {
+        if (options.sessionId) await this.getSession(workspaceId, options.sessionId);
+        return this.unit.discussions.listPendingQuestions(workspaceId, options);
+    }
+
     /** Full cleanup: stop any running turn, drop the vector collection and the file-server tree, then the row. */
     async deleteSession(workspaceId: string, sessionId: string): Promise<void> {
         const session = await this.getSession(workspaceId, sessionId);
@@ -470,14 +478,19 @@ export class DiscussionService {
     }
 
     private async prepareMessage(input: PostMessageInput): Promise<PreparedTurn> {
-        const message = input.message;
+        let message = input.message;
         if (message.trim().length === 0) throw new AppError(400, DISCUSSION_ERRORS.emptyMessage);
         if (message.length > DISCUSSION_LIMITS.maxMessageCharacters) throw new AppError(400, DISCUSSION_ERRORS.messageTooLong);
         const session = await this.getSession(input.workspaceId, input.sessionId);
+        if (input.answerToQuestionId) {
+            const question = await this.unit.discussions.findPendingQuestion(input.workspaceId, input.sessionId, input.answerToQuestionId);
+            if (!question) throw new AppError(409, "This question was already answered or is no longer pending. Refresh the discussion.");
+            message = answeredQuestionRequest(question, input.message);
+        }
         const settings: TurnSettings = { responseMode: input.responseMode, capabilityMode: input.capabilityMode, webEnabled: input.webEnabled };
         // Provision, check web search, and resolve the speakers before saving the message, so a configuration
         // problem does not leave an unanswered message behind.
-        const deliveryIntent = existingDocumentDelivery(message);
+        const deliveryIntent = input.answerToQuestionId ? null : existingDocumentDelivery(message);
         if (!deliveryIntent) await this.prepare(input.workspaceId);
         const table = await this.resolveTable(session);
 
@@ -486,9 +499,8 @@ export class DiscussionService {
         const slot = this.claim(session.id);
         try {
             const turnId = randomUUID();
-            const userMessage = await this.unit.discussions.appendMessage({ sessionId: session.id, role: DISCUSSION_MESSAGE_ROLES.user, content: message, turnId });
             const queue = deliverySource ? [this.deliverySpeaker(table, deliverySource)] : this.firstSpeakers(table);
-            await this.storeQueue(session.id, turnId, queue, settings, null, null, undefined, true);
+            const userMessage = await this.unit.discussions.appendMessage({ sessionId: session.id, role: DISCUSSION_MESSAGE_ROLES.user, content: input.message, turnId }, input.answerToQuestionId, this.pendingQueue(turnId, queue, settings), input.actorUserId);
             if (deliverySource && deliveryIntent) {
                 const current = await this.getSession(session.workspaceId, session.id);
                 if (!current.pendingTurn || current.pendingTurn.turnId !== turnId) throw new AppError(409, "The discussion changed before document delivery started.");
@@ -496,7 +508,7 @@ export class DiscussionService {
             }
             return {
                 run: (emit, signal) => {
-                    emit({ type: DISCUSSION_STREAM_EVENTS.turn, userMessage });
+                    emit({ type: DISCUSSION_STREAM_EVENTS.turn, userMessage, answerToQuestionId: input.answerToQuestionId });
                     return this.runTurn(session, table, turnId, message, settings, queue, null, slot, emit, signal);
                 },
             };
@@ -525,7 +537,9 @@ export class DiscussionService {
         const userMessage = (await this.unit.discussions.listMessages(sessionId))
             .find(message => message.turnId === pending.turnId && message.role === DISCUSSION_MESSAGE_ROLES.user);
         if (!userMessage) throw new AppError(409, DISCUSSION_ERRORS.nothingPending);
-        const deliveryIntent = pending.delivery ?? existingDocumentDelivery(userMessage.content);
+        const answeredQuestion = await this.unit.discussions.findQuestionForAnswer(sessionId, userMessage.id);
+        const message = answeredQuestion ? answeredQuestionRequest(answeredQuestion, userMessage.content) : userMessage.content;
+        const deliveryIntent = pending.delivery ?? (answeredQuestion ? null : existingDocumentDelivery(message));
         if (deliveryIntent) {
             const source = await this.deliverySource(sessionId, pending.delivery?.sourceMessageId);
             const queue = [this.deliverySpeaker(table, source)];
@@ -557,7 +571,7 @@ export class DiscussionService {
         if (pending.taskPlan && queue.length !== pending.queue.length) throw new AppError(409, "An agent assigned to this task is no longer in the team. Restore that agent or start a new turn so a new plan can be made.");
         const slot = this.claim(sessionId);
         const document = pending.document ?? null;
-        return { run: (emit, signal) => this.runTurn(session, table, pending.turnId, userMessage.content, settings, queue, document, slot, emit, signal, pending.taskPlan, pending.repositorySnapshots) };
+        return { run: (emit, signal) => this.runTurn(session, table, pending.turnId, message, settings, queue, document, slot, emit, signal, pending.taskPlan, pending.repositorySnapshots) };
     }
 
     private async deliverySource(sessionId: string, messageId?: string): Promise<ChatMessage> {
@@ -728,8 +742,8 @@ export class DiscussionService {
                         if (attempt.progress?.agentId === agentId) attempt.progress.draft = content.slice(0, 1_000_000);
                     },
                     memory: plan => this.memory(session, plan, table, message, settings, collaborators, turnId, slot.controller.signal),
-                    saveReply: (reply, remaining, pendingDocument, plan, snapshots) => this.saveReply(session, turnId, settings, reply, remaining, pendingDocument, plan, snapshots),
-                    checkpoint: (remaining, pendingDocument, plan, snapshots, progress) => this.storeQueue(session.id, turnId, remaining, settings, pendingDocument, plan, snapshots, false, progress),
+                    saveReply: (reply, remaining, pendingDocument, plan, snapshots) => this.saveReply(session, turnId, settings, reply, remaining, pendingDocument, plan, snapshots, message),
+                    checkpoint: (remaining, pendingDocument, plan, snapshots, progress) => this.storeQueue(session.id, turnId, remaining, settings, pendingDocument, plan, snapshots, progress),
                     saveDocument: (title, content, plan, request, signal) => this.saveDocument(session, title, content, plan, request, signal),
                 },
             }, queue, forward, slot.controller.signal);
@@ -867,11 +881,13 @@ export class DiscussionService {
         pendingDocument: TurnDocument | null,
         taskPlan?: TaskExecutionPlan | null,
         repositorySnapshots?: ReadonlyArray<RepositorySnapshot>,
+        requestContent = "",
     ): Promise<TurnStreamEvent[]> {
         const current = await this.getSession(session.workspaceId, session.id);
         if (current.pendingTurn?.turnId !== turnId) throw new AppError(409, "This reply belongs to a replaced conversation checkpoint.");
         const { participant } = reply.plan;
-        const { message: saved, session: totals } = await this.unit.discussions.appendMessageWithSources({
+        const { message: saved, session: totals, question } = await this.unit.discussions.appendMessageWithSources({
+            ...(reply.questions?.length ? { clarification: { questions: [...reply.questions], requestContent } } : {}),
             pendingTurn: this.pendingQueue(turnId, remaining, settings, pendingDocument, taskPlan, repositorySnapshots),
             usage: reply.usage,
             message: {
@@ -883,7 +899,7 @@ export class DiscussionService {
                 speakerName: participant.name,
                 speakerRole: participant.role,
                 isLead: participant.isLead,
-                turnRole: reply.plan.speakerRole,
+                turnRole: reply.questions?.length ? DISCUSSION_SPEAKER_ROLES.addressed : reply.plan.speakerRole,
                 responseMode: settings.responseMode,
                 capabilityMode: settings.capabilityMode,
                 activity: [...reply.steps],
@@ -897,14 +913,15 @@ export class DiscussionService {
         });
         return [
             { type: DISCUSSION_STREAM_EVENTS.reply, agentId: participant.agentId, message: saved, sources: reply.sources, usage: usageOf(totals) },
+            ...(question ? [{ type: "question", question: { id: question.id, sessionId: session.id, messageId: saved.id, questions: question.questions, createdAt: question.createdAt, sessionTitle: session.title, speakerName: participant.name } }] : []),
             { type: DISCUSSION_STREAM_EVENTS.pending, speakers: remaining.map(toPendingSpeaker) },
         ];
     }
 
     /** Stores who is still due to reply, so a turn the user leaves resumes where it stopped; empty clears it. */
-    private async storeQueue(sessionId: string, turnId: string, queue: ReadonlyArray<SpeakerPlan>, settings: TurnSettings, document: TurnDocument | null = null, taskPlan: TaskExecutionPlan | null = null, repositorySnapshots?: ReadonlyArray<RepositorySnapshot>, initial = false, checkpoint?: TurnCheckpoint): Promise<void> {
+    private async storeQueue(sessionId: string, turnId: string, queue: ReadonlyArray<SpeakerPlan>, settings: TurnSettings, document: TurnDocument | null = null, taskPlan: TaskExecutionPlan | null = null, repositorySnapshots?: ReadonlyArray<RepositorySnapshot>, checkpoint?: TurnCheckpoint): Promise<void> {
         const pending = this.pendingQueue(turnId, queue, settings, document, taskPlan, repositorySnapshots, checkpoint);
-        await this.unit.discussions.setPendingTurn(sessionId, pending, initial ? undefined : turnId);
+        await this.unit.discussions.setPendingTurn(sessionId, pending, turnId);
     }
 
     private pendingQueue(turnId: string, queue: ReadonlyArray<SpeakerPlan>, settings: TurnSettings, document: TurnDocument | null = null, taskPlan: TaskExecutionPlan | null = null, repositorySnapshots?: ReadonlyArray<RepositorySnapshot>, checkpoint?: TurnCheckpoint): PendingTurn | null {

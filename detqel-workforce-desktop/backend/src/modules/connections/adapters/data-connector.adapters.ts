@@ -1,7 +1,7 @@
 import { CONNECTOR_ADAPTER_KEYS, CONNECTOR_MILLISECONDS_PER_SECOND } from "../../../constants/connectionConstants.js";
 import postgres from "postgres";
 import { AppError } from "../../../shared/errors/app-error.js";
-import type { ConnectorAdapter, ConnectorContext, ConnectorHandle, ConnectorRuntimeOptions } from "../../../shared/types/connector-catalog.js";
+import type { ConnectorAdapter, ConnectorContext, ConnectorHandle, ConnectorRuntimeOptions } from "../../../shared/types/connection-adapter.js";
 import { allowedFilesystemPath, authenticationHeaders, bounded, httpEndpoint, requiredBoolean, requiredPort, requiredString } from "./adapter-configuration.js";
 import { responseHasProperty, verifiedHttpResponse } from "./http-verification.js";
 import { filesystemOperations, httpOperations, postgresOperations } from "../operations/data-operations.js";
@@ -47,7 +47,7 @@ export class HttpConnectorAdapter implements ConnectorAdapter {
         if (expectedProperty !== undefined && (typeof expectedProperty !== "string" || !expectedProperty.trim())) {
             throw new AppError(400, "The expected response property must be a nonempty property path.");
         }
-        const response = await verifiedHttpResponse(endpoint, authenticationHeaders(configuration), this.options.requestTimeoutMs, expectedProperty !== undefined);
+        const response = await verifiedHttpResponse(endpoint, authenticationHeaders(configuration), this.options.requestTimeoutMs, expectedProperty !== undefined || configuration.requireJsonResponse === true);
         if (typeof expectedProperty === "string" && !responseHasProperty(response, expectedProperty)) {
             throw new AppError(422, "The endpoint response does not contain the required provider verification property.");
         }

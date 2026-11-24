@@ -5,6 +5,7 @@ export interface ConfigurationSchema {
   type?: string | string[];
   title?: string;
   description?: string;
+  default?: unknown;
   properties?: Record<string, ConfigurationSchema>;
   required?: string[];
   enum?: Array<string | number | boolean | null>;
@@ -25,27 +26,27 @@ export interface ConfigurationSchema {
   "x-secret"?: boolean;
   "x-placeholder"?: string;
   "x-visibleWhen"?: Record<string, unknown>;
+  "x-access-scope"?: "single-repository-read-only";
 }
 
-export interface ConnectorCatalogEntry {
+export interface DiscoveredConnection {
+  discovery?: { sources: Array<{ title: string; url: string }>; instructions: string } | null;
   id: string;
   code: string;
   name: string;
-  connectorType: string;
-  category: string;
   description: string | null;
   adapterKey: string;
   iconKey: string;
   isEnabled: boolean;
 }
 
-export interface ConnectorCatalogDetail extends ConnectorCatalogEntry {
+export interface ConnectionDefinitionDetail extends DiscoveredConnection {
   configSchema: ConfigurationSchema;
 }
 
-export const connectorCatalogApi = {
-  list: (params: { workspaceId: string; connectorType: string; category?: string }, signal?: AbortSignal) =>
-    apiRequest<ConnectorCatalogEntry[]>(`${API_PATHS.connectorCatalog}?${new URLSearchParams({ workspaceId: params.workspaceId, connectorType: params.connectorType, ...(params.category ? { category: params.category } : {}) })}`, { signal, cache: "no-store" }),
+export const connectionDiscoveryApi = {
+  discover: (params: { workspaceId: string; query: string }, signal?: AbortSignal) =>
+    apiRequest<{ entries: DiscoveredConnection[]; message: string; sources: Array<{ title: string; url: string }> }>(`${API_PATHS.connections}/discover`, { method: "POST", body: JSON.stringify(params), signal, cache: "no-store" }),
   get: (id: string, workspaceId: string, signal?: AbortSignal) =>
-    apiRequest<ConnectorCatalogDetail>(`${API_PATHS.connectorCatalog}/${encodeURIComponent(id)}?${new URLSearchParams({ workspaceId })}`, { signal, cache: "no-store" }),
+    apiRequest<ConnectionDefinitionDetail>(`${API_PATHS.connectionDefinitions}/${encodeURIComponent(id)}?${new URLSearchParams({ workspaceId })}`, { signal, cache: "no-store" }),
 };

@@ -1,3 +1,4 @@
+import { userActivities } from "../../../infrastructure/database/schema/activities.js";
 import { desc, eq } from "drizzle-orm";
 import { type DatabaseSession } from "../../../infrastructure/database/connection.js";
 import { predictions, simulations, type NewPrediction, type NewSimulation, type Prediction, type Simulation, } from "../../../infrastructure/database/schema/analytics.js";
@@ -13,11 +14,11 @@ export class AnalyticsRepository implements IAnalyticsRepository {
             .orderBy(desc(predictions.createdAt));
     }
     async createPrediction(data: NewPrediction): Promise<Prediction> {
-        const [prediction] = await this.database
-            .insert(predictions)
-            .values(data)
-            .returning();
-        return prediction;
+        return this.database.transaction(async tx => {
+            const [prediction] = await tx.insert(predictions).values(data).returning();
+            await tx.insert(userActivities).values({ workspaceId: prediction.workspaceId, activityType: "predictions", title: "Prediction saved", entityType: "prediction", entityId: prediction.id, metadata: { event: "prediction-created" } });
+            return prediction;
+        });
     }
     // Simulations
     async listSimulations(workspaceId: string): Promise<Simulation[]> {
@@ -28,11 +29,11 @@ export class AnalyticsRepository implements IAnalyticsRepository {
             .orderBy(desc(simulations.createdAt));
     }
     async createSimulation(data: NewSimulation): Promise<Simulation> {
-        const [simulation] = await this.database
-            .insert(simulations)
-            .values(data)
-            .returning();
-        return simulation;
+        return this.database.transaction(async tx => {
+            const [simulation] = await tx.insert(simulations).values(data).returning();
+            await tx.insert(userActivities).values({ workspaceId: simulation.workspaceId, userId: simulation.createdBy, activityType: "simulations", title: "Simulation created", entityType: "simulation", entityId: simulation.id, metadata: { event: "simulation-created" } });
+            return simulation;
+        });
     }
     async updateSimulation(id: string, data: Partial<NewSimulation>): Promise<Simulation | null> {
         const [updated] = await this.database

@@ -1,15 +1,16 @@
 import { API_PATHS, API_ACTIONS } from "@/constants/apiConstants";
 import { apiRequest } from "./resource-client";
 
-export type ConnectorStatus = "pending" | "connected" | "disconnected" | "error" | "active" | "inactive";
+export type ConnectorStatus = "pending" | "connected" | "disconnected" | "error";
+export type ConnectorAccess = "read-only" | "verification-only";
 
 export interface ConnectorRecord {
   id: string;
   workspaceId: string;
-  catalogId: string | null;
+  definitionId: string;
   name: string;
   provider: string;
-  connectionType: string;
+  access: ConnectorAccess;
   dataStream: string | null;
   status: ConnectorStatus;
   configuration: Record<string, unknown>;
@@ -24,7 +25,7 @@ export interface ConnectorRecord {
 
 export interface ConnectorInput {
   workspaceId: string;
-  catalogId: string;
+  definitionId: string;
   name: string;
   dataStream?: string | null;
   configuration: Record<string, unknown>;

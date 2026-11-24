@@ -42,9 +42,12 @@ async function readLimited(response: Response): Promise<string> {
  * Requests are limited to the provider's origin and refuse redirects, so the credentials in `headers` are never
  * sent to another host.
  */
-export function repositoryHttp(base: URL, headers: Headers, timeoutMs: number): RepositoryHttp {
+export function repositoryHttp(base: URL, headers: Headers, timeoutMs: number, repositoryRoot?: string): RepositoryHttp {
     const send = (url: URL, expectJson: boolean): Promise<unknown> => {
         if (url.origin !== base.origin) throw new AppError(400, "Repository requests must stay on the provider's origin.");
+        if (repositoryRoot !== undefined && url.pathname !== repositoryRoot && !url.pathname.startsWith(`${repositoryRoot}/`)) {
+            throw new AppError(403, "This connection can access only its configured repository.");
+        }
         const controller = new AbortController();
         return bounded((async () => {
             let response: Response;

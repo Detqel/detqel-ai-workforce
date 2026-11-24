@@ -1,3 +1,5 @@
+import { userActivities } from "../../../infrastructure/database/schema/activities.js";
+import { AppError } from "../../../shared/errors/app-error.js";
 import { desc, eq } from "drizzle-orm";
 import { type DatabaseSession } from "../../../infrastructure/database/connection.js";
 import { automationRuns, automations, scheduledTasks, type Automation, type AutomationRun, type NewAutomation, type NewAutomationRun, type NewScheduledTask, type ScheduledTask, } from "../../../infrastructure/database/schema/automations.js";
@@ -13,11 +15,11 @@ export class AutomationRepository implements IAutomationRepository {
             .orderBy(desc(automations.createdAt));
     }
     async createAutomation(data: NewAutomation): Promise<Automation> {
-        const [auto] = await this.database
-            .insert(automations)
-            .values(data)
-            .returning();
-        return auto;
+        return this.database.transaction(async tx => {
+            const [auto] = await tx.insert(automations).values(data).returning();
+            await tx.insert(userActivities).values({ workspaceId: auto.workspaceId, userId: auto.createdBy, activityType: "automations", title: "Automation created", entityType: "automation", entityId: auto.id, metadata: { event: "automation-created" } });
+            return auto;
+        });
     }
     async updateAutomation(id: string, data: Partial<NewAutomation>): Promise<Automation | null> {
         const [updated] = await this.database
@@ -44,11 +46,13 @@ export class AutomationRepository implements IAutomationRepository {
             .orderBy(desc(automationRuns.startedAt));
     }
     async recordRun(data: NewAutomationRun): Promise<AutomationRun> {
-        const [run] = await this.database
-            .insert(automationRuns)
-            .values(data)
-            .returning();
-        return run;
+        return this.database.transaction(async tx => {
+            const [run] = await tx.insert(automationRuns).values(data).returning();
+            const [automation] = await tx.select({ workspaceId: automations.workspaceId }).from(automations).where(eq(automations.id, run.automationId));
+            if (!automation) throw new AppError(404, "Automation not found");
+            await tx.insert(userActivities).values({ workspaceId: automation.workspaceId, activityType: "automations", title: "Automation run recorded", entityType: "automation-run", entityId: run.id, metadata: { event: "automation-run-recorded", automationId: run.automationId, status: run.status } });
+            return run;
+        });
     }
     // Scheduled Tasks
     async listTasks(workspaceId: string): Promise<ScheduledTask[]> {

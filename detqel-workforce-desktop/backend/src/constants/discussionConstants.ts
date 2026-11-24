@@ -60,7 +60,7 @@ export const DISCUSSION_REASONING = {
 } as const;
 
 /** Whether a message needs real work or is conversational and answered directly by the triage step. */
-export const DISCUSSION_INTENTS = { conversational: "conversational", task: "task" } as const;
+export const DISCUSSION_INTENTS = { conversational: "conversational", task: "task", clarification: "clarification" } as const;
 export type DiscussionIntent = (typeof DISCUSSION_INTENTS)[keyof typeof DISCUSSION_INTENTS];
 
 /** Keys of the JSON object the triage step returns. */

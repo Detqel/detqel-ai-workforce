@@ -5,8 +5,7 @@ import { users, workspaceMembers, workspaces } from "./auth.js";
 import { automationRuns, automations, scheduledTasks } from "./automations.js";
 import { businessGoals, businessKnowledge, businessMemory, businessProfile, businessRules, businessState, } from "./business.js";
 import { connections } from "./connections.js";
-import { connectorTypes } from "./connector-types.js";
-import { connectorCatalog } from "./connector-catalog.js";
+import { connectionDefinitions } from "./connection-definitions.js";
 import { approvals, executions, missionAgents, missionEvents, missions, missionSources, } from "./missions.js";
 import { userNotifications } from "./notifications.js";
 import { agentConnections, agentMemory, agents } from "./workforce.js";
@@ -116,13 +115,9 @@ export const businessMemoryRelations = relations(businessMemory, ({ one }) => ({
     }),
 }));
 export const connectionsRelations = relations(connections, ({ one, many }) => ({
-    catalog: one(connectorCatalog, {
-        fields: [connections.catalogId],
-        references: [connectorCatalog.id],
-    }),
-    type: one(connectorTypes, {
-        fields: [connections.connectionType],
-        references: [connectorTypes.code],
+    definition: one(connectionDefinitions, {
+        fields: [connections.definitionId],
+        references: [connectionDefinitions.id],
     }),
     workspace: one(workspaces, {
         fields: [connections.workspaceId],
@@ -130,15 +125,7 @@ export const connectionsRelations = relations(connections, ({ one, many }) => ({
     }),
     agentConnections: many(agentConnections),
 }));
-export const connectorTypesRelations = relations(connectorTypes, ({ many }) => ({
-    connections: many(connections),
-    catalog: many(connectorCatalog),
-}));
-export const connectorCatalogRelations = relations(connectorCatalog, ({ one, many }) => ({
-    type: one(connectorTypes, {
-        fields: [connectorCatalog.connectorType],
-        references: [connectorTypes.code],
-    }),
+export const connectionDefinitionsRelations = relations(connectionDefinitions, ({ many }) => ({
     connections: many(connections),
 }));
 export const agentsRelations = relations(agents, ({ one, many }) => ({

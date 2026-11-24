@@ -7,6 +7,7 @@ import {
     REPOSITORY_HEADERS,
     REPOSITORY_LIMITS,
     REPOSITORY_PROVIDER_DEFAULTS,
+    REPOSITORY_SEGMENT_PATTERN,
 } from "../../../constants/connectionConstants.js";
 import { AppError } from "../../../shared/errors/app-error.js";
 import { httpEndpoint, requiredString } from "./adapter-configuration.js";
@@ -99,6 +100,14 @@ function optionalString(configuration: Record<string, unknown>, key: string): st
     return value.trim() || undefined;
 }
 
+function repositorySegment(configuration: Record<string, unknown>, key: string): string {
+    const value = requiredString(configuration, key).trim();
+    if (value.length > 255 || !new RegExp(REPOSITORY_SEGMENT_PATTERN).test(value)) {
+        throw new AppError(400, `Configuration field '${key}' must be a single repository URL segment, without a URL, slash, or parent-directory reference.`);
+    }
+    return value;
+}
+
 /** The provider API root, without a trailing slash. `apiSuffix` is added unless the user already included it. */
 function providerBase(value: string, apiSuffix = ""): URL {
     const url = httpEndpoint(value);
@@ -172,6 +181,9 @@ function githubStyleClient(http: RepositoryHttp, base: URL, owner: string, repos
     return {
         async repository() {
             const repo = parse(githubRepository, await http.json(apiUrl(base, root)));
+            if (repo.full_name.toLowerCase() !== `${owner}/${repository}`.toLowerCase()) {
+                throw new AppError(409, "The provider returned a different repository from the one configured. Update the connection's owner and repository explicitly.");
+            }
             return {
                 fullName: repo.full_name,
                 defaultBranch: repo.default_branch ?? null,
@@ -217,12 +229,16 @@ const github: RepositoryProvider = {
         let base = providerBase(optionalString(configuration, "apiUrl") ?? REPOSITORY_PROVIDER_DEFAULTS.githubApiUrl);
         // A pasted github.com web address means the public service, whose API lives on its own host.
         if (base.hostname === "github.com" || base.hostname === "www.github.com") base = providerBase(REPOSITORY_PROVIDER_DEFAULTS.githubApiUrl);
+        if (base.protocol !== "https:") throw new AppError(400, "GitHub repository connections require HTTPS to protect the PAT.");
+        const owner = repositorySegment(configuration, "owner");
+        const repository = repositorySegment(configuration, "repository");
         const headers = new Headers({
             Accept: REPOSITORY_HEADERS.githubAccept,
             [REPOSITORY_HEADERS.githubApiVersionName]: REPOSITORY_HEADERS.githubApiVersion,
             [AUTHORIZATION_HEADER]: bearer(requiredString(configuration, "token")),
         });
-        return githubStyleClient(repositoryHttp(base, headers, timeoutMs), base, requiredString(configuration, "owner"), requiredString(configuration, "repository"), "per_page");
+        const root = apiUrl(base, `/repos/${enc(owner)}/${enc(repository)}`).pathname;
+        return githubStyleClient(repositoryHttp(base, headers, timeoutMs, root), base, owner, repository, "per_page");
     },
 };
 
@@ -231,11 +247,14 @@ const gitea: RepositoryProvider = {
     name: "Gitea / Forgejo",
     create(configuration, timeoutMs) {
         const base = providerBase(requiredString(configuration, "serverUrl"), "/api/v1");
+        const owner = repositorySegment(configuration, "owner");
+        const repository = repositorySegment(configuration, "repository");
         const headers = new Headers({
             Accept: REPOSITORY_HEADERS.json,
             [AUTHORIZATION_HEADER]: `${REPOSITORY_HEADERS.giteaTokenPrefix}${requiredString(configuration, "token")}`,
         });
-        return githubStyleClient(repositoryHttp(base, headers, timeoutMs), base, requiredString(configuration, "owner"), requiredString(configuration, "repository"), "limit");
+        const root = apiUrl(base, `/repos/${enc(owner)}/${enc(repository)}`).pathname;
+        return githubStyleClient(repositoryHttp(base, headers, timeoutMs, root), base, owner, repository, "limit");
     },
 };
 

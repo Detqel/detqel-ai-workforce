@@ -10,8 +10,7 @@ import type { IUserRepository } from "../../modules/users/repositories/user.repo
 import type { IWorkforceRepository } from "../../modules/workforce/repositories/workforce.repository.js";
 import type { IWorkspaceRepository } from "../../modules/workspaces/repositories/workspace.repository.js";
 import type { ISettingsRepository } from "../../modules/settings/repositories/settings.repository.js";
-import type { ILookupRepository } from "../../modules/lookups/repositories/lookup.repository.js";
-import type { IConnectorCatalogRepository } from "../../modules/connections/repositories/connector-catalog.repository.js";
+import type { IConnectionDefinitionRepository } from "../../modules/connections/repositories/connection-definition.repository.js";
 import type { IVirtualKeyRepository } from "../agents/virtual-key.repository.js";
 import type { IDiscussionRepository } from "../../modules/discussions/repositories/discussion.repository.js";
 export interface IRepositorySet {
@@ -27,8 +26,7 @@ export interface IRepositorySet {
     readonly notifications: INotificationRepository;
     readonly domains: IDomainRepository;
     readonly settings: ISettingsRepository;
-    readonly lookups: ILookupRepository;
-    readonly connectorCatalog: IConnectorCatalogRepository;
+    readonly connectionDefinitions: IConnectionDefinitionRepository;
     readonly virtualKeys: IVirtualKeyRepository;
     readonly discussions: IDiscussionRepository;
 }

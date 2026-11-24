@@ -404,7 +404,7 @@ export const DiscussionRightPane: React.FC<DiscussionRightPaneProps> = ({
                           {conn.name}
                         </span>
                         <span className="text-[10px] text-slate-400 block truncate">
-                          {conn.provider} • {conn.connectionType}
+                          {conn.provider}
                         </span>
                         {conn.credentialError && <p className="mt-1 text-[10px] text-red-600 dark:text-red-400">{conn.credentialError}</p>}
                       </div>

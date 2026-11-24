@@ -4,11 +4,11 @@ import { ConnectionController } from "../controllers/connection.controller.js";
 import { CONNECTOR_FILE_LIMITS } from "../../../constants/connectorFileConstants.js";
 
 export const connectionRoutes: FastifyPluginAsync = async (app) => {
-    const controller = new ConnectionController(app.services.connections, app.services.workspaceAccess);
+    const controller = new ConnectionController(app.services.connections, app.services.workspaceAccess, app.services.connectorDiscovery);
     const schema = (summary: string) => ({ schema: { tags: [API_TAG_NAMES.connections], summary } });
 
-    app.get("/connector-catalog", schema("List enabled connector integrations"), controller.catalog.bind(controller));
-    app.get("/connector-catalog/:id", schema("Get connector configuration schema"), controller.catalogById.bind(controller));
+    app.post("/connections/discover", { ...schema("Discover documented provider connections using workspace web search"), bodyLimit: 4096 }, controller.discover.bind(controller));
+    app.get("/connection-definitions/:id", schema("Get discovered connection configuration"), controller.definitionById.bind(controller));
     app.get("/connections", schema("List workspace connections"), controller.list.bind(controller));
     app.post("/connections", { ...schema("Verify and create a workspace connection"), bodyLimit: CONNECTOR_FILE_LIMITS.requestBytes }, controller.create.bind(controller));
     app.post("/connections/test", { ...schema("Verify connection configuration without saving"), bodyLimit: CONNECTOR_FILE_LIMITS.requestBytes }, controller.test.bind(controller));

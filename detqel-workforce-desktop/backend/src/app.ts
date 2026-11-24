@@ -41,7 +41,6 @@ import { agentRoutes } from "./modules/workforce/routes/agent.routes.js";
 import { workspaceRoutes } from "./modules/workspaces/routes/workspace.routes.js";
 import { settingsRoutes } from "./modules/settings/routes/settings.routes.js";
 import { discussionRoutes } from "./modules/discussions/routes/discussion.routes.js";
-import { lookupRoutes } from "./modules/lookups/routes/lookup.routes.js";
 import { AppError } from "./shared/errors/app-error.js";
 import { createLogStream } from "./shared/logging/logger.js";
 import { registerDesktopTransport } from "./shared/security/desktop-transport.js";
@@ -166,7 +165,6 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
             await apiRouter.register(businessRoutes);
             await apiRouter.register(agentRoutes);
             await apiRouter.register(connectionRoutes);
-            await apiRouter.register(lookupRoutes);
             await apiRouter.register(missionRoutes);
             await apiRouter.register(approvalRoutes);
             await apiRouter.register(executionRoutes);

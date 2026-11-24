@@ -1,7 +1,6 @@
 import { jsonb, pgTable, text, timestamp, uuid, varchar } from "drizzle-orm/pg-core";
 import { workspaces } from "./auth.js";
-import { connectorTypes } from "./connector-types.js";
-import { connectorCatalog } from "./connector-catalog.js";
+import { connectionDefinitions } from "./connection-definitions.js";
 export const connections = pgTable("connections", {
     id: uuid("id").defaultRandom().primaryKey(),
     workspaceId: uuid("workspace_id")
@@ -9,10 +8,7 @@ export const connections = pgTable("connections", {
         .references(() => workspaces.id, { onDelete: "cascade" }),
     name: varchar("name", { length: 255 }).notNull(),
     provider: varchar("provider", { length: 100 }).notNull(),
-    connectionType: varchar("connection_type", { length: 50 })
-        .notNull()
-        .references(() => connectorTypes.code, { onDelete: "restrict", onUpdate: "cascade" }),
-    catalogId: uuid("catalog_id").references(() => connectorCatalog.id, { onDelete: "restrict" }),
+    definitionId: uuid("definition_id").notNull().references(() => connectionDefinitions.id, { onDelete: "restrict" }),
     dataStream: varchar("data_stream", { length: 255 }),
     configuration: jsonb("configuration").$type<Record<string, unknown>>().notNull().default({}),
     credentialReference: text("credential_reference"),

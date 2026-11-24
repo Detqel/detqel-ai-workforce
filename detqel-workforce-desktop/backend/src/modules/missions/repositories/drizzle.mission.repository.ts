@@ -1,3 +1,5 @@
+import { userActivities } from "../../../infrastructure/database/schema/activities.js";
+import { AppError } from "../../../shared/errors/app-error.js";
 import { PAGINATION_LIMITS } from "../../../constants/httpConstants.js";
 import { and, desc, eq } from "drizzle-orm";
 import { type DatabaseSession } from "../../../infrastructure/database/connection.js";
@@ -77,11 +79,15 @@ export class MissionRepository implements IMissionRepository {
     }
     // Mission Events
     async logEvent(data: NewMissionEvent): Promise<MissionEvent> {
-        const [event] = await this.database
-            .insert(missionEvents)
-            .values(data)
-            .returning();
-        return event;
+        return this.database.transaction(async tx => {
+            const [event] = await tx.insert(missionEvents).values(data).returning();
+            if (["research", "analysis", "finding"].includes(event.eventType)) {
+                const [mission] = await tx.select({ workspaceId: missions.workspaceId }).from(missions).where(eq(missions.id, event.missionId));
+                if (!mission) throw new AppError(404, "Mission not found");
+                await tx.insert(userActivities).values({ workspaceId: mission.workspaceId, activityType: "investigations", title: "Investigation activity recorded", entityType: "mission-event", entityId: event.id, metadata: { event: "mission-research", missionId: event.missionId } });
+            }
+            return event;
+        });
     }
     async listEvents(missionId: string): Promise<MissionEvent[]> {
         return this.database

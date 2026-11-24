@@ -65,6 +65,15 @@ export function authenticationHeaders(configuration: Record<string, unknown>): H
         }
         default: throw new AppError(400, "The selected authentication mechanism is not supported by this adapter.");
     }
+    if (configuration.additionalHeaders !== undefined) {
+        const extra = configuration.additionalHeaders;
+        if (!extra || typeof extra !== "object" || Array.isArray(extra) || Object.keys(extra).length > 24) throw new AppError(400, "Additional headers must be a bounded object.");
+        for (const [name, value] of Object.entries(extra)) {
+            if (!/^[A-Za-z][A-Za-z0-9-]{0,100}$/.test(name) || RESERVED_AUTHENTICATION_HEADERS.includes(name.toLowerCase()) || name.toLowerCase() === "authorization"
+                || typeof value !== "string" || /[\r\n\0]/.test(value) || value.length > 16_384) throw new AppError(400, "An additional request header is invalid.");
+            headers.set(name, value);
+        }
+    }
     return headers;
 }
 

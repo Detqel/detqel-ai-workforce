@@ -1,4 +1,6 @@
-import { boolean, doublePrecision, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
+import { boolean, check, doublePrecision, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import type { ClarificationQuestion } from "../../../shared/agents/graphs/clarification.js";
 import { users, workspaces } from "./auth.js";
 import { connections } from "./connections.js";
 import { organizationAgents } from "./recruit.js";
@@ -58,7 +60,7 @@ export const chatSessions = pgTable("chat_sessions", {
     memoryRevision: integer("memory_revision").notNull().default(0),
     contextState: jsonb("context_state").$type<ConversationContext | null>(),
     // A request returned to the composer by restore, retained until a new user message is accepted.
-    composerDraft: jsonb("composer_draft").$type<{ readonly messageId: string; readonly content: string } | null>(),
+    composerDraft: jsonb("composer_draft").$type<{ readonly messageId: string; readonly content: string; readonly answerToQuestionId?: string } | null>(),
     // Teammates still due to reply in the current turn.
     pendingTurn: jsonb("pending_turn").$type<PendingTurn | null>(),
     // Running gateway usage for every model call made in this session, including memory summaries.
@@ -120,6 +122,23 @@ export type ChatSession = typeof chatSessions.$inferSelect;
 export type NewChatSession = typeof chatSessions.$inferInsert;
 export type ChatMessage = typeof chatMessages.$inferSelect;
 export type NewChatMessage = typeof chatMessages.$inferInsert;
+/** A structured request for user input. Deleting an answer during restore makes the question pending again. */
+export const chatQuestions = pgTable("chat_questions", {
+    id: uuid("id").defaultRandom().primaryKey(),
+    sessionId: uuid("session_id").notNull().references(() => chatSessions.id, { onDelete: "cascade" }),
+    messageId: uuid("message_id").notNull().references(() => chatMessages.id, { onDelete: "cascade" }),
+    questions: jsonb("questions").$type<ClarificationQuestion[]>().notNull(),
+    requestContent: text("request_content").notNull(),
+    answerMessageId: uuid("answer_message_id").references(() => chatMessages.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, table => [
+    uniqueIndex("chat_questions_message_idx").on(table.messageId),
+    uniqueIndex("chat_questions_answer_idx").on(table.answerMessageId),
+    index("chat_questions_pending_idx").on(table.sessionId, table.createdAt).where(sql`${table.answerMessageId} IS NULL`),
+    check("chat_questions_questions_check", sql`jsonb_typeof(${table.questions}) = 'array' AND jsonb_array_length(${table.questions}) BETWEEN 1 AND 3`),
+    check("chat_questions_request_check", sql`length(${table.requestContent}) BETWEEN 1 AND 32000`),
+]);
+export type ChatQuestion = typeof chatQuestions.$inferSelect;
 export type ChatMessageSource = typeof chatMessageSources.$inferSelect;
 export type NewChatMessageSource = typeof chatMessageSources.$inferInsert;
 export type ChatSessionConnection = typeof chatSessionConnections.$inferSelect;

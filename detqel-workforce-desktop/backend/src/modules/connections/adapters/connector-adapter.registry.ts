@@ -1,12 +1,13 @@
 import { CONNECTOR_ADAPTER_KEYS } from "../../../constants/connectionConstants.js";
 import { AppError } from "../../../shared/errors/app-error.js";
-import type { ConnectorAdapter, ConnectorContext, ConnectorHandle, ConnectorRuntimeOptions } from "../../../shared/types/connector-catalog.js";
+import type { ConnectorAdapter, ConnectorContext, ConnectorHandle, ConnectorRuntimeOptions } from "../../../shared/types/connection-adapter.js";
 import { FilesystemConnectorAdapter, HttpConnectorAdapter, PostgresConnectorAdapter } from "./data-connector.adapters.js";
 import { DockerEnvironmentConnectorAdapter, HttpEnvironmentConnectorAdapter, LocalEnvironmentConnectorAdapter } from "./environment-connector.adapters.js";
 import { createSseTransport, createStdioTransport, createStreamableHttpTransport, McpConnectorAdapter } from "./mcp-connector.adapter.js";
 import { RepositoryConnectorAdapter } from "./repository-connector.adapter.js";
 import { REPOSITORY_PROVIDERS } from "./repository-providers.js";
 import { UploadedFileConnectorAdapter } from "./uploaded-file.adapter.js";
+import { MongoDbConnectorAdapter } from "./mongodb-connector.adapter.js";
 
 export class ConnectorAdapterRegistry {
     private readonly adapters = new Map<string, ConnectorAdapter>();
@@ -17,6 +18,7 @@ export class ConnectorAdapterRegistry {
         }
         [
             new PostgresConnectorAdapter(options),
+            new MongoDbConnectorAdapter(options),
             new HttpConnectorAdapter(options),
             new UploadedFileConnectorAdapter(),
             new FilesystemConnectorAdapter("directory", options),

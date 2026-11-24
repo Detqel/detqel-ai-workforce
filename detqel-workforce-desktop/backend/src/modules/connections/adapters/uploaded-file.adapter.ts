@@ -4,7 +4,7 @@ import { CONNECTOR_FILE_LIMITS, CONNECTOR_TEXT_FILE_EXTENSIONS } from "../../../
 import { CONNECTOR_OPERATIONS } from "../../../constants/connectorOperationConstants.js";
 import { isProtectedFile } from "../../../shared/agents/context/data-guard.js";
 import { AppError } from "../../../shared/errors/app-error.js";
-import type { ConnectorAdapter, ConnectorContext, ConnectorHandle } from "../../../shared/types/connector-catalog.js";
+import type { ConnectorAdapter, ConnectorContext, ConnectorHandle } from "../../../shared/types/connection-adapter.js";
 import { requiredString } from "./adapter-configuration.js";
 
 /** An encrypted upload, bound to its workspace by ConnectionCredentialsService; no host filesystem access. */

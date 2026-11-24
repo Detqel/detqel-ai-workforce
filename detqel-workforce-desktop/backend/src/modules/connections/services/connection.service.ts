@@ -1,12 +1,14 @@
-﻿import { AppError } from "../../../shared/errors/app-error.js";
-import type { ConnectorCatalog, Connection, NewConnection } from "../../../shared/types/entities.js";
-import type { ConfigurationSchema, ConnectorHandle } from "../../../shared/types/connector-catalog.js";
+﻿import { compileDiscoveredConfiguration, discoveryOf, type ConnectorDiscoveryMetadata } from "./connector-blueprint.js";
+import { AppError } from "../../../shared/errors/app-error.js";
+import type { ConnectionDefinition, Connection, NewConnection } from "../../../shared/types/entities.js";
+import type { ConfigurationSchema, ConnectorHandle } from "../../../shared/types/connection-adapter.js";
 import type { ConnectorAdapterRegistry } from "../adapters/connector-adapter.registry.js";
 import type { IConnectionRepository } from "../repositories/connection.repository.js";
-import type { IConnectorCatalogRepository } from "../repositories/connector-catalog.repository.js";
+import type { IConnectionDefinitionRepository } from "../repositories/connection-definition.repository.js";
 import { ConfigurationValidator } from "../validation/configuration.validator.js";
 import type { CreateConnectionInput, UpdateConnectionInput } from "../validation/connection.schemas.js";
 import { ConnectionCredentialsUnavailableError, type ConnectionCredentialsService } from "./connection-credentials.service.js";
+import { connectionAgentAccess } from "./connector-agent-policy.js";
 
 interface ActiveConnection {
     handle: ConnectorHandle;
@@ -18,9 +20,7 @@ export interface ConnectionReader {
     readonly id: string;
     readonly name: string;
     readonly provider: string;
-    readonly catalogCode: string;
     readonly adapterKey: string;
-    readonly connectorType: string;
     /** Public settings only; secret fields are never included. */
     readonly configuration: Record<string, unknown>;
     readonly metadata: Record<string, unknown>;
@@ -34,30 +34,26 @@ export class ConnectionService {
 
     constructor(
         private readonly repository: IConnectionRepository,
-        private readonly catalogRepository: IConnectorCatalogRepository,
+        private readonly definitionRepository: IConnectionDefinitionRepository,
         private readonly credentials: ConnectionCredentialsService,
         private readonly adapters: ConnectorAdapterRegistry,
     ) {}
 
-    async listCatalog(connectorType?: string, category?: string) {
-        const entries = await this.catalogRepository.listEnabled(connectorType, category);
-        return entries.map(({ configSchema, ...entry }) => ({ ...entry, iconKey: this.catalogIcon(configSchema) }));
-    }
-
-    private catalogIcon(schema: ConfigurationSchema): string {
+    private definitionIcon(schema: ConfigurationSchema): string {
         const iconKey = schema["x-icon"];
-        if (typeof iconKey !== "string" || !iconKey.trim()) throw new AppError(500, "Connector catalog icon metadata is missing or invalid");
+        if (typeof iconKey !== "string" || !iconKey.trim()) throw new AppError(500, "Connection definition icon metadata is missing or invalid");
         return iconKey;
     }
 
-    async getCatalog(id: string): Promise<ConnectorCatalog & { iconKey: string }> {
-        const item = await this.catalogRepository.findById(id);
-        if (!item) throw new AppError(404, "Connector catalog entry not found");
-        return { ...item, iconKey: this.catalogIcon(item.configSchema) };
+    async getDefinition(id: string, workspaceId: string): Promise<ConnectionDefinition & { iconKey: string; discovery: { sources: ConnectorDiscoveryMetadata["sources"]; instructions: string } | null }> {
+        const item = await this.definitionRepository.findInWorkspace(id, workspaceId);
+        if (!item) throw new AppError(404, "Connection definition not found");
+        const discovery = discoveryOf(item.configSchema);
+        return { ...item, iconKey: this.definitionIcon(item.configSchema), discovery: discovery ? { sources: discovery.sources, instructions: discovery.blueprint.instructions } : null };
     }
 
-    private async enabledCatalog(id: string): Promise<ConnectorCatalog> {
-        const item = await this.getCatalog(id);
+    private async enabledDefinition(id: string, workspaceId: string): Promise<ConnectionDefinition> {
+        const item = await this.getDefinition(id, workspaceId);
         if (!item.isEnabled) throw new AppError(422, "This integration is not currently supported");
         return item;
     }
@@ -69,28 +65,25 @@ export class ConnectionService {
     }
 
     private async serialize(connection: Connection) {
-        let configuration: Record<string, unknown> = {};
+        const definition = await this.getDefinition(connection.definitionId, connection.workspaceId);
+        const configuration = this.credentials.split(definition.configSchema, connection.configuration).publicConfiguration;
         let configuredSecretFields: string[] = [];
         let credentialError: string | null = null;
-        if (connection.catalogId) {
-            const catalog = await this.getCatalog(connection.catalogId);
-            configuration = this.credentials.split(catalog.configSchema, connection.configuration).publicConfiguration;
-            try {
-                configuredSecretFields = Object.keys(this.credentials.decrypt(connection.credentialReference, connection.workspaceId));
-            } catch (error) {
-                if (!(error instanceof ConnectionCredentialsUnavailableError)) throw error;
-                credentialError = error.message;
-            }
+        try {
+            configuredSecretFields = Object.keys(this.credentials.decrypt(connection.credentialReference, connection.workspaceId));
+        } catch (error) {
+            if (!(error instanceof ConnectionCredentialsUnavailableError)) throw error;
+            credentialError = error.message;
         }
         return {
             id: connection.id,
             workspaceId: connection.workspaceId,
-            catalogId: connection.catalogId,
+            definitionId: connection.definitionId,
             name: connection.name,
-            provider: connection.provider,
-            connectionType: connection.connectionType,
+            provider: definition.name,
+            access: connectionAgentAccess(definition.adapterKey),
             dataStream: connection.dataStream,
-            status: credentialError ? "error" : connection.catalogId && connection.status === "connected" && !this.active.has(connection.id) ? "disconnected" : connection.status,
+            status: credentialError ? "error" : connection.status === "connected" && !this.active.has(connection.id) ? "disconnected" : connection.status,
             configuration,
             configuredSecretFields,
             credentialError,
@@ -109,23 +102,20 @@ export class ConnectionService {
      */
     async readerFor(id: string, workspaceId: string): Promise<ConnectionReader> {
         const connection = await this.owned(id, workspaceId);
-        if (!connection.catalogId) throw new AppError(409, "This connection was created before the catalog and must be recreated to be read.");
-        const catalog = await this.enabledCatalog(connection.catalogId);
+        const definition = await this.enabledDefinition(connection.definitionId, workspaceId);
         let active = this.active.get(id);
         if (!active || active.workspaceId !== workspaceId) {
             await this.reconnectOnce(id, workspaceId);
             active = this.active.get(id);
         }
         if (!active) throw new AppError(503, "The connection could not be reached. Reconnect it from the Connectors page.");
-        const { publicConfiguration } = this.credentials.split(catalog.configSchema, connection.configuration);
+        const { publicConfiguration } = this.credentials.split(definition.configSchema, connection.configuration);
         return {
             id: connection.id,
             name: connection.name,
-            provider: catalog.name,
-            catalogCode: catalog.code,
-            adapterKey: catalog.adapterKey,
-            connectorType: catalog.connectorType,
-            configuration: publicConfiguration,
+            provider: definition.name,
+            adapterKey: definition.adapterKey,
+            configuration: compileDiscoveredConfiguration(definition.configSchema, publicConfiguration),
             metadata: active.handle.metadata,
             handle: active.handle,
         };
@@ -148,11 +138,11 @@ export class ConnectionService {
         return this.serialize(await this.owned(id, workspaceId));
     }
 
-    private async connect(catalog: ConnectorCatalog, configuration: Record<string, unknown>, name: string, workspaceId: string) {
-        this.validator.validate(catalog.configSchema, configuration);
+    private async connect(definition: ConnectionDefinition, configuration: Record<string, unknown>, name: string, workspaceId: string) {
+        this.validator.validate(definition.configSchema, configuration);
         const state: { id: string | null; handle: ConnectorHandle | null; closed: boolean } = { id: null, handle: null, closed: false };
         try {
-            const handle = await this.adapters.connect(catalog.adapterKey, configuration, {
+            const handle = await this.adapters.connect(definition.adapterKey, compileDiscoveredConfiguration(definition.configSchema, configuration), {
                 workspaceId,
                 connectionName: name,
                 onDisconnect: () => {
@@ -187,9 +177,9 @@ export class ConnectionService {
     }
 
     async verify(input: Omit<CreateConnectionInput, "dataStream">) {
-        const catalog = await this.enabledCatalog(input.catalogId);
-        const configuration = this.validator.visibleConfiguration(catalog.configSchema, input.configuration);
-        const session = await this.connect(catalog, configuration, input.name, input.workspaceId);
+        const definition = await this.enabledDefinition(input.definitionId, input.workspaceId);
+        const configuration = this.validator.visibleConfiguration(definition.configSchema, input.configuration);
+        const session = await this.connect(definition, configuration, input.name, input.workspaceId);
         try {
             return { success: true, metadata: session.handle.metadata };
         } finally {
@@ -198,18 +188,17 @@ export class ConnectionService {
     }
 
     async create(input: CreateConnectionInput) {
-        const catalog = await this.enabledCatalog(input.catalogId);
-        const configuration = this.validator.visibleConfiguration(catalog.configSchema, input.configuration);
-        const session = await this.connect(catalog, configuration, input.name, input.workspaceId);
+        const definition = await this.enabledDefinition(input.definitionId, input.workspaceId);
+        const configuration = this.validator.visibleConfiguration(definition.configSchema, input.configuration);
+        const session = await this.connect(definition, configuration, input.name, input.workspaceId);
         let created: Connection | undefined;
         try {
-            const { publicConfiguration, secrets } = this.credentials.split(catalog.configSchema, configuration);
+            const { publicConfiguration, secrets } = this.credentials.split(definition.configSchema, configuration);
             const connection = await this.repository.create({
                 workspaceId: input.workspaceId,
-                catalogId: catalog.id,
+                definitionId: definition.id,
                 name: input.name,
-                provider: catalog.name,
-                connectionType: catalog.connectorType,
+                provider: definition.name,
                 dataStream: input.dataStream === undefined ? null : input.dataStream,
                 configuration: publicConfiguration,
                 credentialReference: this.credentials.encrypt(secrets, input.workspaceId),
@@ -240,22 +229,21 @@ export class ConnectionService {
             if (!updated) throw new AppError(404, "Connection not found");
             return this.serialize(updated);
         }
-        if (!existing.catalogId) throw new AppError(409, "Legacy connections must be recreated from the catalog to configure a provider");
-        const catalog = await this.enabledCatalog(existing.catalogId);
+        const definition = await this.enabledDefinition(existing.definitionId, workspaceId);
         const storedSecrets = input.replaceCredentials ? {} : this.credentials.decrypt(existing.credentialReference, workspaceId);
-        const configuration = this.validator.visibleConfiguration(catalog.configSchema, {
+        const configuration = this.validator.visibleConfiguration(definition.configSchema, {
             ...storedSecrets,
             ...input.configuration,
         });
         let session;
         try {
-            session = await this.connect(catalog, configuration, input.name === undefined ? existing.name : input.name, workspaceId);
+            session = await this.connect(definition, configuration, input.name === undefined ? existing.name : input.name, workspaceId);
         } catch (error) {
             if (!this.active.has(id)) await this.repository.updateInWorkspace(id, workspaceId, { status: "error" });
             throw error;
         }
         try {
-            const { publicConfiguration, secrets } = this.credentials.split(catalog.configSchema, configuration);
+            const { publicConfiguration, secrets } = this.credentials.split(definition.configSchema, configuration);
             const updated = await this.repository.updateInWorkspace(id, workspaceId, {
                 ...changes,
                 configuration: publicConfiguration,

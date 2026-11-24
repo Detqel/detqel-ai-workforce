@@ -4,6 +4,7 @@ import { ApprovalService } from "../modules/approvals/services/approval.service.
 import { AuthService } from "../modules/auth/services/auth.service.js";
 import { AutomationService } from "../modules/automations/services/automation.service.js";
 import { BusinessService } from "../modules/business/services/business.service.js";
+import { ConnectorDiscoveryService } from "../modules/connections/services/connector-discovery.service.js";
 import { ConnectionService } from "../modules/connections/services/connection.service.js";
 import { DomainService } from "../modules/domains/services/domain.service.js";
 import { ExecutionService } from "../modules/executions/services/execution.service.js";
@@ -14,7 +15,6 @@ import { UserService } from "../modules/users/services/user.service.js";
 import { WorkforceService } from "../modules/workforce/services/agent.service.js";
 import { WorkspaceService } from "../modules/workspaces/services/workspace.service.js";
 import { SettingsService } from "../modules/settings/services/settings.service.js";
-import { LookupService } from "../modules/lookups/services/lookup.service.js";
 import type { Environment } from "../config/env.js";
 import { SECRET_PURPOSES } from "../constants/authConstants.js";
 import { SessionService } from "../shared/security/session.js";
@@ -57,9 +57,11 @@ export function createServices(unit: IUnitOfWork, checkDatabase: () => Promise<v
         allowedFilesystemRoots: config.CONNECTOR_ALLOWED_ROOTS,
     });
     const settings = new SettingsService(unit.settings, providerSecrets);
-    const connections = new ConnectionService(unit.connections, unit.connectorCatalog, credentials, adapters);
+    const agents = createAgentServices(unit, config, settings);
+    const connectorDiscovery = new ConnectorDiscoveryService(unit.connectionDefinitions, agents.webSearch, agents.models, agents.gateway, agents.keys, promptLoader);
+    const connections = new ConnectionService(unit.connections, unit.connectionDefinitions, credentials, adapters);
     // Agents read connectors only through this layer, which allows read operations alone.
-    const discussions = createDiscussionService(unit, config, settings, promptLoader, new AgentConnectorAccess(connections));
+    const discussions = createDiscussionService(unit, config, settings, promptLoader, new AgentConnectorAccess(connections), agents);
     return {
         auth: new AuthService(unit.users, unit.workspaces, sessions, licensePortal, licenseTokens, installationMetadata()),
         workspaces: new WorkspaceService(unit),
@@ -68,6 +70,7 @@ export function createServices(unit: IUnitOfWork, checkDatabase: () => Promise<v
         business: new BusinessService(unit.business),
         workforce: new WorkforceService(unit.workforce, unit.connections),
         connections,
+        connectorDiscovery,
         workspaceAccess: new WorkspaceAccessService(sessions, unit.users, unit.workspaces, licensePortal),
         sessions,
         missions: new MissionService(unit),
@@ -78,7 +81,6 @@ export function createServices(unit: IUnitOfWork, checkDatabase: () => Promise<v
         notifications: new NotificationService(unit.notifications),
         health: new HealthService(checkDatabase),
         settings,
-        lookups: new LookupService(unit.lookups),
         discussions,
     };
 }
@@ -96,7 +98,7 @@ function installationMetadata(): PortalClientMetadata {
  * infrastructure environment; the discussion service is still constructed when they are absent so the module
  * registers, and its endpoints fail fast with a clear message if the gateway or vector store is unconfigured.
  */
-function createDiscussionService(unit: IUnitOfWork, config: Environment, settings: SettingsService, promptLoader: PromptLoader, connectorAccess: IAgentConnectorAccess): DiscussionService {
+function createAgentServices(unit: IUnitOfWork, config: Environment, settings: SettingsService) {
     const gateway = new LiteLlmClient({ baseUrl: config.LITELLM_BASE_URL ?? "", masterKey: config.LITELLM_API_KEY ?? "" });
     const virtualKeyCipher = new SecretCipher(config.CONNECTOR_ENCRYPTION_KEY, AGENT_RUNTIME_SECRET_PURPOSE);
     const keys = new VirtualKeyRegistry(gateway, unit.virtualKeys, virtualKeyCipher);
@@ -107,6 +109,12 @@ function createDiscussionService(unit: IUnitOfWork, config: Environment, setting
         { model: OLLAMA_EMBEDDING_MODEL, apiBase: OLLAMA_GATEWAY_BASE_URL },
         config.CONNECTOR_ENCRYPTION_KEY,
     );
+    const webSearch = new WorkspaceWebSearch(workspaceId => settings.resolveWebSearchKey(workspaceId));
+    return { gateway, keys, models, webSearch };
+}
+
+function createDiscussionService(unit: IUnitOfWork, config: Environment, settings: SettingsService, promptLoader: PromptLoader, connectorAccess: IAgentConnectorAccess, agents: ReturnType<typeof createAgentServices>): DiscussionService {
+    const { gateway, keys, models, webSearch } = agents;
     const runtime = new DiscussionRuntime(gateway, keys, promptLoader);
     const milvus = new MilvusClient({ address: config.MILVUS_ADDRESS ?? "", token: config.MILVUS_TOKEN });
     const rag = new RagService(gateway, keys, milvus);
@@ -117,7 +125,6 @@ function createDiscussionService(unit: IUnitOfWork, config: Environment, setting
     });
     const participants = new DiscussionParticipants(unit.workforce, promptLoader);
     // Each workspace searches the web with the Tavily key it saved in Settings.
-    const webSearch = new WorkspaceWebSearch(workspaceId => settings.resolveWebSearchKey(workspaceId));
     const knowledge = new SessionKnowledge(fileServer, rag);
     const toolboxes = new DiscussionToolboxFactory(connectorAccess, knowledge);
     const documentImages = new DocumentImageService(gateway, keys, workspaceId => settings.resolveAgentModelConfiguration(workspaceId), config.CONNECTOR_ENCRYPTION_KEY);

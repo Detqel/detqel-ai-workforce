@@ -190,6 +190,41 @@
       "when": 1795404452704,
       "tag": "0026_restored_composer_draft",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1795420124463,
+      "tag": "0027_workspace_connector_discovery",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1795439267372,
+      "tag": "0028_unified_connection_discovery",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1795452839526,
+      "tag": "0029_discussion_questions_activity",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1795453804170,
+      "tag": "0030_question_constraints_activity_accuracy",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1795454518103,
+      "tag": "0031_workspace_activity_sources",
+      "breakpoints": true
     }
   ]
 }

@@ -21,6 +21,11 @@ export const discussionRoutes: FastifyPluginAsync = async (app) => {
         schema: { tags: [API_TAG_NAMES.discussions], summary: "List discussion sessions" },
     }, controller.listSessions.bind(controller));
 
+    app.get("/discussions/workspaces/:workspaceId/questions", {
+        preHandler: read,
+        schema: { tags: [API_TAG_NAMES.discussions], summary: "List unanswered agent questions in this workspace" },
+    }, controller.listPendingQuestions.bind(controller));
+
     app.get("/discussions/workspaces/:workspaceId/sessions/:sessionId", {
         preHandler: read,
         schema: { tags: [API_TAG_NAMES.discussions], summary: "Get a discussion session" },

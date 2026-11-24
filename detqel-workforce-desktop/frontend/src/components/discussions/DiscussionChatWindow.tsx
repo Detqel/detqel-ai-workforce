@@ -25,6 +25,8 @@ import {
   apiStreamContinueTurn,
   apiStreamDiscussionMessage,
   apiRestoreDiscussionCheckpoint,
+  apiListDiscussionQuestions,
+  type PendingQuestion,
   type ConversationContext,
   type ExportFormat,
   type PendingSpeaker,
@@ -44,6 +46,7 @@ import { ReplyViewer } from "./ReplyViewer";
 import { MessageSurface } from "./MessageSurface";
 import { CopyMessageButton } from "./CopyMessageButton";
 import { MarkdownComposer } from "./MarkdownComposer";
+import { PendingQuestionsPanel } from "./PendingQuestionsPanel";
 import { saveDownload } from "@/lib/download";
 import { MessageSources } from "./MessageSources";
 import {
@@ -84,6 +87,7 @@ interface DiscussionChatWindowProps {
   workspaceId: string | null;
   initialMessages?: ChatMessage[];
   initialDraft?: string;
+  initialQuestionId?: string;
   /** The session's gateway usage so far. */
   initialUsage: SessionUsage;
   /** Agents still due to reply in a turn that stopped before they did, when the session was opened. */
@@ -103,6 +107,7 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
   workspaceId,
   initialMessages,
   initialDraft,
+  initialQuestionId,
   initialUsage,
   initialPendingAgentIds,
   onArtifactsChanged,
@@ -112,6 +117,36 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
   const [contextState, setContextState] = useState<ConversationContext | null | undefined>(undefined);
   const [isRestoring, setIsRestoring] = useState(false);
   const [inputText, setInputText] = useState(initialDraft ?? "");
+  const [questions, setQuestions] = useState<PendingQuestion[]>([]);
+  const [answerToQuestionId, setAnswerToQuestionId] = useState<string | null>(initialQuestionId ?? null);
+  const [questionsError, setQuestionsError] = useState<string | null>(null);
+  const [questionsNotice, setQuestionsNotice] = useState<string | null>(null);
+  const [questionsLoading, setQuestionsLoading] = useState(Boolean(workspaceId && activeSessionId));
+  const [questionsVersion, setQuestionsVersion] = useState(0);
+  const questionRevision = useRef(0);
+  const questionFocus = useRef<string | undefined>(initialQuestionId);
+  const newMessageMode = useRef(false);
+  useEffect(() => {
+    if (!workspaceId || !activeSessionId) return;
+    let active = true;
+    const controller = new AbortController();
+    const revision = questionRevision.current;
+    apiListDiscussionQuestions(workspaceId, { sessionId: activeSessionId, focusQuestionId: questionFocus.current, limit: 100 }, controller.signal).then(result => {
+      if (!active || revision !== questionRevision.current) return;
+      setQuestions(result.items);
+      setQuestionsError(null);
+      const focused = questionFocus.current;
+      const stale = focused && !result.items.some(question => question.id === focused);
+      if (stale) {
+        newMessageMode.current = true;
+        setQuestionsNotice("That question is no longer pending. Review the chat before resending your draft, or choose another question.");
+      }
+      const selected = newMessageMode.current ? null : focused ?? result.items[0]?.id ?? null;
+      questionFocus.current = selected ?? undefined;
+      setAnswerToQuestionId(selected);
+    }).catch(error => { if (active && revision === questionRevision.current) setQuestionsError(error instanceof Error ? error.message : "Could not load unanswered questions."); }).finally(() => { if (active) setQuestionsLoading(false); });
+    return () => { active = false; controller.abort(); };
+  }, [workspaceId, activeSessionId, questionsVersion]);
   const [composerFocusRequest, setComposerFocusRequest] = useState(0);
   const documentAssetContext = useMemo(() => workspaceId && activeSessionId ? { workspaceId, sessionId: activeSessionId } : undefined, [workspaceId, activeSessionId]);
   const [isRecording, setIsRecording] = useState(false);
@@ -217,6 +252,23 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
       }
       case "turn":
         onUserMessageSaved(toViewMessage(event.userMessage, activeTarget));
+        if (event.answerToQuestionId) {
+          questionRevision.current++;
+          if (questionFocus.current === event.answerToQuestionId) questionFocus.current = undefined;
+          setQuestions(items => items.filter(question => question.id !== event.answerToQuestionId));
+          setAnswerToQuestionId(current => current === event.answerToQuestionId ? null : current);
+        }
+        break;
+      case "question":
+        questionRevision.current++;
+        newMessageMode.current = false;
+        setQuestions(items => [...items.filter(question => question.id !== event.question.id), event.question]);
+        questionFocus.current = event.question.id;
+        setAnswerToQuestionId(event.question.id);
+        setQuestionsError(null);
+        setQuestionsNotice(null);
+        setQuestionsLoading(false);
+        setComposerFocusRequest(value => value + 1);
         break;
       case "speaker": {
         const id = `live-${event.agentId}-${crypto.randomUUID()}`;
@@ -324,6 +376,7 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
         }));
         setUpNext([]);
         setIsStreaming(false);
+        setQuestionsVersion(value => value + 1);
       }
     }
   }, [applyEvent, toast]);
@@ -352,6 +405,10 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
       setUsage({ inputTokens: session.inputTokens, outputTokens: session.outputTokens, cachedTokens: session.cachedTokens, costUsd: session.costUsd });
       setContextState(null); setViewingId(null); setTurnError(null); setUpNext([]);
       setStalled([]);
+      questionRevision.current++;
+      newMessageMode.current = !session.composerDraft.answerToQuestionId;
+      questionFocus.current = session.composerDraft.answerToQuestionId;
+      setQuestions([]); setAnswerToQuestionId(session.composerDraft.answerToQuestionId ?? null); setQuestionsVersion(value => value + 1);
       queued.current = []; speaking.current = null; liveIds.current.clear(); pendingText.current.clear();
       if (frame.current !== null) { cancelAnimationFrame(frame.current); frame.current = null; }
       setComposerFocusRequest(value => value + 1);
@@ -426,7 +483,7 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const text = inputText;
-    if (!text.trim() || isStreaming || isRestoring) return;
+    if (!text.trim() || isStreaming || isRestoring || questionsLoading) return;
     if (!workspaceId) {
       toast.error("Select a workspace before starting a discussion.");
       return;
@@ -448,6 +505,7 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
     await runTurn(
       (onEvent, signal) => apiStreamDiscussionMessage(workspaceId, activeSessionId, {
         message: text,
+        ...(answerToQuestionId ? { answerToQuestionId } : {}),
         responseMode,
         capabilityMode,
         // Web search is only meaningful on the expert path.
@@ -690,6 +748,12 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
 
       {/* Markdown composer */}
       <div className="min-w-0 p-4 shrink-0">
+        {questionsLoading && <p role="status" className="mb-2 flex items-center gap-2 text-[11px] text-slate-500"><Loader2 className="h-3 w-3 animate-spin" />Checking pending questions...</p>}
+        {questionsError && <div role="alert" className="mb-2 flex items-center justify-between gap-3 text-xs text-red-700 dark:text-red-400"><p>{questionsError}</p><button type="button" onClick={() => setQuestionsVersion(value => value + 1)} className="shrink-0 font-semibold underline">Try again</button></div>}
+        {questionsNotice && <p role="status" className="mb-2 text-[11px] text-slate-500 dark:text-slate-400">{questionsNotice}</p>}
+        <PendingQuestionsPanel questions={questions} selectedId={answerToQuestionId} disabled={isStreaming || isRestoring}
+          onSelect={id => { questionRevision.current++; questionFocus.current = id ?? undefined; newMessageMode.current = id === null; setQuestionsNotice(null); setAnswerToQuestionId(id); setQuestionsVersion(value => value + 1); setComposerFocusRequest(value => value + 1); }}
+          onChoice={(id, text) => { questionRevision.current++; questionFocus.current = id; newMessageMode.current = false; setQuestionsNotice(null); setAnswerToQuestionId(id); setQuestionsVersion(value => value + 1); setInputText(current => current.trim() ? `${current}\n\n${text}` : text); setComposerFocusRequest(value => value + 1); }} />
         <form
           onSubmit={handleSendMessage}
           className="flex w-full min-w-0 flex-col gap-2 bg-slate-100/90 dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700/80 rounded-2xl px-3 py-2 shadow-xs focus-within:ring-2 focus-within:ring-primary-ring focus-within:border-primary transition-colors"
@@ -700,7 +764,7 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
             type="button"
             onClick={toggleVoiceRecording}
             title={isRecording ? "Stop voice recognition" : "Activate voice recognition"}
-            disabled={isRestoring}
+            disabled={isRestoring || questionsLoading}
             className={`shrink-0 p-2 rounded-xl transition-all cursor-pointer ${
               isRecording
                 ? "bg-red-500 text-white animate-pulse"
@@ -714,8 +778,8 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
             value={inputText}
             onChange={setInputText}
             onSubmit={() => { void handleSendMessage(); }}
-            sending={isStreaming || isRestoring}
-            disabled={isRestoring}
+            sending={isStreaming || isRestoring || questionsLoading}
+            disabled={isRestoring || questionsLoading}
             focusRequest={composerFocusRequest}
             placeholder={activeTarget.type === "team" ? `Dispatch directive to ${activeTarget.name} squad...` : `Instruct ${activeTarget.name}...`}
           />
@@ -734,7 +798,7 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
           ) : (
             <button
               type="submit"
-              disabled={!inputText.trim() || isRestoring}
+              disabled={!inputText.trim() || isRestoring || questionsLoading}
               title="Send directive"
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary hover:bg-primary-hover disabled:opacity-40 text-primary-fg shadow-xs transition-all cursor-pointer"
             >

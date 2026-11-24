@@ -10,8 +10,7 @@ import { UserRepository } from "../../modules/users/repositories/drizzle.user.re
 import { WorkforceRepository } from "../../modules/workforce/repositories/drizzle.workforce.repository.js";
 import { WorkspaceRepository } from "../../modules/workspaces/repositories/drizzle.workspace.repository.js";
 import { DrizzleSettingsRepository } from "../../modules/settings/repositories/drizzle.settings.repository.js";
-import { LookupRepository } from "../../modules/lookups/repositories/drizzle.lookup.repository.js";
-import { ConnectorCatalogRepository } from "../../modules/connections/repositories/drizzle.connector-catalog.repository.js";
+import { ConnectionDefinitionRepository } from "../../modules/connections/repositories/drizzle.connection-definition.repository.js";
 import { VirtualKeyRepository } from "../../shared/agents/drizzle.virtual-key.repository.js";
 import { DiscussionRepository } from "../../modules/discussions/repositories/drizzle.discussion.repository.js";
 import type { IUnitOfWork } from "../../shared/contracts/unit-of-work.js";
@@ -31,8 +30,7 @@ export class UnitOfWork implements IUnitOfWork {
     readonly notifications;
     readonly domains;
     readonly settings;
-    readonly lookups;
-    readonly connectorCatalog;
+    readonly connectionDefinitions;
     readonly virtualKeys;
     readonly discussions;
     constructor(private readonly database: DatabaseSession, private readonly promptLoader?: PromptLoader) {
@@ -48,8 +46,7 @@ export class UnitOfWork implements IUnitOfWork {
         this.notifications = new NotificationRepository(database);
         this.domains = new DomainRepository(database);
         this.settings = new DrizzleSettingsRepository(database);
-        this.lookups = new LookupRepository(database);
-        this.connectorCatalog = new ConnectorCatalogRepository(database);
+        this.connectionDefinitions = new ConnectionDefinitionRepository(database);
         this.virtualKeys = new VirtualKeyRepository(database);
         this.discussions = new DiscussionRepository(database);
     }

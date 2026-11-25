@@ -13,6 +13,11 @@ import type { ISettingsRepository } from "../../modules/settings/repositories/se
 import type { IConnectionDefinitionRepository } from "../../modules/connections/repositories/connection-definition.repository.js";
 import type { IVirtualKeyRepository } from "../agents/virtual-key.repository.js";
 import type { IDiscussionRepository } from "../../modules/discussions/repositories/discussion.repository.js";
+import type { IBrainDataRepository } from "../../modules/brain/repositories/brain-data.repository.js";
+import type { IBrainSemanticRepository } from "../../modules/brain/repositories/brain-semantic.repository.js";
+import type { IBrainIntelligenceRepository } from "../../modules/brain/repositories/brain-intelligence.repository.js";
+import type { IBrainWorkforceRepository } from "../../modules/brain/repositories/brain-workforce.repository.js";
+import type { IBrainGovernanceRepository } from "../../modules/brain/repositories/brain-governance.repository.js";
 export interface IRepositorySet {
     readonly users: IUserRepository;
     readonly workspaces: IWorkspaceRepository;
@@ -29,6 +34,11 @@ export interface IRepositorySet {
     readonly connectionDefinitions: IConnectionDefinitionRepository;
     readonly virtualKeys: IVirtualKeyRepository;
     readonly discussions: IDiscussionRepository;
+    readonly brainData: IBrainDataRepository;
+    readonly brainSemantic: IBrainSemanticRepository;
+    readonly brainIntelligence: IBrainIntelligenceRepository;
+    readonly brainWorkforce: IBrainWorkforceRepository;
+    readonly brainGovernance: IBrainGovernanceRepository;
 }
 export interface IUnitOfWork extends IRepositorySet {
     transaction<T>(operation: (repositories: IUnitOfWork) => Promise<T>): Promise<T>;

@@ -16,3 +16,4 @@ export * from "./recruit.js";
 export * from "./teams.js";
 export * from "./agent-runtime.js";
 export * from "./discussions.js";
+export * from "./brain.js";

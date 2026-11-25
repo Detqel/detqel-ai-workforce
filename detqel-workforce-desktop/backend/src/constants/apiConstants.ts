@@ -18,7 +18,7 @@ export const API_TAG_NAMES = {
     business: "Business Brain", workforce: "AI Workforce", connections: "Connections",
     missions: "Missions & Command Center", approvals: "Approvals", executions: "Executions",
     analytics: "Analytics & Intelligence", automations: "Automations", notifications: "Notifications",
-    domains: "Domains", settings: "Settings", discussions: "Discussions",
+    domains: "Domains", settings: "Settings", discussions: "Discussions", brain: "Business Brain Platform",
 } as const;
 
 export const OPENAPI_INFO = {
@@ -41,4 +41,5 @@ export const OPENAPI_TAGS = [
     { name: API_TAG_NAMES.analytics, description: "Predictions and simulations" },
     { name: API_TAG_NAMES.automations, description: "Autonomous workflows and scheduled tasks" },
     { name: API_TAG_NAMES.discussions, description: "Agentic chat sessions, knowledge, and connector-grounded answers" },
+    { name: API_TAG_NAMES.brain, description: "Medallion data platform, ontology and semantics, intelligence engine, AI workforce, workflows and assistant" },
 ];

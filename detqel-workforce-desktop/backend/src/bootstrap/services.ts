@@ -45,6 +45,7 @@ import { hostname } from "node:os";
 import { AgentConnectorAccess, type IAgentConnectorAccess } from "../modules/connections/services/agent-connector-access.service.js";
 import { DiscussionToolboxFactory } from "../modules/discussions/services/discussion-toolbox.js";
 import { SessionKnowledge } from "../shared/rag/session-knowledge.js";
+import { createBrainServices } from "../modules/brain/services/brain-services.js";
 export function createServices(unit: IUnitOfWork, checkDatabase: () => Promise<void>, config: Environment, promptLoader: PromptLoader = createPromptLoader()) {
     const sessions = new SessionService(config.AUTH_SESSION_SECRET, config.AUTH_SESSION_TTL_SECONDS);
     const licensePortal = new LicensePortalClient({ baseUrl: config.LICENSE_PORTAL_URL, productKey: config.LICENSE_PORTAL_PRODUCT_KEY, timeoutMs: config.LICENSE_PORTAL_TIMEOUT_MS });
@@ -62,6 +63,12 @@ export function createServices(unit: IUnitOfWork, checkDatabase: () => Promise<v
     const connections = new ConnectionService(unit.connections, unit.connectionDefinitions, credentials, adapters);
     // Agents read connectors only through this layer, which allows read operations alone.
     const discussions = createDiscussionService(unit, config, settings, promptLoader, new AgentConnectorAccess(connections), agents);
+    const workspaceAccess = new WorkspaceAccessService(sessions, unit.users, unit.workspaces, licensePortal);
+    // The Business Brain reads connectors only through the connection service's read-only reader.
+    const brain = createBrainServices(unit, {
+        connections, gateway: agents.gateway, keys: agents.keys, models: agents.models, prompts: promptLoader, webSearch: agents.webSearch,
+        roleOf: (userId, workspaceId) => workspaceAccess.roleOf(userId, workspaceId),
+    });
     return {
         auth: new AuthService(unit.users, unit.workspaces, sessions, licensePortal, licenseTokens, installationMetadata()),
         workspaces: new WorkspaceService(unit),
@@ -71,7 +78,7 @@ export function createServices(unit: IUnitOfWork, checkDatabase: () => Promise<v
         workforce: new WorkforceService(unit.workforce, unit.connections),
         connections,
         connectorDiscovery,
-        workspaceAccess: new WorkspaceAccessService(sessions, unit.users, unit.workspaces, licensePortal),
+        workspaceAccess,
         sessions,
         missions: new MissionService(unit),
         approvals: new ApprovalService(unit),
@@ -82,6 +89,7 @@ export function createServices(unit: IUnitOfWork, checkDatabase: () => Promise<v
         health: new HealthService(checkDatabase),
         settings,
         discussions,
+        brain,
     };
 }
 

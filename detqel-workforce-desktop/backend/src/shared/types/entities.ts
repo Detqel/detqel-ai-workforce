@@ -12,3 +12,13 @@ export type { NewUserNotification, UserNotification } from "../../infrastructure
 export type { Agent, AgentConnection, AgentMemory, NewAgent, NewAgentConnection, NewAgentMemory } from "../../infrastructure/database/schema/workforce.js";
 export type { AgentLevel, AgentRun, AgentSection, AgentStatus, AgentTemplate, AgentTemplateVersion, NewAgentLevel, NewAgentRun, NewAgentSection, NewAgentStatus, NewAgentTemplate, NewAgentTemplateVersion, NewOrganization, NewOrganizationAgent, Organization, OrganizationAgent } from "../../infrastructure/database/schema/recruit.js";
 export type { AgentTeam, NewAgentTeam, AgentTeamMember, NewAgentTeamMember } from "../../infrastructure/database/schema/teams.js";
+export type {
+    BrainAccessPolicy, BrainActionApproval, BrainAgentTask, BrainAnalysisRun, BrainApprovalDecision, BrainAuditEvent, BrainBronzeRecord,
+    BrainConversation, BrainDataset, BrainEntity, BrainEntityAttribute, BrainEntityLink, BrainEntityType, BrainEvent, BrainFilter,
+    BrainMessage, BrainMetricDefinition, BrainMetricObservation, BrainPipelineRun, BrainPolicySettings, BrainQualityRule,
+    BrainQuarantineRecord, BrainReason, BrainRelationshipType, BrainRetryEntry, BrainScenario, BrainSchemaChanges, BrainSchemaField,
+    BrainSchemaVersion, BrainSemanticMapping, BrainSilverRecord, BrainSourceRef, BrainTaskStep, BrainWorkflowDefinition, BrainWorkflowRun,
+    BrainWorkflowStepRun, NewBrainAccessPolicy, NewBrainActionApproval, NewBrainAgentTask, NewBrainAnalysisRun, NewBrainAuditEvent,
+    NewBrainDataset, NewBrainEntityType, NewBrainEvent, NewBrainMetricDefinition, NewBrainPipelineRun, NewBrainQualityRule,
+    NewBrainRelationshipType, NewBrainScenario, NewBrainSemanticMapping, NewBrainTaskStep, NewBrainWorkflowDefinition, NewBrainWorkflowRun,
+} from "../../infrastructure/database/schema/brain.js";

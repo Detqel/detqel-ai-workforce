@@ -31,6 +31,7 @@ export const API_PATHS = {
   teams: "/api/teams",
   discussionSessions: "/api/discussions/sessions",
   discussions: "/api/discussions/workspaces",
+  brainWorkspaces: "/api/brain/workspaces",
 } as const;
 
 

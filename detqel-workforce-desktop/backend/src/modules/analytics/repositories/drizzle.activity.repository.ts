@@ -3,6 +3,26 @@ import { type DatabaseSession } from "../../../infrastructure/database/connectio
 import { userActivities, type NewUserActivity, type UserActivity, } from "../../../infrastructure/database/schema/activities.js";
 import type { IActivityRepository } from "./activity.repository.js";
 import type { ActivityHeatmapDayCell, ActivityHeatmapResult } from "./activity.types.js";
+// Legacy IANA aliases that some Postgres builds (e.g. bundled/Windows) do not ship.
+const TIME_ZONE_ALIASES: Record<string, string> = {
+    "Asia/Calcutta": "Asia/Kolkata",
+    "Asia/Saigon": "Asia/Ho_Chi_Minh",
+    "Asia/Katmandu": "Asia/Kathmandu",
+    "Asia/Rangoon": "Asia/Yangon",
+    "Europe/Kiev": "Europe/Kyiv",
+    "America/Buenos_Aires": "America/Argentina/Buenos_Aires",
+    "Pacific/Truk": "Pacific/Chuuk",
+};
+function normalizeTimeZone(timeZone?: string): string {
+    const resolved = TIME_ZONE_ALIASES[timeZone ?? ""] ?? timeZone ?? "UTC";
+    try {
+        new Intl.DateTimeFormat("en-US", { timeZone: resolved });
+        return resolved;
+    }
+    catch {
+        return "UTC";
+    }
+}
 export class ActivityRepository implements IActivityRepository {
     constructor(private readonly database: DatabaseSession) { }
     /**
@@ -52,7 +72,7 @@ export class ActivityRepository implements IActivityRepository {
     async getHeatmapData(workspaceId: string, options?: { userId?: string; days?: number; timeZone?: string }): Promise<ActivityHeatmapResult> {
         const categories = ["Discussions", "Investigations", "Documents", "Predictions", "Simulations", "Automations", "Decisions"];
         const daysCount = options?.days ?? 42;
-        const timeZone = options?.timeZone ?? "UTC";
+        const timeZone = normalizeTimeZone(options?.timeZone);
         const conditions = [
             eq(userActivities.workspaceId, workspaceId),
             inArray(sql`lower(${userActivities.activityType})`, categories.map(category => category.toLowerCase())),

@@ -41,6 +41,7 @@ import { agentRoutes } from "./modules/workforce/routes/agent.routes.js";
 import { workspaceRoutes } from "./modules/workspaces/routes/workspace.routes.js";
 import { settingsRoutes } from "./modules/settings/routes/settings.routes.js";
 import { discussionRoutes } from "./modules/discussions/routes/discussion.routes.js";
+import { brainRoutes } from "./modules/brain/routes/brain.routes.js";
 import { AppError } from "./shared/errors/app-error.js";
 import { createLogStream } from "./shared/logging/logger.js";
 import { registerDesktopTransport } from "./shared/security/desktop-transport.js";
@@ -69,6 +70,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     app.decorate("services", options.services ?? createServices(new UnitOfWork(connection!.db, promptLoader), connection!.check, config, promptLoader));
     app.decorateRequest("userId", undefined);
     app.addHook("onClose", async () => {
+        // Injected services never start the scheduler (see below), so only an owned connection has one to stop.
+        if (connection) await app.services.brain.scheduler.stop();
         await app.services.connections.close();
         await connection?.close();
         await options.close?.();
@@ -174,7 +177,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
             await apiRouter.register(domainRoutes);
             await apiRouter.register(settingsRoutes);
             await apiRouter.register(discussionRoutes);
+            await apiRouter.register(brainRoutes);
         }, { prefix: API_PREFIX });
+        // Background pipelines and workflows run only against a real database, never with injected test services.
+        if (connection && config.NODE_ENV !== "test") app.services.brain.scheduler.start();
         return app;
     }
     catch (error) {

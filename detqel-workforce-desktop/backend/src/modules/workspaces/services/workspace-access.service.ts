@@ -17,6 +17,10 @@ const ROLES_BY_ACCESS: Record<WorkspaceAccess, readonly string[]> = {
     manage: ["owner", "admin"],
     owner: ["owner"],
 };
+/** True when a workspace role includes the access level. */
+export function roleAllows(role: string, access: WorkspaceAccess): boolean {
+    return ROLES_BY_ACCESS[access].includes(role);
+}
 const ACCESS_DENIED: Record<WorkspaceAccess, string> = {
     read: "You do not have access to this workspace",
     write: "Workspace owner, administrator or manager access is required",
@@ -47,9 +51,14 @@ export class WorkspaceAccessService {
     }
 
     async authorize(userId: string, workspaceId: string, access: WorkspaceAccess): Promise<void> {
+        await this.authorizeWithRole(userId, workspaceId, access);
+    }
+    /** Same check as authorize, returning the caller's role for services that apply role-based data policies. */
+    async authorizeWithRole(userId: string, workspaceId: string, access: WorkspaceAccess): Promise<string> {
         const role = await this.roleOf(userId, workspaceId);
         if (role === null) throw new AppError(403, ACCESS_DENIED.read);
-        if (!ROLES_BY_ACCESS[access].includes(role)) throw new AppError(403, ACCESS_DENIED[access]);
+        if (!roleAllows(role, access)) throw new AppError(403, ACCESS_DENIED[access]);
+        return role;
     }
 
     /**

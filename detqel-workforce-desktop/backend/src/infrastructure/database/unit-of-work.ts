@@ -13,6 +13,11 @@ import { DrizzleSettingsRepository } from "../../modules/settings/repositories/d
 import { ConnectionDefinitionRepository } from "../../modules/connections/repositories/drizzle.connection-definition.repository.js";
 import { VirtualKeyRepository } from "../../shared/agents/drizzle.virtual-key.repository.js";
 import { DiscussionRepository } from "../../modules/discussions/repositories/drizzle.discussion.repository.js";
+import { BrainDataRepository } from "../../modules/brain/repositories/drizzle.brain-data.repository.js";
+import { BrainSemanticRepository } from "../../modules/brain/repositories/drizzle.brain-semantic.repository.js";
+import { BrainIntelligenceRepository } from "../../modules/brain/repositories/drizzle.brain-intelligence.repository.js";
+import { BrainWorkforceRepository } from "../../modules/brain/repositories/drizzle.brain-workforce.repository.js";
+import { BrainGovernanceRepository } from "../../modules/brain/repositories/drizzle.brain-governance.repository.js";
 import type { IUnitOfWork } from "../../shared/contracts/unit-of-work.js";
 import type { PromptLoader } from "../../shared/agents/prompts/loader.js";
 import type { DatabaseSession } from "./connection.js";
@@ -33,6 +38,11 @@ export class UnitOfWork implements IUnitOfWork {
     readonly connectionDefinitions;
     readonly virtualKeys;
     readonly discussions;
+    readonly brainData;
+    readonly brainSemantic;
+    readonly brainIntelligence;
+    readonly brainWorkforce;
+    readonly brainGovernance;
     constructor(private readonly database: DatabaseSession, private readonly promptLoader?: PromptLoader) {
         this.users = new UserRepository(database);
         this.workspaces = new WorkspaceRepository(database);
@@ -49,6 +59,11 @@ export class UnitOfWork implements IUnitOfWork {
         this.connectionDefinitions = new ConnectionDefinitionRepository(database);
         this.virtualKeys = new VirtualKeyRepository(database);
         this.discussions = new DiscussionRepository(database);
+        this.brainData = new BrainDataRepository(database);
+        this.brainSemantic = new BrainSemanticRepository(database);
+        this.brainIntelligence = new BrainIntelligenceRepository(database);
+        this.brainWorkforce = new BrainWorkforceRepository(database);
+        this.brainGovernance = new BrainGovernanceRepository(database);
     }
     transaction<T>(operation: (repositories: IUnitOfWork) => Promise<T>): Promise<T> {
         return this.database.transaction(tx => operation(new UnitOfWork(tx, this.promptLoader)));

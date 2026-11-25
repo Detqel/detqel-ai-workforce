@@ -225,6 +225,13 @@
       "when": 1795454518103,
       "tag": "0031_workspace_activity_sources",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1795540000000,
+      "tag": "0032_business_brain",
+      "breakpoints": true
     }
   ]
 }

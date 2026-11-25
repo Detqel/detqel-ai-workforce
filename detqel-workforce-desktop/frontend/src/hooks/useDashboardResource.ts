@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 /** Refresh visible dashboard data, cancel stale workspace requests, and retain explicit load errors. */
 export function useDashboardResource<T>(load: (signal: AbortSignal) => Promise<T>) {
@@ -27,5 +27,7 @@ export function useDashboardResource<T>(load: (signal: AbortSignal) => Promise<T
     document.addEventListener("visibilitychange", onFocus);
     return () => { active = false; controller.abort(); window.clearInterval(timer); window.removeEventListener("focus", onFocus); document.removeEventListener("visibilitychange", onFocus); };
   }, [load, version]);
-  return { ...state, loading: state.data === null && state.error === null, reload: () => setVersion(value => value + 1) };
+  // Stable, so callers can list it as a dependency without re-running their effects every render.
+  const reload = useCallback(() => setVersion(value => value + 1), []);
+  return { ...state, loading: state.data === null && state.error === null, reload };
 }

@@ -430,5 +430,365 @@
     {
         "method":  "POST",
         "url":  "/api/connections/test"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/overview"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/catalog"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/context"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/datasets"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/datasets"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/datasets/:datasetId"
+    },
+    {
+        "method":  "PUT",
+        "url":  "/api/brain/workspaces/:workspaceId/datasets/:datasetId"
+    },
+    {
+        "method":  "DELETE",
+        "url":  "/api/brain/workspaces/:workspaceId/datasets/:datasetId"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/datasets/:datasetId/sync"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/datasets/:datasetId/retry"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/datasets/:datasetId/pause"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/datasets/:datasetId/resume"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/datasets/:datasetId/revoke"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/datasets/:datasetId/schema/accept"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/datasets/:datasetId/lineage"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/datasets/:datasetId/quality-rules"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/datasets/:datasetId/quality-rules"
+    },
+    {
+        "method":  "PUT",
+        "url":  "/api/brain/workspaces/:workspaceId/datasets/:datasetId/quality-rules/:ruleId"
+    },
+    {
+        "method":  "DELETE",
+        "url":  "/api/brain/workspaces/:workspaceId/datasets/:datasetId/quality-rules/:ruleId"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/datasets/:datasetId/mappings/suggest"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/pipeline-runs"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/pipeline-runs/:runId"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/quarantine"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/quarantine/:recordId/resolve"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/ontology"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/ontology/templates"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/ontology/templates/:templateKey/apply"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/entity-types"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/entity-types"
+    },
+    {
+        "method":  "PUT",
+        "url":  "/api/brain/workspaces/:workspaceId/entity-types/:entityTypeId"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/entity-types/:entityTypeId/retire"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/relationship-types"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/relationship-types"
+    },
+    {
+        "method":  "PUT",
+        "url":  "/api/brain/workspaces/:workspaceId/relationship-types/:relationshipTypeId"
+    },
+    {
+        "method":  "DELETE",
+        "url":  "/api/brain/workspaces/:workspaceId/relationship-types/:relationshipTypeId"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/mappings"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/mappings"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/mappings/:mappingId/review"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/entities"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/entities/merge-candidates"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/entities/:entityId"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/entities/:entityId/merge"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/entities/:entityId/unmerge"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/metrics"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/metrics"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/metrics/:metricId"
+    },
+    {
+        "method":  "PUT",
+        "url":  "/api/brain/workspaces/:workspaceId/metrics/:metricId"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/metrics/:metricId/approve"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/metrics/:metricId/retire"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/semantic/query"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/access-policies"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/access-policies"
+    },
+    {
+        "method":  "DELETE",
+        "url":  "/api/brain/workspaces/:workspaceId/access-policies/:policyId"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/intelligence/methods"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/intelligence/forecasts"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/intelligence/simulations"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/intelligence/optimisations"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/intelligence/root-causes"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/intelligence/runs"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/intelligence/runs/:runId"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/intelligence/runs/:runId/reproduce"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/intelligence/runs/:runId/workflow"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/scenarios"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/scenarios"
+    },
+    {
+        "method":  "DELETE",
+        "url":  "/api/brain/workspaces/:workspaceId/scenarios/:scenarioId"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/scenarios/:scenarioId/run"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/tasks"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/tasks/:taskId"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/usage"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/policy"
+    },
+    {
+        "method":  "PUT",
+        "url":  "/api/brain/workspaces/:workspaceId/policy"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/workflows"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/workflows"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/workflows/from-template"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/workflows/:workflowId"
+    },
+    {
+        "method":  "PUT",
+        "url":  "/api/brain/workspaces/:workspaceId/workflows/:workflowId"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/workflows/:workflowId/activate"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/workflows/:workflowId/archive"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/workflows/:workflowId/runs"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/workflow-runs"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/workflow-runs/:runId"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/workflow-runs/:runId/cancel"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/workflow-runs/:runId/retry"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/approvals"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/approvals/:approvalId/decide"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/assistant/conversations"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/assistant/messages"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/assistant/conversations/:conversationId/messages"
+    },
+    {
+        "method":  "DELETE",
+        "url":  "/api/brain/workspaces/:workspaceId/assistant/conversations/:conversationId"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/audit"
     }
 ]

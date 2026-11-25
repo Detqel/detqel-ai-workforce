@@ -17,6 +17,7 @@ import {
   Square,
   Play,
   RotateCcw,
+  CornerDownRight,
 } from "lucide-react";
 import type { DiscussionTarget } from "@/lib/discussionStore";
 import type { AgentTeam, RecruitedAgent } from "@/lib/api";
@@ -46,7 +47,7 @@ import { ReplyViewer } from "./ReplyViewer";
 import { MessageSurface } from "./MessageSurface";
 import { CopyMessageButton } from "./CopyMessageButton";
 import { MarkdownComposer } from "./MarkdownComposer";
-import { PendingQuestionsPanel } from "./PendingQuestionsPanel";
+import { PendingQuestionCard, questionIntro } from "./PendingQuestionCard";
 import { saveDownload } from "@/lib/download";
 import { MessageSources } from "./MessageSources";
 import {
@@ -268,7 +269,6 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
         setQuestionsError(null);
         setQuestionsNotice(null);
         setQuestionsLoading(false);
-        setComposerFocusRequest(value => value + 1);
         break;
       case "speaker": {
         const id = `live-${event.agentId}-${crypto.randomUUID()}`;
@@ -422,10 +422,24 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
     onMessagesUpdate(messages);
   }, [messages, onMessagesUpdate]);
 
-  // Auto scroll to bottom
+  // Auto scroll to bottom, including when a question card appears under its message.
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, questions]);
+
+  // Open questions render under the message that asked them; any whose message is not loaded go last.
+  const questionsByMessage = useMemo(() => new Map(questions.map(question => [question.messageId, question])), [questions]);
+  const orphanQuestions = useMemo(() => questions.filter(question => !messages.some(message => message.id === question.messageId)), [questions, messages]);
+  const answeringQuestion = questions.find(question => question.id === answerToQuestionId);
+  const routeComposer = (id: string | null) => {
+    questionRevision.current++;
+    questionFocus.current = id ?? undefined;
+    newMessageMode.current = id === null;
+    setQuestionsNotice(null);
+    setAnswerToQuestionId(id);
+    setQuestionsVersion(value => value + 1);
+    setComposerFocusRequest(value => value + 1);
+  };
 
   // Setup Voice Activated Text Recognition
   const toggleVoiceRecording = () => {
@@ -480,9 +494,16 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
     }
   };
 
-  const handleSendMessage = async (e?: React.FormEvent) => {
+  const handleSendMessage = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    const text = inputText;
+    void sendMessage(inputText, answerToQuestionId, true);
+  };
+
+  /**
+   * Sends a message. With a question id it answers that question, and the server resumes the original request.
+   * A composer draft goes back to the chat box if nothing was saved; a question card keeps its own choices.
+   */
+  const sendMessage = async (text: string, questionId: string | null, fromComposer: boolean) => {
     if (!text.trim() || isStreaming || isRestoring || questionsLoading) return;
     if (!workspaceId) {
       toast.error("Select a workspace before starting a discussion.");
@@ -500,12 +521,12 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
       timestamp: formatTime(new Date()),
     };
     setMessages((prev) => [...prev, optimisticUser]);
-    setInputText("");
+    if (fromComposer) setInputText("");
     // A new message starts a new turn: agents still due from an earlier one no longer reply.
     await runTurn(
       (onEvent, signal) => apiStreamDiscussionMessage(workspaceId, activeSessionId, {
         message: text,
-        ...(answerToQuestionId ? { answerToQuestionId } : {}),
+        ...(questionId ? { answerToQuestionId: questionId } : {}),
         responseMode,
         capabilityMode,
         // Web search is only meaningful on the expert path.
@@ -516,7 +537,7 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
         // Nothing was saved (for example, no model is configured), so the message goes back to the input.
         onFailedBeforeSaving: () => {
           setMessages((prev) => prev.filter((message) => message.id !== optimisticUser.id));
-          setInputText(text);
+          if (fromComposer) setInputText(text);
         },
       },
     );
@@ -617,11 +638,13 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
             </p>
           </div>
         ) : (
-          messages.map((msg) => isCompact(msg) ? (
-          <ReplyLine key={msg.id} message={msg} onView={() => setViewingId(msg.id)} onExport={(format) => exportReply(msg, format)} />
+          messages.map((msg) => {
+          const openQuestion = msg.role === "assistant" ? questionsByMessage.get(msg.id) : undefined;
+          const body = openQuestion ? questionIntro(msg.content, openQuestion.questions) : msg.content;
+          return <React.Fragment key={msg.id}>{isCompact(msg) ? (
+          <ReplyLine message={msg} onView={() => setViewingId(msg.id)} onExport={(format) => exportReply(msg, format)} />
         ) : (
           <div
-            key={msg.id}
             className={`flex items-start gap-3 ${
               msg.role === "user" ? "justify-end" : "justify-start"
             }`}
@@ -675,9 +698,9 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
               )}
 
               {msg.role === "assistant" ? (
-                msg.content || !msg.streaming ? (
+                body || (!msg.streaming && !openQuestion) ? (
                   <div className={msg.streaming ? "[&>div>*:last-child]:after:content-['▍'] [&>div>*:last-child]:after:ml-0.5 [&>div>*:last-child]:after:animate-pulse [&>div>*:last-child]:after:text-primary" : undefined}>
-                    <MarkdownContent content={msg.content} assetContext={documentAssetContext} />
+                    <MarkdownContent content={body} assetContext={documentAssetContext} />
                   </div>
                 ) : null
               ) : (
@@ -689,8 +712,12 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
 
             </MessageSurface>
           </div>
-        ))
+        )}
+        {openQuestion && <PendingQuestionCard item={openQuestion} disabled={isStreaming || isRestoring || questionsLoading} onSubmit={(id, text) => { void sendMessage(text, id, false); }} />}
+        </React.Fragment>;
+        })
       )}
+      {orphanQuestions.map(question => <PendingQuestionCard key={question.id} item={question} disabled={isStreaming || isRestoring || questionsLoading} onSubmit={(id, text) => { void sendMessage(text, id, false); }} />)}
       {isStreaming && !messages.some((message) => message.streaming) && (
         <div className="flex items-center gap-2 text-xs text-slate-400 pl-11" role="status" aria-live="polite">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -751,9 +778,13 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
         {questionsLoading && <p role="status" className="mb-2 flex items-center gap-2 text-[11px] text-slate-500"><Loader2 className="h-3 w-3 animate-spin" />Checking pending questions...</p>}
         {questionsError && <div role="alert" className="mb-2 flex items-center justify-between gap-3 text-xs text-red-700 dark:text-red-400"><p>{questionsError}</p><button type="button" onClick={() => setQuestionsVersion(value => value + 1)} className="shrink-0 font-semibold underline">Try again</button></div>}
         {questionsNotice && <p role="status" className="mb-2 text-[11px] text-slate-500 dark:text-slate-400">{questionsNotice}</p>}
-        <PendingQuestionsPanel questions={questions} selectedId={answerToQuestionId} disabled={isStreaming || isRestoring}
-          onSelect={id => { questionRevision.current++; questionFocus.current = id ?? undefined; newMessageMode.current = id === null; setQuestionsNotice(null); setAnswerToQuestionId(id); setQuestionsVersion(value => value + 1); setComposerFocusRequest(value => value + 1); }}
-          onChoice={(id, text) => { questionRevision.current++; questionFocus.current = id; newMessageMode.current = false; setQuestionsNotice(null); setAnswerToQuestionId(id); setQuestionsVersion(value => value + 1); setInputText(current => current.trim() ? `${current}\n\n${text}` : text); setComposerFocusRequest(value => value + 1); }} />
+        {questions.length > 0 && <div role="status" className="mb-2 flex items-center justify-between gap-3 px-1 text-[11px] text-slate-500 dark:text-slate-400">
+          <p className="flex min-w-0 items-center gap-1.5 truncate"><CornerDownRight className="h-3 w-3 shrink-0 text-primary" aria-hidden="true" />
+            {answeringQuestion ? <>Messages here answer <span className="font-semibold text-slate-700 dark:text-slate-200">{answeringQuestion.speakerName ?? "the agent"}</span>&apos;s question and continue the request.</> : "Messages here start a new request."}</p>
+          <button type="button" disabled={isStreaming || isRestoring} onClick={() => routeComposer(answeringQuestion ? null : questions.at(-1)!.id)} className="shrink-0 font-semibold text-primary hover:underline disabled:opacity-50 cursor-pointer">
+            {answeringQuestion ? "Send a new request instead" : "Answer the question instead"}
+          </button>
+        </div>}
         <form
           onSubmit={handleSendMessage}
           className="flex w-full min-w-0 flex-col gap-2 bg-slate-100/90 dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700/80 rounded-2xl px-3 py-2 shadow-xs focus-within:ring-2 focus-within:ring-primary-ring focus-within:border-primary transition-colors"

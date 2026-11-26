@@ -41,7 +41,7 @@ export const CapabilitiesSection: React.FC<CapabilitiesSectionProps> = ({
       </div>
 
       {/* Compact horizontal capability tiles (items locked against individual edit/removal) */}
-      <div className="grid grid-cols-1 @xs:grid-cols-2 @lg:grid-cols-3 @2xl:grid-cols-4 gap-2 my-auto">
+      <div className="grid grid-cols-1 @xs:grid-cols-2 @lg:grid-cols-3 @2xl:grid-cols-4 @4xl:grid-cols-5 gap-2 my-auto">
         {BRAIN_CAPABILITIES.map((capability) => {
           const Icon = CAPABILITY_ICON_MAP[capability.icon];
           const isActive = activeCapabilityId === capability.id;

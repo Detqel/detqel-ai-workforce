@@ -53,8 +53,9 @@ export class BrainOverviewService implements OverviewPort {
     private async compute(actor: BrainActor, timeframe: BrainTimeframe) {
         const range = timeframeRange(timeframe);
         const startOfDay = new Date(new Date().setUTCHours(0, 0, 0, 0));
-        const [connections, datasets, ontology, entityTypes, current, previous, forecast, scenarios, approvals, pendingMappings, verifiedToday, mappings, runs] = await Promise.all([
+        const [allConnections, links, datasets, ontology, entityTypes, current, previous, forecast, scenarios, approvals, pendingMappings, verifiedToday, mappings, runs] = await Promise.all([
             this.unit.connections.listByWorkspace(actor.workspaceId),
+            this.unit.brainData.listSourceLinks(actor.workspaceId),
             this.datasets.list(actor),
             this.ontology.summary(actor),
             this.unit.brainSemantic.listEntityTypes(actor.workspaceId),
@@ -68,6 +69,9 @@ export class BrainOverviewService implements OverviewPort {
             this.unit.brainSemantic.listMappings(actor.workspaceId, { status: BRAIN_MAPPING_STATUSES.approved, limit: 1_000 }),
             this.unit.brainData.listRuns(actor.workspaceId, { limit: 100 }),
         ]);
+        // Connected sources are the business sources linked in the Data Layer, not every connection in the workspace.
+        const linkedAt = new Map(links.map(link => [link.connectionId, link.createdAt]));
+        const connections = allConnections.filter(connection => linkedAt.has(connection.id));
         const typeKeys = new Map(entityTypes.map(type => [type.id, type.name]));
         const goldDatasets = datasets.filter(dataset => dataset.zone === BRAIN_ZONES.gold);
         const loaded = datasets.filter(dataset => dataset.lastSuccessAt);
@@ -83,7 +87,7 @@ export class BrainOverviewService implements OverviewPort {
                 sources: {
                     connected: connections.filter(connection => connection.status === "connected").length,
                     total: connections.length,
-                    addedInPeriod: connections.filter(connection => connection.createdAt >= range.from).length,
+                    addedInPeriod: connections.filter(connection => linkedAt.get(connection.id)! >= range.from).length,
                     providers: [...new Set(connections.map(connection => connection.name))].slice(0, 4),
                 },
                 dataProducts: {

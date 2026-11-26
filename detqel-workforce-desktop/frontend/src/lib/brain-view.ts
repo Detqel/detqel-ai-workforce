@@ -1,6 +1,7 @@
 import {
   BRAIN_TIMEFRAME_OPTIONS,
   formatAssistantTimestamp,
+  MAPPING_REVIEW_ID,
   type BrainActionIconKey,
   type BrainApprovalItem,
   type BrainAssistantMessage,
@@ -13,7 +14,7 @@ import {
 } from "@/constants/brainConstants";
 import type { BrainApiMessage, BrainOverviewResponse } from "@/lib/api/brain";
 
-const CAPABILITY_ICONS: ReadonlySet<string> = new Set<BrainCapabilityIconKey>(["trending-up", "flask", "sliders", "search", "lightbulb", "zap", "network", "layers"]);
+const CAPABILITY_ICONS: ReadonlySet<string> = new Set<BrainCapabilityIconKey>(["trending-up", "flask", "sliders", "search", "lightbulb", "zap", "network", "layers", "database", "shield"]);
 const ACTION_ICONS: ReadonlySet<string> = new Set<BrainActionIconKey>(["branch", "clipboard", "chart", "sparkles", "zap"]);
 const MAX_APPROVAL_ITEMS = 3;
 const EMPTY = "—";
@@ -47,6 +48,11 @@ function ago(iso: string | null, now = Date.now()): string {
   return hours < 24 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`;
 }
 
+const ROLES_WITH_ACCESS = { write: ["owner", "admin", "manager"], manage: ["owner", "admin"] } as const;
+/** Mirrors the backend's workspace access levels so panels can hide actions the caller cannot take. */
+export const canAccess = (role: string | undefined, access: keyof typeof ROLES_WITH_ACCESS): boolean =>
+  Boolean(role && (ROLES_WITH_ACCESS[access] as readonly string[]).includes(role));
+
 const zoneLabel = (zone: string): BrainDomainHealthRow["zone"] => (zone === "gold" ? "Gold" : zone === "silver" ? "Silver" : "Bronze");
 const tierLabel = (tier: string): BrainApprovalItem["riskTier"] =>
   tier === "critical" ? "Critical" : tier === "high" ? "High" : tier === "low" ? "Low" : "Moderate";
@@ -60,8 +66,8 @@ function telemetryOf(overview: BrainOverviewResponse): BrainTelemetrySegment[] {
       value: `${sources.connected} / ${sources.total}`,
       delta: sources.addedInPeriod ? `+${sources.addedInPeriod}` : "",
       badge: !sources.total ? "None" : sources.connected === sources.total ? "Live" : "Partial",
-      detail: sources.providers.length ? sources.providers.join(", ") : "No connections yet",
-      prompt: `Summarize sync status and permissions across our ${sources.total} connected source${sources.total === 1 ? "" : "s"}`,
+      detail: sources.providers.length ? sources.providers.join(", ") : "Link business sources in the Data Layer",
+      prompt: `Summarize sync status and permissions across our ${sources.total} business source${sources.total === 1 ? "" : "s"}`,
     },
     {
       id: "gold-products", label: "Gold Data Products", icon: "layers", tone: "emerald",
@@ -94,8 +100,7 @@ function forecastOf(forecast: BrainOverviewResponse["forecast"]): BrainForecastV
   if (!forecast?.next || !forecast.metric) {
     return {
       value: EMPTY, metricLabel: "No governed forecast yet", deltaLabel: "", isNegative: false, uncertaintyLabel: "",
-      modelLabel: "Not run", baselineValue: EMPTY, freshnessLabel: "Approve a metric, then ask for a forecast",
-      prompt: "What's our sales forecast for next quarter?",
+      modelLabel: "Not run", baselineValue: EMPTY, freshnessLabel: "Load business data and approve a metric first",
     };
   }
   const { metric, next, lastObserved } = forecast;
@@ -108,7 +113,6 @@ function forecastOf(forecast: BrainOverviewResponse["forecast"]): BrainForecastV
     modelLabel: `${forecast.method.key} v${forecast.method.version}`,
     baselineValue: lastObserved ? formatMetricValue(lastObserved.value, metric.unit, metric.currency) : EMPTY,
     freshnessLabel: `Fresh ${ago(forecast.createdAt)} · ${forecast.entities} entities`,
-    prompt: `Explain the assumptions and uncertainty behind the ${metric.name} forecast for the period starting ${next.period}`,
   };
 }
 
@@ -125,25 +129,20 @@ function simulationsOf(scenarios: BrainOverviewResponse["scenarios"]): BrainSimu
       confidenceLabel: totals && metric
         ? `Baseline ${formatMetricValue(totals.baseline, metric.unit, metric.currency)} · ${scenario.horizon} periods`
         : `${scenario.horizon} periods`,
-      prompt: `Run the saved what-if scenario "${scenario.name}" again and compare it with the baseline`,
     };
   });
 }
 
 function healthOf(overview: BrainOverviewResponse): BrainOverviewView["health"] {
-  return {
-    rows: overview.health.map((dataset) => ({
-      id: dataset.datasetId,
-      domain: dataset.name,
-      entities: dataset.entities.join(", ") || dataset.domain,
-      zone: zoneLabel(dataset.zone),
-      quality: dataset.passRate === null ? EMPTY : percent(dataset.passRate),
-      freshness: dataset.syncing ? "Syncing" : ago(dataset.lastSuccessAt),
-      quarantineNote: dataset.quarantined ? `${dataset.quarantined} flagged` : undefined,
-      prompt: `Inspect lineage, quality and freshness for the ${dataset.name} dataset`,
-    })),
-    inspectPrompt: `Explain data quality checks and the ${overview.telemetry.quality.flagged} quarantined records`,
-  };
+  return overview.health.map((dataset) => ({
+    id: dataset.datasetId,
+    domain: dataset.name,
+    entities: dataset.entities.join(", ") || dataset.domain,
+    zone: zoneLabel(dataset.zone),
+    quality: dataset.passRate === null ? EMPTY : percent(dataset.passRate),
+    freshness: dataset.syncing ? "Syncing" : ago(dataset.lastSuccessAt),
+    quarantineNote: dataset.quarantined ? `${dataset.quarantined} flagged` : undefined,
+  }));
 }
 
 function approvalsOf(approvals: BrainOverviewResponse["approvals"]): BrainOverviewView["approvals"] {
@@ -153,23 +152,20 @@ function approvalsOf(approvals: BrainOverviewResponse["approvals"]): BrainOvervi
     reference: approval.runId ? "Workflow step" : approval.taskId ? "Assistant action" : approval.action,
     riskTier: tierLabel(approval.riskTier),
     detail: `${approval.decisions}/${approval.requiredApprovals} approvals · expires ${new Date(approval.expiresAt).toLocaleDateString()}`,
-    prompt: `Show the approval preview for "${approval.title}", its risk tier and impact`,
   }));
   if (approvals.pendingMappings) {
     items.push({
-      id: "mapping-review",
+      id: MAPPING_REVIEW_ID,
       title: `Review ${approvals.pendingMappings} entity mapping${approvals.pendingMappings === 1 ? "" : "s"}`,
       reference: "Ontology mappings",
       riskTier: "Moderate",
       detail: "Held for review before they shape entities",
-      prompt: "Review the low-confidence entity mappings waiting for approval",
     });
   }
   return {
     items: items.slice(0, MAX_APPROVAL_ITEMS),
     pendingCount: approvals.pendingCount + approvals.pendingMappings,
     verifiedToday: approvals.verifiedToday,
-    reviewPrompt: "Show the pending approvals with their previews, risk tiers and impact",
   };
 }
 
@@ -197,8 +193,8 @@ export function pendingBrainOverview(error: string | null): BrainOverviewView {
     ],
     forecast: { ...forecastOf(null), metricLabel: detail, freshnessLabel: error ?? detail },
     simulations: [],
-    health: { rows: [], inspectPrompt: "Explain our data quality checks" },
-    approvals: { items: [], pendingCount: 0, verifiedToday: 0, reviewPrompt: "Show the pending approvals" },
+    health: [],
+    approvals: { items: [], pendingCount: 0, verifiedToday: 0 },
   };
 }
 

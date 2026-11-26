@@ -237,10 +237,12 @@ export class WorkflowService implements WorkflowPort {
     }
 
     async requestExternalAction(actor: BrainActor, input: { connectionName: string; path: string; payload: Record<string, unknown>; title: string; summary: string; recipients: string[] }, context: { taskId: string | null; correlationId: string }) {
-        const connections = await this.unit.connections.listByWorkspace(actor.workspaceId);
+        const [connections, links] = await Promise.all([this.unit.connections.listByWorkspace(actor.workspaceId), this.unit.brainData.listSourceLinks(actor.workspaceId)]);
+        const linked = new Set(links.map(link => link.connectionId));
         const wanted = input.connectionName.toLowerCase();
-        const candidates = connections.filter(connection => connection.name.toLowerCase() === wanted || connection.name.toLowerCase().includes(wanted));
-        if (!candidates.length) throw new AppError(404, `No connection named "${input.connectionName}" exists in this workspace.`);
+        // Only business sources linked in the Data Layer are candidates; personal connections are never used.
+        const candidates = connections.filter(connection => linked.has(connection.id) && (connection.name.toLowerCase() === wanted || connection.name.toLowerCase().includes(wanted)));
+        if (!candidates.length) throw new AppError(404, `No business source named "${input.connectionName}" is linked in the Data Layer.`);
         const definitionIds = await Promise.all(candidates.map(async connection => ({ connection, definition: await this.unit.connectionDefinitions.findInWorkspace(connection.definitionId, actor.workspaceId) })));
         const target = definitionIds.find(item => item.definition && agentKindOf(item.definition.adapterKey) === "api")?.connection;
         if (!target) throw new AppError(422, "External delivery needs an HTTP API connection.");

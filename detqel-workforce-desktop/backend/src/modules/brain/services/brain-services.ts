@@ -10,6 +10,8 @@ import { BrainAssistantService } from "./assistant/brain-assistant.service.js";
 import { BrainAuditService } from "./brain-audit.service.js";
 import { BrainOverviewService } from "./brain-overview.service.js";
 import { BrainScheduler } from "./brain-scheduler.js";
+import { BrainDataProtector } from "./data/data-protection.js";
+import { DataSourceService } from "./data/data-source.service.js";
 import { DatasetService } from "./data/dataset.service.js";
 import { MedallionPipeline } from "./data/medallion-pipeline.service.js";
 import { SourceExtractor, type ConnectionReaderPort } from "./data/source-extractor.js";
@@ -39,6 +41,8 @@ export interface BrainDependencies {
     readonly prompts: PromptLoader;
     readonly webSearch: IWorkspaceWebSearch;
     readonly roleOf: RoleResolver;
+    /** The installation master key (base64, 32 bytes). Seals raw records and keys pseudonyms; never stored with the data. */
+    readonly encryptionKey: string;
     /** Replaces the gateway-backed model, for tests. */
     readonly model?: IBrainModel;
 }
@@ -49,10 +53,11 @@ export function createBrainServices(unit: IUnitOfWork, deps: BrainDependencies) 
     const workerId = `${hostname().slice(0, 30)}:${process.pid}:${randomUUID().slice(0, 8)}`;
     const audit = new BrainAuditService(unit);
     const model = deps.model ?? new BrainModel(deps.gateway, deps.keys, deps.models, deps.prompts);
-    const extractor = new SourceExtractor(deps.connections);
     const entities = new EntityResolutionService(unit, audit);
     const metrics = new MetricService(unit, audit);
-    const pipeline = new MedallionPipeline(unit, extractor, metrics, entities, audit, workerId);
+    const protector = new BrainDataProtector(deps.encryptionKey);
+    const extractor = new SourceExtractor(deps.connections, protector);
+    const pipeline = new MedallionPipeline(unit, extractor, metrics, entities, audit, protector, workerId);
     const datasets = new DatasetService(unit, audit, extractor, pipeline);
     const ontology = new OntologyService(unit, audit, entities, new OntologyStewardAdvisor(model));
     const semantic = new SemanticQueryService(unit);
@@ -61,6 +66,7 @@ export function createBrainServices(unit: IUnitOfWork, deps: BrainDependencies) 
     const policies = new BrainPolicyService(unit, audit);
     const overview = new BrainOverviewService(unit, datasets, ontology, intelligence);
     const accessPolicies = new AccessPolicyService(unit, audit, workspaceId => overview.invalidate(workspaceId));
+    const sources = new DataSourceService(unit, audit, deps.connections, datasets, workspaceId => overview.invalidate(workspaceId));
     let workflows: WorkflowService | null = null;
     const tools = createBrainTools({ unit, semantic, intelligence, datasets, ontology, entities, overview: () => overview, workflows: () => workflows!, webSearch: deps.webSearch, policies, audit });
     const toolGateway = new ToolGateway(unit, audit, tools, policies);
@@ -68,7 +74,7 @@ export function createBrainServices(unit: IUnitOfWork, deps: BrainDependencies) 
     workflows = new WorkflowService(unit, audit, engine, toolGateway, deps.roleOf);
     const orchestrator = new BrainOrchestrator(unit, toolGateway, model, semantic, datasets, audit);
     return {
-        audit, datasets, pipeline, ontology, entities, metrics, semantic, intelligence, context, policies, overview, accessPolicies,
+        audit, sources, datasets, pipeline, ontology, entities, metrics, semantic, intelligence, context, policies, overview, accessPolicies,
         tools: toolGateway, tasks: new BrainTaskService(unit, toolGateway), engine, workflows,
         assistant: new BrainAssistantService(unit, orchestrator, audit),
         scheduler: new BrainScheduler(unit, pipeline, workflows, engine),

@@ -135,11 +135,326 @@ export interface BrainAskInput {
   attachments?: string[];
 }
 
+export type BrainSourceKind = "database" | "api" | "files";
+
+/** A workspace connection as the Data Layer sees it. */
+export interface BrainDataSource {
+  connectionId: string;
+  name: string;
+  provider: string;
+  status: string;
+  /** Null when the connector cannot supply business data (for example a code repository). */
+  sourceKind: BrainSourceKind | null;
+  linked: boolean;
+  linkedAt: string | null;
+  datasets: number;
+}
+export interface BrainSourceTable {
+  schema: string;
+  name: string;
+  type: "table" | "view";
+}
+export interface BrainSourceColumn {
+  name: string;
+  type: string;
+  primaryKey: boolean;
+  /** Whether the name can be a dataset key or time field (letters, digits and underscores). */
+  selectable: boolean;
+  /** Personal data by its name; stored only as pseudonyms. */
+  personal: boolean;
+}
+export interface BrainDatabaseLoadInput {
+  scope: "database" | "tables";
+  tables?: Array<{ schema: string; name: string }>;
+  /** Business domain for every table, unless its schema has an entry in schemaDomains. */
+  domain: string;
+  schemaDomains?: Record<string, string>;
+  includeViews?: boolean;
+  syncIntervalMinutes?: number | null;
+}
+export interface BrainDatabaseLoadResult {
+  created: BrainDatasetView[];
+  skipped: Array<{ table: string; reason: string }>;
+}
+export interface BrainSchemaField {
+  name: string;
+  type: string;
+  nullable: boolean;
+}
+export interface BrainDatasetView {
+  id: string;
+  name: string;
+  domain: string;
+  description: string | null;
+  connectionId: string | null;
+  sourceKind: BrainSourceKind;
+  source: { sql?: string; path?: string; format?: string; recordsPath?: string };
+  primaryKeyField: string | null;
+  timeField: string | null;
+  syncMode: string;
+  syncIntervalMinutes: number | null;
+  status: "active" | "paused" | "error" | "revoked";
+  classification: string;
+  qualityThreshold: number;
+  schemaVersion: number;
+  schema: BrainSchemaField[];
+  /** Personal-data fields stored only as pseudonyms outside the sealed raw copy. */
+  protectedFields: string[];
+  zone: "bronze" | "silver" | "gold";
+  publishedVersion: number;
+  lastRunStatus: string | null;
+  lastSuccessAt: string | null;
+  lastAttemptAt: string | null;
+  nextSyncAt: string | null;
+  consecutiveFailures: number;
+  syncing: boolean;
+  freshness: string;
+  counts: { bronze: number; silver: number; quarantinedOpen: number } | null;
+}
+export interface BrainPipelineRun {
+  id: string;
+  trigger: string;
+  status: string;
+  extractedCount: number;
+  bronzeInserted: number;
+  silverUpserted: number;
+  quarantinedCount: number;
+  passRate: number | null;
+  published: boolean;
+  errorMessage: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+}
+export interface BrainDatasetDetail extends BrainDatasetView {
+  recentRuns: BrainPipelineRun[];
+  quarantineReasons: Array<{ datasetId: string; code: string; count: number }>;
+}
+export interface BrainLineage {
+  dataset: BrainDatasetView;
+  source: { connectionId: string | null; connectionName: string | null; provider: string | null; kind: string; object: Record<string, unknown> };
+  zones: {
+    bronze: { records: number };
+    silver: { records: number; quarantinedOpen: number; transformationVersion: string };
+    gold: { publishedVersion: number; zone: string; metrics: Array<{ key: string; name: string; status: string; version: number; formula: string; computedAt: string | null }> };
+  };
+  columns: Array<{ field: string; type: string; protected: boolean; mappings: Array<{ target: string; status: string; confidence: number }>; metrics: string[] }>;
+  recentRuns: BrainPipelineRun[];
+}
+export interface BrainDatasetInput {
+  connectionId: string;
+  name: string;
+  domain: string;
+  description?: string | null;
+  source: { sql?: string; path?: string; format?: string; recordsPath?: string };
+  primaryKeyField?: string | null;
+  timeField?: string | null;
+  syncIntervalMinutes?: number | null;
+}
+
+export interface BrainEntityAttribute {
+  key: string;
+  name: string;
+  type: string;
+  required: boolean;
+  identifier: boolean;
+  classification: string;
+}
+export interface BrainEntityType {
+  id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  attributes: BrainEntityAttribute[];
+  version: number;
+  status: string;
+  entityCount: number;
+}
+export interface BrainRelationshipType {
+  id: string;
+  key: string;
+  name: string;
+  fromTypeId: string;
+  toTypeId: string;
+  fromAttribute: string;
+  cardinality: string;
+  status: string;
+}
+export interface BrainMapping {
+  id: string;
+  datasetId: string;
+  sourceField: string;
+  entityTypeId: string;
+  attributeKey: string;
+  transform: string;
+  confidence: number;
+  method: string;
+  status: "proposed" | "approved" | "rejected" | string;
+}
+export interface BrainOntologySummary {
+  entityTypes: number;
+  entities: number;
+  relationshipTypes: number;
+  relationships: number;
+  rules: number;
+  pendingMappings: number;
+}
+export interface BrainOntologyTemplate {
+  key: string;
+  name: string;
+  description: string;
+  entities: string[];
+}
+export interface BrainMetricSummary {
+  id: string;
+  key: string;
+  name: string;
+  status: string;
+  formula: string;
+}
+
+export interface BrainPolicySettings {
+  actionTiers: Record<string, string>;
+  moderateRequiresApproval: boolean;
+  criticalEnabled: boolean;
+  criticalRequiredApprovals: number;
+  approvalTtlHours: number;
+  workflowsEnabled: boolean;
+  externalSearchEnabled: boolean;
+}
+export interface BrainRowFilter {
+  field: string;
+  op: string;
+  value: string | number | boolean;
+}
+export interface BrainAccessPolicy {
+  id: string;
+  name: string;
+  role: string;
+  resourceType: "dataset" | "metric" | "entity_type";
+  resourceId: string;
+  effect: "deny" | "mask" | "row_filter";
+  maskedFields: string[];
+  rowFilter: BrainRowFilter | null;
+  createdAt: string;
+}
+export type BrainAccessPolicyInput = Omit<BrainAccessPolicy, "id" | "createdAt">;
+export interface BrainAuditEvent {
+  id: string;
+  actorType: string;
+  actorId: string;
+  action: string;
+  targetType: string;
+  targetId: string | null;
+  policyDecision: string | null;
+  outcome: string;
+  createdAt: string;
+}
+
+export interface BrainApproval {
+  id: string;
+  title: string;
+  action: string;
+  riskTier: string;
+  status: string;
+  /** What will happen if approved: target, recipients, summary and a redacted payload preview. */
+  preview: Record<string, unknown>;
+  /** The decision is bound to this exact payload; a changed payload invalidates it. */
+  payloadHash: string;
+  requiredApprovals: number;
+  decisions: Array<{ userId: string; decision: string; note: string | null; at: string }>;
+  expiresAt: string;
+  createdAt: string;
+  canDecide: boolean;
+}
+
+export type BrainAnalysisKind = "forecast" | "simulation" | "optimisation" | "root_cause";
+export interface BrainRecommendation {
+  title: string;
+  rationale: string;
+  expectedImpact: string;
+  effort: string;
+  confidence: string;
+  requiresApproval: boolean;
+}
+export interface BrainAnalysisRun {
+  id: string;
+  kind: BrainAnalysisKind;
+  status: string;
+  method: { key: string; version: string };
+  createdAt: string;
+  warnings: string[];
+  result: {
+    headline?: { label: string };
+    statements?: Array<{ kind: string; text: string }>;
+    recommendations?: BrainRecommendation[];
+  } | null;
+}
+export interface BrainWorkflowDefinition {
+  id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  version: number;
+  status: string;
+  trigger: { type?: string; intervalMinutes?: number; eventType?: string };
+  nextRunAt: string | null;
+  updatedAt: string;
+}
+
 const workspacePath = (workspaceId: string) => `${API_PATHS.brainWorkspaces}/${encodeURIComponent(workspaceId)}`;
+const read = <T>(workspaceId: string, path: string, signal?: AbortSignal) =>
+  apiRequest<T>(`${workspacePath(workspaceId)}${path}`, { signal, cache: "no-store" });
+const send = <T>(workspaceId: string, method: "POST" | "PUT" | "DELETE", path: string, body?: unknown) =>
+  apiRequest<T>(`${workspacePath(workspaceId)}${path}`, { method, body: body === undefined ? undefined : JSON.stringify(body) });
+const id = encodeURIComponent;
 
 export const brainApi = {
   overview: (workspaceId: string, timeframe: BrainTimeframeId, signal?: AbortSignal) =>
-    apiRequest<BrainOverviewResponse>(`${workspacePath(workspaceId)}/overview?${new URLSearchParams({ timeframe })}`, { signal, cache: "no-store" }),
+    read<BrainOverviewResponse>(workspaceId, `/overview?${new URLSearchParams({ timeframe })}`, signal),
   ask: (workspaceId: string, input: BrainAskInput, signal?: AbortSignal) =>
     apiRequest<BrainAskResponse>(`${workspacePath(workspaceId)}/assistant/messages`, { method: "POST", body: JSON.stringify(input), signal }),
+
+  dataSources: (workspaceId: string, signal?: AbortSignal) => read<BrainDataSource[]>(workspaceId, "/data-sources", signal),
+  linkSource: (workspaceId: string, connectionId: string) => send<BrainDataSource>(workspaceId, "POST", `/data-sources/${id(connectionId)}/link`, {}),
+  unlinkSource: (workspaceId: string, connectionId: string) => send<{ success: boolean; revokedDatasets: number }>(workspaceId, "DELETE", `/data-sources/${id(connectionId)}/link`),
+  sourceTables: (workspaceId: string, connectionId: string, signal?: AbortSignal) =>
+    read<BrainSourceTable[]>(workspaceId, `/data-sources/${id(connectionId)}/tables`, signal),
+  sourceColumns: (workspaceId: string, connectionId: string, table: { schema: string; name: string }, signal?: AbortSignal) =>
+    read<BrainSourceColumn[]>(workspaceId, `/data-sources/${id(connectionId)}/columns?${new URLSearchParams({ schema: table.schema, table: table.name })}`, signal),
+
+  loadDatabase: (workspaceId: string, connectionId: string, input: BrainDatabaseLoadInput) =>
+    send<BrainDatabaseLoadResult>(workspaceId, "POST", `/data-sources/${id(connectionId)}/load`, input),
+  datasets: (workspaceId: string, signal?: AbortSignal) => read<BrainDatasetView[]>(workspaceId, "/datasets", signal),
+  dataset: (workspaceId: string, datasetId: string, signal?: AbortSignal) => read<BrainDatasetDetail>(workspaceId, `/datasets/${id(datasetId)}`, signal),
+  lineage: (workspaceId: string, datasetId: string, signal?: AbortSignal) => read<BrainLineage>(workspaceId, `/datasets/${id(datasetId)}/lineage`, signal),
+  createDataset: (workspaceId: string, input: BrainDatasetInput) => send<BrainDatasetView>(workspaceId, "POST", "/datasets", input),
+  syncDataset: (workspaceId: string, datasetId: string) => send<BrainPipelineRun>(workspaceId, "POST", `/datasets/${id(datasetId)}/sync`, {}),
+  setDatasetPaused: (workspaceId: string, datasetId: string, paused: boolean) =>
+    send<BrainDatasetView>(workspaceId, "POST", `/datasets/${id(datasetId)}/${paused ? "pause" : "resume"}`, {}),
+
+  ontologySummary: (workspaceId: string, signal?: AbortSignal) => read<BrainOntologySummary>(workspaceId, "/ontology", signal),
+  ontologyTemplates: (workspaceId: string, signal?: AbortSignal) => read<BrainOntologyTemplate[]>(workspaceId, "/ontology/templates", signal),
+  applyTemplate: (workspaceId: string, templateKey: string) => send<unknown>(workspaceId, "POST", `/ontology/templates/${id(templateKey)}/apply`, {}),
+  entityTypes: (workspaceId: string, signal?: AbortSignal) => read<BrainEntityType[]>(workspaceId, "/entity-types", signal),
+  relationshipTypes: (workspaceId: string, signal?: AbortSignal) => read<BrainRelationshipType[]>(workspaceId, "/relationship-types", signal),
+  mappings: (workspaceId: string, signal?: AbortSignal) => read<BrainMapping[]>(workspaceId, "/mappings?limit=200", signal),
+  suggestMappings: (workspaceId: string, datasetId: string) => send<BrainMapping[]>(workspaceId, "POST", `/datasets/${id(datasetId)}/mappings/suggest`, { useAgent: true }),
+  reviewMapping: (workspaceId: string, mappingId: string, decision: "approved" | "rejected") =>
+    send<BrainMapping>(workspaceId, "POST", `/mappings/${id(mappingId)}/review`, { decision }),
+  metrics: (workspaceId: string, signal?: AbortSignal) => read<BrainMetricSummary[]>(workspaceId, "/metrics", signal),
+
+  policySettings: (workspaceId: string, signal?: AbortSignal) => read<BrainPolicySettings>(workspaceId, "/policy", signal),
+  updatePolicySettings: (workspaceId: string, input: Partial<Omit<BrainPolicySettings, "actionTiers">>) =>
+    send<BrainPolicySettings>(workspaceId, "PUT", "/policy", input),
+  accessPolicies: (workspaceId: string, signal?: AbortSignal) => read<BrainAccessPolicy[]>(workspaceId, "/access-policies", signal),
+  createAccessPolicy: (workspaceId: string, input: BrainAccessPolicyInput) => send<BrainAccessPolicy>(workspaceId, "POST", "/access-policies", input),
+  deleteAccessPolicy: (workspaceId: string, policyId: string) => send<{ success: boolean }>(workspaceId, "DELETE", `/access-policies/${id(policyId)}`),
+  audit: (workspaceId: string, signal?: AbortSignal) => read<BrainAuditEvent[]>(workspaceId, "/audit?limit=100", signal),
+
+  pendingApprovals: (workspaceId: string, signal?: AbortSignal) => read<BrainApproval[]>(workspaceId, "/approvals?status=pending", signal),
+  decideApproval: (workspaceId: string, approval: Pick<BrainApproval, "id" | "payloadHash">, decision: "approved" | "rejected", note?: string) =>
+    send<BrainApproval>(workspaceId, "POST", `/approvals/${id(approval.id)}/decide`, { decision, payloadHash: approval.payloadHash, ...(note ? { note } : {}) }),
+  analysisRuns: (workspaceId: string, kind: BrainAnalysisKind, signal?: AbortSignal) =>
+    read<BrainAnalysisRun[]>(workspaceId, `/intelligence/runs?${new URLSearchParams({ kind, limit: "10" })}`, signal),
+  workflows: (workspaceId: string, signal?: AbortSignal) => read<BrainWorkflowDefinition[]>(workspaceId, "/workflows", signal),
 };

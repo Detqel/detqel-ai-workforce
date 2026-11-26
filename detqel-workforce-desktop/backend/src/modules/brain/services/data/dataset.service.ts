@@ -23,7 +23,12 @@ export interface DatasetInput {
     readonly name: string;
     readonly domain: string;
     readonly description?: string | null;
-    readonly source: { readonly sql?: string; readonly path?: string; readonly format?: string; readonly recordsPath?: string };
+    readonly source: {
+        readonly sql?: string; readonly path?: string; readonly format?: string; readonly recordsPath?: string;
+        /** Set by database loads: the source table, and the key's type so full scans page on its index. */
+        readonly table?: { readonly schema: string; readonly name: string };
+        readonly keyType?: string;
+    };
     readonly primaryKeyField?: string | null;
     readonly watermarkField?: string | null;
     readonly timeField?: string | null;
@@ -35,6 +40,11 @@ export interface DatasetInput {
     readonly driftPolicy: string;
     readonly ownerUserId?: string | null;
 }
+/** A dataset prepared by a database load from discovered catalog names. */
+export interface DiscoveredDataset extends DatasetInput {
+    /** Fields to treat as personal data from the first run, beyond what is detected automatically. */
+    readonly protectedFields: string[];
+}
 export interface QualityRuleInput { readonly ruleType: string; readonly field: string; readonly config: Record<string, unknown>; readonly severity: string; readonly enabled: boolean }
 
 /** What a dataset looks like to users: no lease internals, plus its derived freshness state (FR-DATA-011, FR-DATA-014). */
@@ -45,6 +55,7 @@ export function datasetView(dataset: BrainDataset, counts?: { bronze: number; si
         timeField: dataset.timeField, syncMode: dataset.syncMode, syncIntervalMinutes: dataset.syncIntervalMinutes, status: dataset.status,
         classification: dataset.classification, ownerUserId: dataset.ownerUserId, freshnessSlaMinutes: dataset.freshnessSlaMinutes,
         qualityThreshold: dataset.qualityThreshold, driftPolicy: dataset.driftPolicy, schemaVersion: dataset.schemaVersion, schema: dataset.currentSchema,
+        protectedFields: dataset.protectedFields,
         zone: dataset.publishedZone, publishedVersion: dataset.publishedVersion, transformationVersion: BRAIN_TRANSFORMATION_VERSION,
         lastRunId: dataset.lastRunId, lastRunStatus: dataset.lastRunStatus, lastSuccessAt: dataset.lastSuccessAt, lastAttemptAt: dataset.lastAttemptAt,
         nextSyncAt: dataset.nextSyncAt, consecutiveFailures: dataset.consecutiveFailures, syncing: Boolean(dataset.leaseExpiresAt && dataset.leaseExpiresAt > new Date()),
@@ -108,6 +119,31 @@ export class DatasetService {
         // Journey A: registration validates connectivity, then starts the initial ingestion straight away.
         this.background(actor, dataset.id, BRAIN_RUN_TRIGGERS.initial);
         return datasetView(dataset);
+    }
+
+    /**
+     * Registers datasets prepared by a database load in one transaction, so a failure leaves none half-created.
+     * The first few start syncing at once; the rest are due now and the scheduler works through them.
+     */
+    async registerDiscovered(actor: BrainActor, sourceKind: string, inputs: ReadonlyArray<DiscoveredDataset>) {
+        for (const input of inputs) {
+            for (const field of [input.primaryKeyField, input.timeField]) if (field && !isSafeIdentifier(field)) throw new AppError(400, BRAIN_ERRORS.invalidField);
+            readOnlyStatement(input.source.sql ?? "");
+        }
+        const created = await this.unit.transaction(async repositories => {
+            const rows = [];
+            for (const input of inputs) {
+                const row = await repositories.brainData.createDataset({
+                    workspaceId: actor.workspaceId, ...this.values(input), sourceKind, createdBy: actor.userId,
+                    ownerUserId: input.ownerUserId ?? actor.userId, nextSyncAt: new Date(), protectedFields: input.protectedFields,
+                });
+                await this.audit.record(entryFor(actor, "dataset.registered", "dataset", row.id, { metadata: { name: row.name, domain: row.domain, sourceKind, connectionId: row.connectionId, table: input.source.table } }), repositories);
+                rows.push(row);
+            }
+            return rows;
+        });
+        for (const dataset of created.slice(0, BRAIN_LIMITS.datasetsPerTick)) this.background(actor, dataset.id, BRAIN_RUN_TRIGGERS.initial);
+        return created.map(dataset => datasetView(dataset));
     }
 
     async update(actor: BrainActor, id: string, input: DatasetInput) {
@@ -262,7 +298,7 @@ export class DatasetService {
                 gold: { publishedVersion: dataset.publishedVersion, zone: dataset.publishedZone, metrics: metrics.map(metric => ({ key: metric.key, name: metric.name, status: metric.status, version: metric.version, formula: metricFormula(metric), computedAt: metric.computedAt })) },
             },
             columns: dataset.currentSchema.map(field => ({
-                field: field.name, type: field.type,
+                field: field.name, type: field.type, protected: dataset.protectedFields.includes(field.name),
                 mappings: mappings.filter(mapping => mapping.sourceField === field.name).map(mapping => ({ target: `${typeKeys.get(mapping.entityTypeId) ?? "?"}.${mapping.attributeKey}`, status: mapping.status, confidence: mapping.confidence })),
                 metrics: metrics.filter(metric => [metric.valueField, metric.timeField, ...metric.dimensions, ...metric.filters.map(filter => filter.field)].includes(field.name)).map(metric => metric.key),
             })),
@@ -285,6 +321,8 @@ export class DatasetService {
         if (input.syncMode === BRAIN_SYNC_MODES.incremental && !input.watermarkField) throw new AppError(400, "Incremental syncs need a watermark field.");
         const connection = await this.unit.connections.findInWorkspace(input.connectionId, actor.workspaceId);
         if (!connection) throw new AppError(404, BRAIN_ERRORS.connectionNotFound);
+        // Only connections linked in the Data Layer are business sources.
+        if (!await this.unit.brainData.findSourceLink(actor.workspaceId, input.connectionId)) throw new AppError(409, BRAIN_ERRORS.sourceNotLinked);
         // Opening the reader verifies the connection is live and decides which kind of source it can supply.
         const sourceKind = await this.extractor.sourceKindFor(input.connectionId, actor.workspaceId);
         if (sourceKind === BRAIN_SOURCE_KINDS.database) {
@@ -311,6 +349,8 @@ export class DatasetService {
         if (input.source.path) source.path = input.source.path.trim();
         if (input.source.format) source.format = input.source.format;
         if (input.source.recordsPath) source.recordsPath = input.source.recordsPath.trim();
+        if (input.source.table) source.table = { schema: input.source.table.schema, name: input.source.table.name };
+        if (input.source.keyType) source.keyType = input.source.keyType;
         return {
             connectionId: input.connectionId, name: input.name.trim(), domain: input.domain.trim(), description: input.description ?? null, sourceConfig: source,
             primaryKeyField: input.primaryKeyField ?? null, watermarkField: input.watermarkField ?? null, timeField: input.timeField ?? null,

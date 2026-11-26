@@ -1,6 +1,6 @@
 import type {
     BrainDataset, BrainPipelineRun, BrainQualityRule, BrainQuarantineRecord, BrainReason, BrainSchemaVersion, BrainSilverRecord,
-    NewBrainDataset, NewBrainPipelineRun, NewBrainQualityRule,
+    BrainSourceLink, NewBrainDataset, NewBrainPipelineRun, NewBrainQualityRule,
 } from "../../../shared/types/entities.js";
 
 export interface BronzeInsert {
@@ -78,4 +78,18 @@ export interface IBrainDataRepository {
 
     createSchemaVersion(data: Omit<BrainSchemaVersion, "id" | "detectedAt">): Promise<BrainSchemaVersion>;
     listSchemaVersions(datasetId: string): Promise<BrainSchemaVersion[]>;
+
+    /** Bronze rows stored before raw records were sealed. */
+    listUnsealedBronze(limit: number): Promise<Array<{ id: string; datasetId: string; sourceKey: string; payload: Record<string, unknown> }>>;
+    /** Replaces a Bronze payload with its sealed form, only if it is still unsealed. */
+    sealBronze(id: string, sealed: Record<string, unknown>): Promise<void>;
+
+    /** Connections linked to the Business Brain as business sources. */
+    listSourceLinks(workspaceId: string): Promise<BrainSourceLink[]>;
+    findSourceLink(workspaceId: string, connectionId: string): Promise<BrainSourceLink | null>;
+    /** Idempotent: linking an already linked connection returns the existing link. */
+    createSourceLink(workspaceId: string, connectionId: string, linkedBy: string | null): Promise<BrainSourceLink>;
+    deleteSourceLink(workspaceId: string, connectionId: string): Promise<boolean>;
+    /** Stops every dataset read from the connection, keeping what was already processed. Returns their ids. */
+    revokeDatasetsForConnection(workspaceId: string, connectionId: string): Promise<string[]>;
 }

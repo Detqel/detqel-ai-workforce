@@ -14,6 +14,7 @@ import {
   BrainLeftWorkspace,
   CapabilityExplorerModal,
 } from "@/components/brain";
+import { BrainPanelHost, type BrainPanel } from "@/components/brain/panels";
 import { useBrainOverview } from "@/hooks/useBrainOverview";
 import { brainApi } from "@/lib/api/brain";
 import { toAssistantMessage } from "@/lib/brain-view";
@@ -89,6 +90,7 @@ export default function BusinessBrainPage() {
   const { view: overview, reload: reloadOverview } = useBrainOverview(workspaceId, timeframe);
   const [activeCapabilityId, setActiveCapabilityId] = useState<string | null>(null);
   const [isExplorerOpen, setIsExplorerOpen] = useState(false);
+  const [openPanel, setOpenPanel] = useState<BrainPanel | null>(null);
   const [messages, setMessages] = useState<BrainAssistantMessage[]>([]);
   const [isResponding, setIsResponding] = useState(false);
 
@@ -286,21 +288,16 @@ export default function BusinessBrainPage() {
     [handleSendMessage],
   );
 
-  const handleSelectCapability = useCallback(
-    (capability: BrainCapabilityItem) => {
-      setActiveCapabilityId(capability.id);
-      handleSendMessage(capability.prompt);
-    },
-    [handleSendMessage],
-  );
+  // Toolbox items open their panel; only the metrics strip above sends questions to the assistant.
+  const handleSelectCapability = useCallback((capability: BrainCapabilityItem) => {
+    setActiveCapabilityId(capability.id);
+    setOpenPanel({ kind: capability.id });
+  }, []);
 
-  const handleRunCapabilityPrompt = useCallback(
-    (prompt: string, capability: BrainCapabilityItem) => {
-      setActiveCapabilityId(capability.id);
-      handleSendMessage(prompt);
-    },
-    [handleSendMessage],
-  );
+  const closePanel = useCallback(() => {
+    setOpenPanel(null);
+    setActiveCapabilityId(null);
+  }, []);
 
   const splitCssVars = (
     leftWidthPx !== null && rightWidthPx !== null
@@ -339,7 +336,7 @@ export default function BusinessBrainPage() {
           onSelectTelemetry={handleSelectTelemetry}
           onSelectCapability={handleSelectCapability}
           onExploreAll={() => setIsExplorerOpen(true)}
-          onSendPrompt={handleSendMessage}
+          onOpenPanel={setOpenPanel}
         />
 
         {/* Hover-Only Vertical Resizer Gutter (Desktop lg+) */}
@@ -380,8 +377,10 @@ export default function BusinessBrainPage() {
       <CapabilityExplorerModal
         isOpen={isExplorerOpen}
         onClose={() => setIsExplorerOpen(false)}
-        onRunPrompt={handleRunCapabilityPrompt}
+        onOpenCapability={handleSelectCapability}
       />
+
+      <BrainPanelHost panel={openPanel} onOpen={setOpenPanel} onClose={closePanel} onDataChanged={reloadOverview} />
     </div>
   );
 }

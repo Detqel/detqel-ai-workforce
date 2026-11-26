@@ -232,6 +232,20 @@
       "when": 1795540000000,
       "tag": "0032_business_brain",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1795550000000,
+      "tag": "0033_brain_source_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1795560000000,
+      "tag": "0034_brain_data_protection",
+      "breakpoints": true
     }
   ]
 }

@@ -9,6 +9,7 @@ import type { BrainDataset } from "../../../../shared/types/entities.js";
 import { readOnlyStatement } from "../../../connections/operations/data-operations.js";
 import { agentKindOf } from "../../../connections/services/connector-agent-policy.js";
 import type { ConnectionReader } from "../../../connections/services/connection.service.js";
+import type { BrainDataProtector } from "./data-protection.js";
 
 /** The connection service's read-only entry point. Credentials never leave it. */
 export interface ConnectionReaderPort {
@@ -23,6 +24,12 @@ export interface ExtractionResult {
 }
 
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
+/** Key column types a full scan may compare natively (information_schema name to SQL type). Nothing else is interpolated. */
+export const KEY_TYPES: ReadonlyMap<string, string> = new Map([
+    ["smallint", "smallint"], ["integer", "integer"], ["bigint", "bigint"], ["numeric", "numeric"], ["uuid", "uuid"],
+    ["text", "text"], ["character varying", "varchar"], ["character", "char"], ["date", "date"],
+    ["timestamp without time zone", "timestamp"], ["timestamp with time zone", "timestamptz"],
+]);
 export const isSafeIdentifier = (name: string) => IDENTIFIER.test(name);
 const quoted = (name: string) => {
     if (!isSafeIdentifier(name)) throw new AppError(400, BRAIN_ERRORS.invalidField);
@@ -103,7 +110,8 @@ const after = (value: unknown, cursor: unknown): boolean => {
  * from the stored cursor. Every page is capped, so one run cannot exhaust memory.
  */
 export class SourceExtractor {
-    constructor(private readonly connections: ConnectionReaderPort) {}
+    /** The protector seals scan cursors, since a key value (an e-mail used as an id, say) can be personal data. */
+    constructor(private readonly connections: ConnectionReaderPort, private readonly protector: BrainDataProtector) {}
 
     /** Opens the connection (verifying it is live) and decides which kind of dataset source it can supply. */
     async sourceKindFor(connectionId: string, workspaceId: string): Promise<BrainSourceKind> {
@@ -131,33 +139,55 @@ export class SourceExtractor {
         }
     }
 
+    /**
+     * Pages through a read-only query. Incremental syncs read past the watermark. Full syncs scan in key order
+     * (or by offset when there is no key) and, when a table is larger than one run may read, store how far they
+     * got so the next run continues there instead of starting over. The scan restarts once it reaches the end.
+     */
     private async fromDatabase(reader: ConnectionReader, dataset: BrainDataset, signal?: AbortSignal): Promise<ExtractionResult> {
         const base = readOnlyStatement(String((dataset.sourceConfig as Record<string, unknown>).sql ?? ""));
+        const stored = dataset.cursor as Record<string, unknown>;
         const incremental = dataset.syncMode === BRAIN_SYNC_MODES.incremental && dataset.watermarkField;
-        let cursor = (dataset.cursor as Record<string, unknown>).watermark ?? null;
+        const keyField = dataset.primaryKeyField;
+        let watermark = stored.watermark ?? null;
+        const cursorContext = `cursor:${dataset.id}`;
+        let scanAfter: string | null = keyField && stored.scanAfter !== undefined && stored.scanAfter !== null ? String(this.protector.open<unknown>(stored.scanAfter, cursorContext)) : null;
+        let scanOffset = !keyField && typeof stored.scanOffset === "number" ? stored.scanOffset : 0;
         const records: Record<string, unknown>[] = [];
         let pages = 0;
-        let truncated = false;
+        let finished = false;
         for (; pages < BRAIN_LIMITS.maxPagesPerRun; pages++) {
             signal?.throwIfAborted();
             let sql: string;
             let params: unknown[] = [];
             if (incremental) {
-                const watermark = quoted(dataset.watermarkField!);
-                sql = `SELECT * FROM (\n${base}\n) AS brain_source${cursor === null ? "" : ` WHERE ${watermark} > $1`} ORDER BY ${watermark} ASC LIMIT ${BRAIN_LIMITS.pageRows}`;
-                params = cursor === null ? [] : [cursor];
+                const column = quoted(dataset.watermarkField!);
+                sql = `SELECT * FROM (\n${base}\n) AS brain_source${watermark === null ? "" : ` WHERE ${column} > $1`} ORDER BY ${column} ASC LIMIT ${BRAIN_LIMITS.pageRows}`;
+                params = watermark === null ? [] : [watermark];
+            } else if (keyField) {
+                // A key of a known type pages on its own index. Otherwise it is compared as text on both sides,
+                // which pages correctly for any type at the cost of sorting.
+                const keyType = KEY_TYPES.get(String((dataset.sourceConfig as Record<string, unknown>).keyType ?? ""));
+                const column = keyType ? quoted(keyField) : `${quoted(keyField)}::text`;
+                const parameter = keyType ? `CAST($1 AS ${keyType})` : "$1";
+                sql = `SELECT * FROM (\n${base}\n) AS brain_source${scanAfter === null ? "" : ` WHERE ${column} > ${parameter}`} ORDER BY ${column} ASC LIMIT ${BRAIN_LIMITS.pageRows}`;
+                params = scanAfter === null ? [] : [String(scanAfter)];
             } else {
-                const order = dataset.primaryKeyField ? quoted(dataset.primaryKeyField) : "1";
-                sql = `SELECT * FROM (\n${base}\n) AS brain_source ORDER BY ${order} ASC LIMIT ${BRAIN_LIMITS.pageRows} OFFSET ${pages * BRAIN_LIMITS.pageRows}`;
+                sql = `SELECT * FROM (\n${base}\n) AS brain_source ORDER BY 1 ASC LIMIT ${BRAIN_LIMITS.pageRows} OFFSET ${scanOffset}`;
             }
             const result = await reader.handle.execute!({ operation: CONNECTOR_OPERATIONS.query, parameters: { sql, params } });
             const rows = asRecords(result.data);
             records.push(...rows);
-            if (incremental && rows.length) cursor = cursorValue(rows[rows.length - 1][dataset.watermarkField!]) ?? cursor;
-            if (rows.length < BRAIN_LIMITS.pageRows) { pages++; break; }
-            if (pages === BRAIN_LIMITS.maxPagesPerRun - 1) truncated = true;
+            const last = rows[rows.length - 1];
+            if (last && incremental) watermark = cursorValue(last[dataset.watermarkField!]) ?? watermark;
+            else if (last && keyField) scanAfter = cursorValue(last[keyField]) === null ? scanAfter : String(cursorValue(last[keyField]));
+            else scanOffset += rows.length;
+            if (rows.length < BRAIN_LIMITS.pageRows) { pages++; finished = true; break; }
         }
-        return { records, cursor: incremental ? { watermark: cursor } : {}, truncated, pages };
+        if (incremental) return { records, cursor: { watermark }, truncated: !finished, pages };
+        // A finished full scan starts from the beginning next time; an unfinished one resumes where it stopped.
+        const cursor = finished ? {} : keyField ? { scanAfter: scanAfter === null ? null : this.protector.seal(scanAfter, cursorContext) } : { scanOffset };
+        return { records, cursor, truncated: !finished, pages };
     }
 
     private async fromApi(reader: ConnectionReader, dataset: BrainDataset): Promise<ExtractionResult> {

@@ -15,6 +15,8 @@ const limit = z.coerce.number().int().min(1).max(BRAIN_LIMITS.listLimit).optiona
 
 export const workspaceParams = z.object({ workspaceId: uuid });
 export const datasetParams = workspaceParams.extend({ datasetId: uuid });
+export const sourceParams = workspaceParams.extend({ connectionId: uuid });
+export const columnsQuery = z.object({ schema: text(128), table: text(128) });
 export const ruleParams = datasetParams.extend({ ruleId: uuid });
 export const runParams = workspaceParams.extend({ runId: uuid });
 export const recordParams = workspaceParams.extend({ recordId: uuid });
@@ -40,10 +42,12 @@ const filterSchema = z.object({
     value: z.union([z.string().max(500), z.number().finite(), z.boolean(), z.array(z.union([z.string().max(500), z.number().finite()])).max(100)]),
 }).strict();
 
+/** A business domain label, such as "Sales" or "Procurement & Supply". */
+const domain = text(120).regex(/^[\p{L}\p{N}][\p{L}\p{N} &/_.,()-]*$/u, "Use letters, numbers, spaces and & / - . , ( ) for the business domain.");
 export const datasetBody = z.object({
     connectionId: uuid,
     name: text(255),
-    domain: text(120),
+    domain,
     description: z.string().trim().max(2_000).nullish(),
     source: z.object({
         sql: z.string().trim().max(BRAIN_LIMITS.maxQuestionCharacters).optional(),
@@ -62,6 +66,16 @@ export const datasetBody = z.object({
     driftPolicy: z.enum(values(BRAIN_DRIFT_POLICIES)).default("accept"),
     ownerUserId: uuid.nullish(),
 }).strict();
+
+export const databaseLoadBody = z.object({
+    scope: z.enum(["database", "tables"]),
+    tables: z.array(z.object({ schema: text(128), name: text(128) }).strict()).min(1).max(BRAIN_LIMITS.maxTablesPerLoad).optional(),
+    domain,
+    schemaDomains: z.record(text(128), domain).refine(map => Object.keys(map).length <= 200, "Too many schemas.").optional(),
+    includeViews: z.boolean().default(false),
+    syncIntervalMinutes: z.number().int().min(BRAIN_LIMITS.minSyncIntervalMinutes).max(BRAIN_LIMITS.maxSyncIntervalMinutes).nullish(),
+    classification: z.enum(values(BRAIN_CLASSIFICATIONS)).default("confidential"),
+}).strict().refine(body => body.scope === "database" || Boolean(body.tables?.length), "Choose at least one table.");
 
 export const qualityRuleBody = z.object({
     ruleType: z.enum(values(BRAIN_QUALITY_RULE_TYPES)),

@@ -1,14 +1,26 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { BrainServices } from "../services/brain-services.js";
 import {
-    datasetBody, datasetParams, quarantineQuery, quarantineResolveBody, qualityRuleBody, recordParams, ruleParams, runParams, runsQuery,
+    columnsQuery, databaseLoadBody, datasetBody, datasetParams, quarantineQuery, quarantineResolveBody, qualityRuleBody, recordParams, ruleParams, runParams, runsQuery,
+    sourceParams,
 } from "../validation/brain.schemas.js";
 import { actorOf } from "./brain-actor.js";
 
-/** Business Data Platform endpoints: datasets, pipeline runs, quality rules, quarantine and lineage. */
+/** Business Data Platform endpoints: the Data Layer, datasets, pipeline runs, quality rules, quarantine and lineage. */
 export class BrainDataController {
     constructor(private readonly brain: BrainServices) {}
 
+    listSources = async (request: FastifyRequest) => this.brain.sources.list(actorOf(request));
+    linkSource = async (request: FastifyRequest, reply: FastifyReply) => reply.status(201).send(await this.brain.sources.link(actorOf(request), sourceParams.parse(request.params).connectionId));
+    unlinkSource = async (request: FastifyRequest) => this.brain.sources.unlink(actorOf(request), sourceParams.parse(request.params).connectionId);
+    sourceTables = async (request: FastifyRequest) => this.brain.sources.tables(actorOf(request), sourceParams.parse(request.params).connectionId);
+    sourceColumns = async (request: FastifyRequest) => {
+        const { schema, table } = columnsQuery.parse(request.query);
+        return this.brain.sources.columns(actorOf(request), sourceParams.parse(request.params).connectionId, schema, table);
+    };
+
+    loadDatabase = async (request: FastifyRequest, reply: FastifyReply) =>
+        reply.status(201).send(await this.brain.sources.loadDatabase(actorOf(request), sourceParams.parse(request.params).connectionId, databaseLoadBody.parse(request.body)));
     listDatasets = async (request: FastifyRequest) => this.brain.datasets.list(actorOf(request));
     getDataset = async (request: FastifyRequest) => this.brain.datasets.get(actorOf(request), datasetParams.parse(request.params).datasetId);
     createDataset = async (request: FastifyRequest, reply: FastifyReply) => reply.status(201).send(await this.brain.datasets.create(actorOf(request), datasetBody.parse(request.body)));

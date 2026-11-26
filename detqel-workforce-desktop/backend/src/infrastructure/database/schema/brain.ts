@@ -37,6 +37,8 @@ export const brainDatasets = pgTable("brain_datasets", {
     driftPolicy: varchar("drift_policy", { length: 20 }).notNull().default("accept"),
     schemaVersion: integer("schema_version").notNull().default(0),
     currentSchema: jsonb("current_schema").$type<BrainSchemaField[]>().notNull().default([]),
+    /** Personal-data fields stored only as pseudonyms outside the sealed Bronze copy. Grows, never shrinks. */
+    protectedFields: jsonb("protected_fields").$type<string[]>().notNull().default([]),
     cursor: jsonb("cursor").$type<Record<string, unknown>>().notNull().default({}),
     publishedZone: varchar("published_zone", { length: 10 }).notNull().default("bronze"),
     publishedVersion: integer("published_version").notNull().default(0),
@@ -56,6 +58,15 @@ export const brainDatasets = pgTable("brain_datasets", {
     index("idx_brain_datasets_due").on(table.status, table.nextSyncAt),
     index("idx_brain_datasets_connection").on(table.connectionId),
 ]);
+
+/** Workspace connections designated as business sources. Only these feed datasets, metrics and Brain actions. */
+export const brainSourceLinks = pgTable("brain_source_links", {
+    id: uuid("id").defaultRandom().primaryKey(),
+    workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    connectionId: uuid("connection_id").notNull().references(() => connections.id, { onDelete: "cascade" }),
+    linkedBy: uuid("linked_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, table => [uniqueIndex("uq_brain_source_links_connection").on(table.workspaceId, table.connectionId)]);
 
 export const brainPipelineRuns = pgTable("brain_pipeline_runs", {
     id: uuid("id").defaultRandom().primaryKey(),
@@ -101,6 +112,7 @@ export const brainBronzeRecords = pgTable("brain_bronze_records", {
 }, table => [
     uniqueIndex("uq_brain_bronze_record").on(table.datasetId, table.sourceKey, table.payloadHash),
     index("idx_brain_bronze_dataset_extracted").on(table.datasetId, table.extractedAt),
+    index("idx_brain_bronze_unsealed").on(table.extractedAt).where(sql`NOT (${table.payload} ? '$sealed')`),
 ]);
 
 export const brainSilverRecords = pgTable("brain_silver_records", {
@@ -572,6 +584,7 @@ export const brainMessages = pgTable("brain_messages", {
 
 export type BrainDataset = typeof brainDatasets.$inferSelect;
 export type NewBrainDataset = typeof brainDatasets.$inferInsert;
+export type BrainSourceLink = typeof brainSourceLinks.$inferSelect;
 export type BrainPipelineRun = typeof brainPipelineRuns.$inferSelect;
 export type NewBrainPipelineRun = typeof brainPipelineRuns.$inferInsert;
 export type BrainBronzeRecord = typeof brainBronzeRecords.$inferSelect;

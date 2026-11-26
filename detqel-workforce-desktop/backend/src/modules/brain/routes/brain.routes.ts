@@ -40,6 +40,12 @@ export const brainRoutes: FastifyPluginAsync = async app => {
         ["GET", "/catalog", "read", "Agents, skills, tools, analytical methods and templates", workforce.catalog],
         ["GET", "/context", "read", "Permission-filtered business context for a question", semantic.context],
 
+        ["GET", "/data-sources", "read", "Workspace connections and whether each is linked as a business source", data.listSources],
+        ["POST", "/data-sources/:connectionId/link", "manage", "Link a connection to the Business Brain as a business source", data.linkSource],
+        ["DELETE", "/data-sources/:connectionId/link", "manage", "Unlink a business source and stop its datasets", data.unlinkSource],
+        ["GET", "/data-sources/:connectionId/tables", "write", "Tables and views of a linked database source", data.sourceTables],
+        ["GET", "/data-sources/:connectionId/columns", "write", "Columns of a table in a linked database source", data.sourceColumns],
+        ["POST", "/data-sources/:connectionId/load", "manage", "Load a whole linked database, or chosen tables, into the Medallion pipeline", data.loadDatabase],
         ["GET", "/datasets", "read", "List registered datasets with zone, freshness and counts", data.listDatasets],
         ["POST", "/datasets", "write", "Register a dataset on a workspace connection and start its initial sync", data.createDataset],
         ["GET", "/datasets/:datasetId", "read", "Dataset detail: rules, recent runs, schema versions and quarantine reasons", data.getDataset],

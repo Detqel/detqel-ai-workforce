@@ -790,5 +790,29 @@
     {
         "method":  "GET",
         "url":  "/api/brain/workspaces/:workspaceId/audit"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/data-sources"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/data-sources/:connectionId/link"
+    },
+    {
+        "method":  "DELETE",
+        "url":  "/api/brain/workspaces/:workspaceId/data-sources/:connectionId/link"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/data-sources/:connectionId/tables"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/data-sources/:connectionId/columns"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/data-sources/:connectionId/load"
     }
 ]

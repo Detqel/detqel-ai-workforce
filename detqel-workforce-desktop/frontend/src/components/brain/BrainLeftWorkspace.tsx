@@ -23,6 +23,7 @@ import { BrainToolbar } from "./BrainToolbar";
 import { CapabilitiesSection } from "./CapabilitiesSection";
 import { EditableWidgetFrame, type ResizeDirection } from "./EditableWidgetFrame";
 import { IntelligenceGlanceSection } from "./IntelligenceGlanceSection";
+import type { BrainPanel } from "./panels/BrainPanelHost";
 import {
   DataOntologyHealthCard,
   GovernedForecastCard,
@@ -39,7 +40,7 @@ interface BrainLeftWorkspaceProps {
   onSelectTelemetry: (segment: BrainTelemetrySegment) => void;
   onSelectCapability: (capability: BrainCapabilityItem) => void;
   onExploreAll: () => void;
-  onSendPrompt: (prompt: string) => void;
+  onOpenPanel: (panel: BrainPanel) => void;
 }
 
 const MAGNETIC_PCT_STOPS = [33.333, 50, 66.667, 100];
@@ -83,7 +84,7 @@ export const BrainLeftWorkspace: React.FC<BrainLeftWorkspaceProps> = ({
   onSelectTelemetry,
   onSelectCapability,
   onExploreAll,
-  onSendPrompt,
+  onOpenPanel,
 }) => {
   const [isEditingLayout, setIsEditingLayout] = useState(false);
   const [layout, setLayout] = useState<BrainWidgetLayout[]>(DEFAULT_BRAIN_LAYOUT);
@@ -440,13 +441,13 @@ export const BrainLeftWorkspace: React.FC<BrainLeftWorkspaceProps> = ({
           />
         );
       case "forecast":
-        return <GovernedForecastCard forecast={overview.forecast} onSendPrompt={onSendPrompt} />;
+        return <GovernedForecastCard forecast={overview.forecast} onOpenPanel={onOpenPanel} />;
       case "simulation":
-        return <WhatIfSimulationCard presets={overview.simulations} onSendPrompt={onSendPrompt} />;
+        return <WhatIfSimulationCard presets={overview.simulations} onOpenPanel={onOpenPanel} />;
       case "health":
-        return <DataOntologyHealthCard health={overview.health} onSendPrompt={onSendPrompt} />;
+        return <DataOntologyHealthCard health={overview.health} onOpenPanel={onOpenPanel} />;
       case "approvals":
-        return <WorkforceApprovalsCard approvals={overview.approvals} onSendPrompt={onSendPrompt} />;
+        return <WorkforceApprovalsCard approvals={overview.approvals} onOpenPanel={onOpenPanel} />;
     }
   };
 

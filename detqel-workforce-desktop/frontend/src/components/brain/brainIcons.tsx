@@ -47,6 +47,8 @@ export const CAPABILITY_ICON_MAP: Record<BrainCapabilityIconKey, LucideIcon> = {
   zap: Zap,
   network: Network,
   layers: Layers,
+  database: Database,
+  shield: ShieldCheck,
 };
 
 export const ACTION_ICON_MAP: Record<BrainActionIconKey, LucideIcon> = {

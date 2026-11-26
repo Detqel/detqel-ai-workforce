@@ -2,10 +2,11 @@ import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lt, lte, or, sql }
 import type { DatabaseSession } from "../../../infrastructure/database/connection.js";
 import {
     brainBronzeRecords, brainDatasets, brainPipelineRuns, brainQualityRules, brainQuarantineRecords, brainSchemaVersions, brainSilverRecords,
+    brainSourceLinks,
 } from "../../../infrastructure/database/schema/brain.js";
 import type {
     BrainDataset, BrainPipelineRun, BrainQualityRule, BrainQuarantineRecord, BrainSchemaVersion, BrainSilverRecord,
-    NewBrainDataset, NewBrainPipelineRun, NewBrainQualityRule,
+    BrainSourceLink, NewBrainDataset, NewBrainPipelineRun, NewBrainQualityRule,
 } from "../../../shared/types/entities.js";
 import type { BronzeInsert, DatasetCounts, IBrainDataRepository, PeriodPipelineStats, QuarantineInsert, SilverUpsert } from "./brain-data.repository.js";
 
@@ -233,5 +234,38 @@ export class BrainDataRepository implements IBrainDataRepository {
     }
     listSchemaVersions(datasetId: string): Promise<BrainSchemaVersion[]> {
         return this.database.select().from(brainSchemaVersions).where(eq(brainSchemaVersions.datasetId, datasetId)).orderBy(desc(brainSchemaVersions.version)).limit(50);
+    }
+
+    listUnsealedBronze(limit: number) {
+        return this.database.select({ id: brainBronzeRecords.id, datasetId: brainBronzeRecords.datasetId, sourceKey: brainBronzeRecords.sourceKey, payload: brainBronzeRecords.payload })
+            .from(brainBronzeRecords).where(sql`NOT (${brainBronzeRecords.payload} ? '$sealed')`).orderBy(asc(brainBronzeRecords.extractedAt)).limit(limit);
+    }
+    async sealBronze(id: string, sealed: Record<string, unknown>): Promise<void> {
+        await this.database.update(brainBronzeRecords).set({ payload: sealed })
+            .where(and(eq(brainBronzeRecords.id, id), sql`NOT (${brainBronzeRecords.payload} ? '$sealed')`));
+    }
+
+    listSourceLinks(workspaceId: string): Promise<BrainSourceLink[]> {
+        return this.database.select().from(brainSourceLinks).where(eq(brainSourceLinks.workspaceId, workspaceId)).orderBy(asc(brainSourceLinks.createdAt));
+    }
+    async findSourceLink(workspaceId: string, connectionId: string): Promise<BrainSourceLink | null> {
+        const [row] = await this.database.select().from(brainSourceLinks)
+            .where(and(eq(brainSourceLinks.workspaceId, workspaceId), eq(brainSourceLinks.connectionId, connectionId))).limit(1);
+        return row ?? null;
+    }
+    async createSourceLink(workspaceId: string, connectionId: string, linkedBy: string | null): Promise<BrainSourceLink> {
+        const [created] = await this.database.insert(brainSourceLinks).values({ workspaceId, connectionId, linkedBy })
+            .onConflictDoNothing({ target: [brainSourceLinks.workspaceId, brainSourceLinks.connectionId] }).returning();
+        return created ?? (await this.findSourceLink(workspaceId, connectionId))!;
+    }
+    async deleteSourceLink(workspaceId: string, connectionId: string): Promise<boolean> {
+        const rows = await this.database.delete(brainSourceLinks)
+            .where(and(eq(brainSourceLinks.workspaceId, workspaceId), eq(brainSourceLinks.connectionId, connectionId))).returning({ id: brainSourceLinks.id });
+        return rows.length > 0;
+    }
+    async revokeDatasetsForConnection(workspaceId: string, connectionId: string): Promise<string[]> {
+        const rows = await this.database.update(brainDatasets).set({ status: "revoked", connectionId: null, nextSyncAt: null, updatedAt: new Date() })
+            .where(and(eq(brainDatasets.workspaceId, workspaceId), eq(brainDatasets.connectionId, connectionId))).returning({ id: brainDatasets.id });
+        return rows.map(row => row.id);
     }
 }

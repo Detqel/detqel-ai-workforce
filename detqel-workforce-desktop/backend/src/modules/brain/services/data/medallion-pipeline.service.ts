@@ -15,6 +15,7 @@ import type { EntityResolutionService } from "../semantic/entity-resolution.serv
 import type { MetricService } from "../semantic/metric.service.js";
 import { evaluateRecord, normalizeRecord, recordTooLarge, sourceKeyOf } from "./quality-engine.js";
 import { diffSchema, hasChanges, isBreaking, profileSchema } from "./schema-profiler.js";
+import type { BrainDataProtector } from "./data-protection.js";
 import type { SourceExtractor } from "./source-extractor.js";
 
 const logger = createScopedLogger("brain-pipeline");
@@ -36,11 +37,15 @@ export const configHash = (dataset: BrainDataset) => hashOf({
     timeField: dataset.timeField, syncMode: dataset.syncMode, qualityThreshold: dataset.qualityThreshold, transformation: BRAIN_TRANSFORMATION_VERSION,
 });
 
+/** What a sealed Bronze record is bound to: a sealed payload copied to another row or dataset fails to open. */
+export const bronzeContext = (datasetId: string, sourceKey: string) => `bronze:${datasetId}:${sourceKey}`;
+
 interface Candidate { readonly key: string; readonly data: Record<string, unknown>; readonly raw: Record<string, unknown>; readonly reasons: BrainReason[]; warnings: number }
 
 /**
- * One governed run through the Medallion zones. Bronze keeps what the source returned (with credentials and card
- * numbers masked, never stored); Silver holds normalised records that passed quality checks; everything that
+ * One governed run through the Medallion zones. Bronze keeps what the source returned, sealed with AES-256-GCM
+ * (credentials and card numbers are removed first and never stored); Silver holds normalised records that passed
+ * quality checks, with personal fields replaced by keyed pseudonyms; everything that
  * failed is quarantined with reason codes, never silently dropped. Gold is republished, and governed metrics
  * recomputed, only when the run's pass rate meets the dataset's threshold, so bad records never reach a metric.
  */
@@ -51,8 +56,16 @@ export class MedallionPipeline {
         private readonly metrics: MetricService,
         private readonly entities: EntityResolutionService,
         private readonly audit: BrainAuditService,
+        private readonly protector: BrainDataProtector,
         readonly workerId: string,
     ) {}
+
+    /** Seals Bronze rows stored before raw records were sealed. Runs in small batches from the scheduler. */
+    async sealLegacyRecords(limit: number): Promise<number> {
+        const rows = await this.unit.brainData.listUnsealedBronze(limit);
+        for (const row of rows) await this.unit.brainData.sealBronze(row.id, this.protector.seal(row.payload, bronzeContext(row.datasetId, row.sourceKey)));
+        return rows.length;
+    }
 
     /** Takes the dataset's lease and starts a run in the background, returning the run record immediately. */
     async claimAndStart(actor: BrainActor, datasetId: string, trigger: BrainRunTrigger): Promise<StartedRun> {
@@ -99,28 +112,34 @@ export class MedallionPipeline {
     private async process(dataset: BrainDataset, run: BrainPipelineRun, actor: BrainActor): Promise<BrainPipelineRun> {
         try {
             const extraction = await this.extractor.extract(dataset);
-            const records = extraction.records.map(record => redactValue(record) as Record<string, unknown>);
+            // Credentials and card numbers are removed before anything else and never stored, sealed or not.
+            const raw = extraction.records.map(record => redactValue(record) as Record<string, unknown>);
+            // Personal fields become keyed pseudonyms; only the sealed Bronze copy keeps the original values.
+            const protection = this.protector.protect(dataset.workspaceId, raw, dataset.protectedFields, [dataset.timeField ?? "", dataset.watermarkField ?? ""]);
+            const records = protection.records;
+            const tracked: BrainDataset = { ...dataset, protectedFields: protection.protectedFields.length ? protection.protectedFields : dataset.protectedFields };
             const schema = await this.resolveSchema(dataset, run, records, actor);
             const quarantine: QuarantineInsert[] = [];
             const bronze: BronzeInsert[] = [];
             const keyed: Array<{ key: string; record: Record<string, unknown> }> = [];
-            for (const record of records) {
+            const fingerprintKey = (record: Record<string, unknown>) => this.protector.fingerprint(dataset.workspaceId, record).slice(0, 64);
+            records.forEach((record, index) => {
                 if (recordTooLarge(record)) {
-                    quarantine.push({ sourceKey: hashOf(record).slice(0, 64), payload: { fields: Object.keys(record).slice(0, 50) }, reasons: [{ code: BRAIN_REASON_CODES.recordTooLarge, message: `The record exceeds ${BRAIN_LIMITS.maxRecordBytes} bytes.` }] });
-                    continue;
+                    quarantine.push({ sourceKey: fingerprintKey(record), payload: { fields: Object.keys(record).slice(0, 50) }, reasons: [{ code: BRAIN_REASON_CODES.recordTooLarge, message: `The record exceeds ${BRAIN_LIMITS.maxRecordBytes} bytes.` }] });
+                    return;
                 }
-                const key = sourceKeyOf(record, dataset.primaryKeyField);
+                const key = dataset.primaryKeyField ? sourceKeyOf(record, dataset.primaryKeyField) : fingerprintKey(record);
                 if (!key) {
-                    quarantine.push({ sourceKey: hashOf(record).slice(0, 64), payload: record, reasons: [{ code: BRAIN_REASON_CODES.missingKey, field: dataset.primaryKeyField ?? undefined, message: "The record has no usable primary key." }] });
-                    continue;
+                    quarantine.push({ sourceKey: fingerprintKey(record), payload: record, reasons: [{ code: BRAIN_REASON_CODES.missingKey, field: dataset.primaryKeyField ?? undefined, message: "The record has no usable primary key." }] });
+                    return;
                 }
-                bronze.push({ sourceKey: key, payload: record, payloadHash: hashOf(record) });
+                bronze.push({ sourceKey: key, payload: this.protector.seal(raw[index], bronzeContext(dataset.id, key)), payloadHash: this.protector.fingerprint(dataset.workspaceId, raw[index]) });
                 keyed.push({ key, record });
-            }
+            });
             const bronzeInserted = await this.unit.brainData.insertBronze(dataset.workspaceId, dataset.id, run.id, schema.version, bronze);
             if (schema.held) {
                 if (quarantine.length) await this.unit.brainData.insertQuarantine(dataset.workspaceId, dataset.id, run.id, quarantine);
-                return this.finish(dataset, run, actor, {
+                return this.finish(tracked, run, actor, {
                     status: BRAIN_RUN_STATUSES.failed, extracted: records.length, bronzeInserted, silverUpserted: 0, quarantined: quarantine.length, warnings: 0, passRate: null,
                     cursor: dataset.cursor, schema, published: false, errorCode: "schema_drift_held", errorMessage: BRAIN_ERRORS.schemaDriftHeld, pause: true,
                 });
@@ -130,7 +149,7 @@ export class MedallionPipeline {
             const passed = candidates.filter(candidate => !candidate.reasons.length);
             for (const candidate of candidates) if (candidate.reasons.length) quarantine.push({ sourceKey: candidate.key, payload: candidate.raw, reasons: candidate.reasons });
             const silver: SilverUpsert[] = passed.map(candidate => ({
-                sourceKey: candidate.key, data: candidate.data, recordHash: hashOf(candidate.data),
+                sourceKey: candidate.key, data: candidate.data, recordHash: this.protector.fingerprint(dataset.workspaceId, candidate.data),
                 observedAt: observedAt(dataset.timeField ? candidate.data[dataset.timeField] : null),
             }));
             const silverUpserted = await this.unit.brainData.upsertSilver(dataset.workspaceId, dataset.id, run.id, silver);
@@ -138,11 +157,11 @@ export class MedallionPipeline {
             const evaluated = passed.length + quarantine.length;
             const passRate = evaluated ? round(passed.length / evaluated, 4) : null;
             const publish = passRate !== null ? passRate >= dataset.qualityThreshold : false;
-            return this.finish(dataset, run, actor, {
+            return this.finish(tracked, run, actor, {
                 status: passRate === null || publish ? BRAIN_RUN_STATUSES.succeeded : BRAIN_RUN_STATUSES.partial,
                 extracted: records.length, bronzeInserted, silverUpserted, quarantined: quarantine.length,
                 warnings: candidates.reduce((total, candidate) => total + candidate.warnings, 0), passRate,
-                cursor: { ...extraction.cursor, ...(extraction.truncated ? { truncated: true } : {}) }, schema, published: publish,
+                cursor: extraction.cursor, truncated: extraction.truncated, schema, published: publish,
                 errorCode: publish || passRate === null ? null : "quality_below_threshold",
                 errorMessage: publish || passRate === null ? null : BRAIN_ERRORS.qualityBelowThreshold,
             });
@@ -231,6 +250,8 @@ export class MedallionPipeline {
     private async finish(dataset: BrainDataset, run: BrainPipelineRun, actor: BrainActor, outcome: {
         status: string; extracted: number; bronzeInserted: number; silverUpserted: number; quarantined: number; warnings: number; passRate: number | null;
         cursor: Record<string, unknown>; schema: { fields: BrainSchemaField[]; version: number }; published: boolean; errorCode: string | null; errorMessage: string | null; pause?: boolean;
+        /** The source holds more than one run may read; the next run continues straight away. */
+        truncated?: boolean;
     }): Promise<BrainPipelineRun> {
         const publishedVersion = outcome.published ? dataset.publishedVersion + 1 : dataset.publishedVersion;
         const publishedZone = outcome.published ? BRAIN_ZONES.gold : dataset.publishedVersion > 0 ? dataset.publishedZone : outcome.silverUpserted > 0 ? BRAIN_ZONES.silver : dataset.publishedZone;
@@ -249,12 +270,14 @@ export class MedallionPipeline {
         const succeeded = outcome.status === BRAIN_RUN_STATUSES.succeeded;
         await this.unit.brainData.releaseDataset(dataset.id, this.workerId, {
             cursor: outcome.status === BRAIN_RUN_STATUSES.failed ? dataset.cursor : outcome.cursor,
-            currentSchema: outcome.schema.fields, schemaVersion: outcome.schema.version,
+            currentSchema: outcome.schema.fields, schemaVersion: outcome.schema.version, protectedFields: dataset.protectedFields,
             publishedVersion, publishedZone, lastRunId: run.id, lastRunStatus: outcome.status,
             ...(succeeded ? { lastSuccessAt: now } : {}),
             consecutiveFailures: 0,
             status: outcome.pause ? BRAIN_DATASET_STATUSES.paused : dataset.status === BRAIN_DATASET_STATUSES.error ? BRAIN_DATASET_STATUSES.active : dataset.status,
-            nextSyncAt: dataset.syncIntervalMinutes && !outcome.pause ? new Date(now.getTime() + dataset.syncIntervalMinutes * 60_000) : null,
+            nextSyncAt: outcome.pause ? null
+                : outcome.truncated && outcome.status !== BRAIN_RUN_STATUSES.failed ? now
+                    : dataset.syncIntervalMinutes ? new Date(now.getTime() + dataset.syncIntervalMinutes * 60_000) : null,
         });
         const eventType = outcome.status === BRAIN_RUN_STATUSES.failed ? BRAIN_EVENT_TYPES.pipelineFailed : BRAIN_EVENT_TYPES.pipelineCompleted;
         await this.audit.publishQuietly(dataset.workspaceId, eventType, { resource_id: dataset.id, datasetId: dataset.id, runId: run.id, status: outcome.status, passRate: outcome.passRate, published: outcome.published }, { actorId: actorId(actor), correlationId: run.correlationId });

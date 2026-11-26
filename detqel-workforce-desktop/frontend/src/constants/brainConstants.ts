@@ -187,8 +187,10 @@ export type BrainCapabilityId =
   | "root-cause"
   | "recommendations"
   | "automations"
+  | "data-layer"
   | "ontology"
-  | "lineage";
+  | "lineage"
+  | "admin";
 
 export type BrainCapabilityIconKey =
   | "trending-up"
@@ -198,7 +200,9 @@ export type BrainCapabilityIconKey =
   | "lightbulb"
   | "zap"
   | "network"
-  | "layers";
+  | "layers"
+  | "database"
+  | "shield";
 
 export interface BrainCapabilityItem {
   id: BrainCapabilityId;
@@ -208,8 +212,6 @@ export interface BrainCapabilityItem {
   icon: BrainCapabilityIconKey;
   toneClass: string;
   badgeClass: string;
-  prompt: string;
-  samplePrompts: string[];
 }
 
 export interface BrainSimulationPreset {
@@ -219,7 +221,6 @@ export interface BrainSimulationPreset {
   projectedValue: string;
   deltaLabel: string;
   confidenceLabel: string;
-  prompt: string;
 }
 
 export interface BrainDomainHealthRow {
@@ -230,7 +231,6 @@ export interface BrainDomainHealthRow {
   quality: string;
   freshness: string;
   quarantineNote?: string;
-  prompt: string;
 }
 
 export interface BrainApprovalItem {
@@ -239,7 +239,6 @@ export interface BrainApprovalItem {
   reference: string;
   riskTier: "Critical" | "High" | "Moderate" | "Low";
   detail: string;
-  prompt: string;
 }
 
 export interface BrainForecastView {
@@ -251,14 +250,15 @@ export interface BrainForecastView {
   modelLabel: string;
   baselineValue: string;
   freshnessLabel: string;
-  prompt: string;
 }
+
+/** The approvals card item that stands for proposed ontology mappings rather than an action approval. */
+export const MAPPING_REVIEW_ID = "mapping-review";
 
 export interface BrainApprovalsView {
   items: BrainApprovalItem[];
   pendingCount: number;
   verifiedToday: number;
-  reviewPrompt: string;
 }
 
 /** Everything the left workspace widgets display, from the governed overview or the design preview. */
@@ -266,7 +266,7 @@ export interface BrainOverviewView {
   telemetry: BrainTelemetrySegment[];
   forecast: BrainForecastView;
   simulations: BrainSimulationPreset[];
-  health: { rows: BrainDomainHealthRow[]; inspectPrompt: string };
+  health: BrainDomainHealthRow[];
   approvals: BrainApprovalsView;
 }
 
@@ -513,12 +513,6 @@ export const BRAIN_CAPABILITIES: BrainCapabilityItem[] = [
     icon: "trending-up",
     toneClass: "text-primary",
     badgeClass: "bg-primary-muted text-primary border-primary-border",
-    prompt: "What's our sales forecast for next quarter?",
-    samplePrompts: [
-      "What's our sales forecast for next quarter?",
-      "Explain uncertainty bounds and model version for Q1 2027 revenue",
-      "Forecast customer support volume for the next 60 days",
-    ],
   },
   {
     id: "simulations",
@@ -530,12 +524,6 @@ export const BRAIN_CAPABILITIES: BrainCapabilityItem[] = [
     toneClass: "text-blue-600 dark:text-blue-400",
     badgeClass:
       "bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border-blue-100 dark:border-blue-900/60",
-    prompt: "Run a simulation for Q1 APAC expansion and pricing changes",
-    samplePrompts: [
-      "Run a simulation for Q1 APAC expansion and pricing changes",
-      "Model margin impact if Enterprise discount cap moves from 15% to 10%",
-      "Simulate impact of adding 4 SDRs in Q1 2027",
-    ],
   },
   {
     id: "optimization",
@@ -547,12 +535,6 @@ export const BRAIN_CAPABILITIES: BrainCapabilityItem[] = [
     toneClass: "text-sky-600 dark:text-sky-400",
     badgeClass:
       "bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400 border-sky-100 dark:border-sky-900/60",
-    prompt: "Optimize marketing and sales allocation for highest Q1 ROI",
-    samplePrompts: [
-      "Optimize marketing and sales allocation for highest Q1 ROI",
-      "Rebalance territory coverage across high-intent accounts",
-      "Reduce fulfillment latency without increasing unit cost",
-    ],
   },
   {
     id: "root-cause",
@@ -563,12 +545,6 @@ export const BRAIN_CAPABILITIES: BrainCapabilityItem[] = [
     icon: "search",
     toneClass: "text-primary",
     badgeClass: "bg-primary-muted text-primary border-primary-border",
-    prompt: "Identify risks and root causes across our active pipeline",
-    samplePrompts: [
-      "Identify risks and root causes across our active pipeline",
-      "Why did Mid-Market cycle time increase by 4 days last month?",
-      "Trace drivers behind APAC expansion conversion lift",
-    ],
   },
   {
     id: "recommendations",
@@ -580,12 +556,6 @@ export const BRAIN_CAPABILITIES: BrainCapabilityItem[] = [
     toneClass: "text-amber-500 dark:text-amber-400",
     badgeClass:
       "bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border-amber-100 dark:border-amber-900/60",
-    prompt: "Create a sales plan based on current pipeline signals",
-    samplePrompts: [
-      "Create a sales plan based on current pipeline signals",
-      "Which 2 new verticals offer the fastest payback right now?",
-      "Summarize executive priorities for this week",
-    ],
   },
   {
     id: "automations",
@@ -597,12 +567,17 @@ export const BRAIN_CAPABILITIES: BrainCapabilityItem[] = [
     toneClass: "text-emerald-600 dark:text-emerald-400",
     badgeClass:
       "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/60",
-    prompt: "Create a weekly executive forecast report automation",
-    samplePrompts: [
-      "Create a weekly executive forecast report automation",
-      "Alert account leads when renewal health drops below 80%",
-      "Schedule daily anomaly checks across all 12 connected sources",
-    ],
+  },
+  {
+    id: "data-layer",
+    title: "Data Layer",
+    subtitle: "Business sources",
+    description:
+      "Choose which workspace connections are business sources, then load their tables or endpoints into the Bronze, Silver and Gold pipeline. Only linked sources are queried and counted.",
+    icon: "database",
+    toneClass: "text-blue-600 dark:text-blue-400",
+    badgeClass:
+      "bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border-blue-100 dark:border-blue-900/60",
   },
   {
     id: "ontology",
@@ -613,12 +588,6 @@ export const BRAIN_CAPABILITIES: BrainCapabilityItem[] = [
     icon: "network",
     toneClass: "text-primary",
     badgeClass: "bg-primary-muted text-primary border-primary-border",
-    prompt: "Review the 3 low-confidence entity mappings waiting for approval",
-    samplePrompts: [
-      "Review the 3 low-confidence entity mappings waiting for approval",
-      "Show governed definition and owner for Net Pipeline Coverage",
-      "List business rules enforced on Enterprise discount approvals",
-    ],
   },
   {
     id: "lineage",
@@ -630,12 +599,17 @@ export const BRAIN_CAPABILITIES: BrainCapabilityItem[] = [
     toneClass: "text-emerald-600 dark:text-emerald-400",
     badgeClass:
       "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/60",
-    prompt: "Explain data quality checks and the 14 quarantined records in Silver",
-    samplePrompts: [
-      "Explain data quality checks and the 14 quarantined records in Silver",
-      "Show source-to-Gold lineage for CRM Opportunity metrics",
-      "Check freshness SLA status across all connected datasets",
-    ],
+  },
+  {
+    id: "admin",
+    title: "Admin",
+    subtitle: "Policies & audit",
+    description:
+      "Set action-risk approval rules, row and column access policies for datasets, metrics and entity types, and review the Business Brain audit trail.",
+    icon: "shield",
+    toneClass: "text-slate-600 dark:text-slate-300",
+    badgeClass:
+      "bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700",
   },
 ];
 
@@ -647,7 +621,6 @@ export const BRAIN_SIMULATION_PRESETS: BrainSimulationPreset[] = [
     projectedValue: "$27.8M",
     deltaLabel: "+13.5% vs baseline",
     confidenceLabel: "High confidence · Baseline $24.5M",
-    prompt: "Run a what-if simulation for APAC Outbound (+15%) against our $24.5M Q1 2027 baseline",
   },
   {
     id: "discount-cap",
@@ -656,7 +629,6 @@ export const BRAIN_SIMULATION_PRESETS: BrainSimulationPreset[] = [
     projectedValue: "$25.9M",
     deltaLabel: "+5.7% margin lift",
     confidenceLabel: "Moderate confidence · Policy-bound",
-    prompt: "Run a simulation for enforcing a 10% Enterprise discount cap in Q1 2027",
   },
   {
     id: "sdr-capacity",
@@ -665,7 +637,6 @@ export const BRAIN_SIMULATION_PRESETS: BrainSimulationPreset[] = [
     projectedValue: "$26.4M",
     deltaLabel: "+7.8% vs baseline",
     confidenceLabel: "High confidence · 48 entities",
-    prompt: "Run a simulation for adding 4 Enterprise SDRs in Q1 2027",
   },
 ];
 
@@ -677,7 +648,6 @@ export const BRAIN_DOMAIN_HEALTH_ROWS: BrainDomainHealthRow[] = [
     zone: "Gold",
     quality: "99.6%",
     freshness: "8m ago",
-    prompt: "Inspect Gold layer lineage, schema mapping, and freshness for CRM Pipeline",
   },
   {
     id: "erp-billing",
@@ -686,7 +656,6 @@ export const BRAIN_DOMAIN_HEALTH_ROWS: BrainDomainHealthRow[] = [
     zone: "Gold",
     quality: "99.4%",
     freshness: "15m ago",
-    prompt: "Inspect Gold layer metric definitions and freshness for ERP Billing",
   },
   {
     id: "support-desk",
@@ -696,7 +665,6 @@ export const BRAIN_DOMAIN_HEALTH_ROWS: BrainDomainHealthRow[] = [
     quality: "98.1%",
     freshness: "22m ago",
     quarantineNote: "14 flagged",
-    prompt: "Explain the 14 quarantined records in Silver Support Desk ingestion",
   },
   {
     id: "product-telemetry",
@@ -705,7 +673,6 @@ export const BRAIN_DOMAIN_HEALTH_ROWS: BrainDomainHealthRow[] = [
     zone: "Gold",
     quality: "99.8%",
     freshness: "4m ago",
-    prompt: "Inspect Gold layer entity resolution for Product Usage telemetry",
   },
 ];
 
@@ -716,15 +683,13 @@ export const BRAIN_PENDING_APPROVALS: BrainApprovalItem[] = [
     reference: "WF-412 · Email Agent preview",
     riskTier: "High",
     detail: "42 Enterprise recipients · Requires human preview approval",
-    prompt: "Show approval preview of recipients, content, and impact for workflow WF-412",
   },
   {
-    id: "map-review",
+    id: MAPPING_REVIEW_ID,
     title: "Review 3 low-confidence entity mappings",
     reference: "FR-BRAIN-003 · CRM → Account",
     riskTier: "Moderate",
     detail: "Ambiguous subsidiary IDs held before Gold publish",
-    prompt: "Review the 3 low-confidence entity mappings waiting for approval",
   },
 ];
 
@@ -760,7 +725,6 @@ export const BRAIN_PLACEHOLDER_FORECAST: BrainForecastView = {
   modelLabel: "Model v2.4",
   baselineValue: "$20.8M",
   freshnessLabel: "Fresh 12m ago · 48 entities",
-  prompt: "Explain the assumptions and uncertainty behind the $24.5M Q1 2027 forecast",
 };
 
 /** The design preview, shown only while no workspace is selected. */
@@ -769,15 +733,11 @@ export function placeholderBrainOverview(timeframe: BrainTimeframeId): BrainOver
     telemetry: BRAIN_TELEMETRY_BY_TIMEFRAME[timeframe],
     forecast: BRAIN_PLACEHOLDER_FORECAST,
     simulations: BRAIN_SIMULATION_PRESETS,
-    health: {
-      rows: BRAIN_DOMAIN_HEALTH_ROWS,
-      inspectPrompt: "Explain data quality checks and the 14 quarantined records in Silver",
-    },
+    health: BRAIN_DOMAIN_HEALTH_ROWS,
     approvals: {
       items: BRAIN_PENDING_APPROVALS,
       pendingCount: 2,
       verifiedToday: 14,
-      reviewPrompt: "Show approval preview of recipients, content, and impact for workflow WF-412",
     },
   };
 }
@@ -788,3 +748,18 @@ export function formatAssistantTimestamp(date: Date = new Date()): string {
     minute: "2-digit",
   });
 }
+
+/** Suggested business domains for loaded data; any other label can be typed. */
+export const BRAIN_DOMAIN_SUGGESTIONS = [
+  "Sales",
+  "Finance",
+  "Procurement",
+  "Operations",
+  "Supply Chain",
+  "Inventory",
+  "Customer Support",
+  "Marketing",
+  "Human Resources",
+  "Product",
+  "Legal & Compliance",
+] as const;

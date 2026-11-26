@@ -68,6 +68,7 @@ export function createServices(unit: IUnitOfWork, checkDatabase: () => Promise<v
     const brain = createBrainServices(unit, {
         connections, gateway: agents.gateway, keys: agents.keys, models: agents.models, prompts: promptLoader, webSearch: agents.webSearch,
         roleOf: (userId, workspaceId) => workspaceAccess.roleOf(userId, workspaceId),
+        encryptionKey: config.CONNECTOR_ENCRYPTION_KEY,
     });
     return {
         auth: new AuthService(unit.users, unit.workspaces, sessions, licensePortal, licenseTokens, installationMetadata()),

@@ -1,6 +1,7 @@
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
+import { eq, sql } from "drizzle-orm";
 import postgres from "postgres";
 import { createDatabase, type DatabaseConnection } from "../../src/infrastructure/database/connection.js";
 import { runMigrations } from "../../src/infrastructure/database/migrations/runner.js";
@@ -10,6 +11,8 @@ import { UnitOfWork } from "../../src/infrastructure/database/unit-of-work.js";
 import { createBrainServices, type BrainServices } from "../../src/modules/brain/services/brain-services.js";
 import { systemActor, userActor, type BrainActor } from "../../src/modules/brain/services/brain-types.js";
 import type { IBrainModel } from "../../src/modules/brain/services/workforce/brain-model.js";
+import { isPseudonym } from "../../src/modules/brain/services/data/data-protection.js";
+import { postgresOperations } from "../../src/modules/connections/operations/data-operations.js";
 import type { BrainDataset } from "../../src/shared/types/entities.js";
 
 /**
@@ -59,6 +62,11 @@ describe("Business Brain on PostgreSQL", { skip: !adminUrl }, () => {
     let accounts: BrainDataset;
     let opportunities: BrainDataset;
     const writes: Array<Record<string, unknown>> = [];
+    /** Readers for connections added by later tests, such as a real PostgreSQL business database. */
+    const readers = new Map<string, unknown>();
+    const encryptionKey = randomBytes(32).toString("base64");
+    const sourceName = `${name}_source`;
+    let sourceSql: ReturnType<typeof postgres> | null = null;
 
     const waitForSync = async (datasetId: string, previousRunId: string | null) => {
         for (let attempt = 0; attempt < 150; attempt++) {
@@ -117,10 +125,11 @@ describe("Business Brain on PostgreSQL", { skip: !adminUrl }, () => {
         };
         const model: IBrainModel = { available: async () => false, structured: async () => { throw new Error("No model is configured"); } };
         brain = createBrainServices(unit, {
-            connections: { readerFor: async () => reader as never },
+            connections: { readerFor: async (id: string) => (readers.get(id) ?? reader) as never },
             gateway: null as never, keys: null as never, models: null as never, prompts: null as never,
             webSearch: { assertConfigured: async () => { throw new Error("Web search is not configured"); }, search: async () => [] },
             roleOf: async userId => roles.get(userId) ?? null,
+            encryptionKey,
             model,
         });
         owner = userActor(ownerUser.id, workspaceId, "owner");
@@ -131,11 +140,29 @@ describe("Business Brain on PostgreSQL", { skip: !adminUrl }, () => {
     after(async () => {
         await brain?.scheduler.stop();
         await connection?.close();
+        await sourceSql?.end({ timeout: 5 });
         const client = postgres(adminUrl!, { max: 1, onnotice: () => {} });
         try {
             assert.match(name, /^detqel_brain_test_[a-f0-9]{32}$/);
             await client`DROP DATABASE IF EXISTS ${client(name)} WITH (FORCE)`;
+            await client`DROP DATABASE IF EXISTS ${client(sourceName)} WITH (FORCE)`;
         } finally { await client.end({ timeout: 5 }); }
+    });
+
+    test("only connections linked in the Data Layer are business sources", async () => {
+        const [definition] = await connection.db.insert(schema.connectionDefinitions).values({ workspaceId, code: `repo-${randomUUID().slice(0, 8)}`, name: "GitHub", adapterKey: "repository.github", configSchema: { fields: [] } as never, isEnabled: true }).returning();
+        const [personal] = await connection.db.insert(schema.connections).values({ workspaceId, name: "Personal repo", provider: "github", definitionId: definition.id, status: "connected" }).returning();
+        await assert.rejects(brain.datasets.create(owner, datasetInput({ name: "Early", source: { path: "/accounts" } })), /Link this connection/);
+        await assert.rejects(brain.sources.link(owner, personal.id), /cannot supply a dataset/);
+        await assert.rejects(brain.sources.link(userActor(randomUUID(), randomUUID(), "owner"), connectionId), /not found/, "another workspace cannot link this connection");
+        const linked = await brain.sources.link(owner, connectionId);
+        assert.equal(linked.sourceKind, "api");
+        assert.equal((await brain.sources.link(owner, connectionId)).linked, true, "linking twice is harmless");
+        const listed = await brain.sources.list(owner);
+        assert.deepEqual(listed.map(source => [source.name, source.linked, source.sourceKind]), [["CRM API", true, "api"], ["Personal repo", false, null]]);
+        await assert.rejects(brain.sources.tables(owner, connectionId), /database connections only/);
+        const overview = await brain.overview.overview(owner, "30d" as never) as unknown as { telemetry: { sources: { connected: number; total: number; providers: string[] } } };
+        assert.deepEqual(overview.telemetry.sources, { connected: 1, total: 1, addedInPeriod: 1, providers: ["CRM API"] });
     });
 
     test("registration runs the initial ingestion into Bronze, Silver and Gold", async () => {
@@ -292,5 +319,95 @@ describe("Business Brain on PostgreSQL", { skip: !adminUrl }, () => {
         assert.equal((await brain.datasets.list(owner)).length, 1);
         assert.equal((await brain.datasets.revoke(owner, accounts.id)).status, "revoked");
         await assert.rejects(brain.datasets.sync(owner, accounts.id, false));
+    });
+
+    test("unlinking a business source stops its datasets and removes it from connected sources", async () => {
+        const replacement = await brain.datasets.create(owner, datasetInput({ name: "Accounts v2", source: { path: "/accounts", recordsPath: "items" }, primaryKeyField: "account_id" }));
+        await waitForSync(replacement.id, null);
+        const result = await brain.sources.unlink(owner, connectionId);
+        assert.equal(result.revokedDatasets, 1);
+        assert.equal((await unit.brainData.findDataset(replacement.id, workspaceId))?.status, "revoked");
+        const overview = await brain.overview.overview(owner, "7d" as never) as unknown as { telemetry: { sources: { total: number } } };
+        assert.equal(overview.telemetry.sources.total, 0);
+        await assert.rejects(brain.sources.unlink(owner, connectionId), /Link this connection/);
+    });
+    test("a whole PostgreSQL database loads securely: sealed raw copies, pseudonymised personal data, resumable scans", async () => {
+        // A separate business database with two schemas, a composite key, personal columns and a table larger than one run reads.
+        const sourceUrl = new URL(adminUrl!);
+        sourceUrl.pathname = `/${sourceName}`;
+        await initializeDatabase(sourceUrl.toString(), adminUrl);
+        sourceSql = postgres(sourceUrl.toString(), { max: 2, onnotice: () => {} });
+        await sourceSql.unsafe(`
+            CREATE SCHEMA sales; CREATE SCHEMA procurement;
+            CREATE TABLE sales.customers (id integer PRIMARY KEY, company text NOT NULL, email text, first_name text, region text, created_at timestamptz NOT NULL DEFAULT now());
+            CREATE TABLE sales.orders (id bigint PRIMARY KEY, customer_id integer, amount numeric(12,2), order_date date NOT NULL);
+            CREATE TABLE procurement.purchase_order_lines (order_id integer, line_no integer, sku text, quantity integer, PRIMARY KEY (order_id, line_no));
+            CREATE TABLE public._prisma_migrations (id text PRIMARY KEY);
+            CREATE VIEW sales.big_orders AS SELECT * FROM sales.orders WHERE amount > 500;
+            INSERT INTO sales.customers (id, company, email, first_name, region)
+                SELECT n, 'Company ' || n, 'buyer' || n || '@client' || n || '.com', 'Person' || n, (ARRAY['EMEA','APAC','NA'])[1 + n % 3] FROM generate_series(1, 50) n;
+            INSERT INTO sales.orders SELECT n, 1 + n % 50, (n % 997)::numeric, DATE '2025-01-01' + (n % 500) FROM generate_series(1, 10500) n;
+            INSERT INTO procurement.purchase_order_lines SELECT 1 + n / 4, n % 4, 'SKU-' || n, n % 9 FROM generate_series(1, 300) n;`);
+        const [definition] = await connection.db.insert(schema.connectionDefinitions).values({ workspaceId, code: `pg-${randomUUID().slice(0, 8)}`, name: "PostgreSQL", adapterKey: "postgres", configSchema: { fields: [] } as never, isEnabled: true }).returning();
+        const [database] = await connection.db.insert(schema.connections).values({ workspaceId, name: "Asterion Business Group", provider: "postgres", definitionId: definition.id, status: "connected" }).returning();
+        readers.set(database.id, { id: database.id, name: database.name, provider: "postgres", adapterKey: "postgres", configuration: {}, metadata: {}, handle: { execute: postgresOperations(sourceSql) } });
+
+        await assert.rejects(brain.sources.loadDatabase(owner, database.id, { scope: "database", domain: "Operations" }), /Link this connection/);
+        await brain.sources.link(owner, database.id);
+        const missing = await brain.sources.loadDatabase(admin, database.id, { scope: "tables", tables: [{ schema: "sales", name: "missing" }], domain: "Sales" });
+        assert.deepEqual(missing.created, []);
+        assert.match(missing.skipped[0].reason, /Not found/, "only discovered tables can be loaded; the caller cannot name arbitrary objects");
+        const tables = await brain.sources.tables(owner, database.id);
+        assert.deepEqual(tables.map(table => `${table.schema}.${table.name}`), ["procurement.purchase_order_lines", "sales.big_orders", "sales.customers", "sales.orders"], "migration tables are not business data");
+
+        const load = await brain.sources.loadDatabase(owner, database.id, { scope: "database", domain: "Operations", schemaDomains: { sales: "Sales" } });
+        assert.deepEqual(load.created.map(dataset => [dataset.name, dataset.domain, dataset.primaryKeyField, dataset.timeField]).sort(), [
+            ["Customers", "Sales", "id", "created_at"],
+            ["Orders", "Sales", "id", "order_date"],
+            ["Purchase Order Lines", "Operations", "__brain_key", null],
+        ], "views are left out of a whole-database load unless asked for");
+        assert.equal(load.created.every(dataset => dataset.classification === "confidential"), true);
+
+        // The first datasets start at once; the scheduler continues the 10,500-row table across runs until its scan completes.
+        for (let attempt = 0; attempt < 60; attempt++) {
+            const rows = (await unit.brainData.listDatasets(workspaceId)).filter(dataset => dataset.connectionId === database.id);
+            if (rows.every(dataset => dataset.lastSuccessAt && !dataset.leaseOwner && Object.keys(dataset.cursor).length === 0 && !dataset.nextSyncAt)) break;
+            await sleep(150);
+            await brain.scheduler.tick();
+        }
+        const loaded = new Map((await brain.datasets.list(owner)).filter(dataset => dataset.connectionId === database.id).map(dataset => [dataset.name, dataset]));
+        assert.equal(loaded.get("Orders")?.counts?.silver, 10_500, "a large table is read completely, not cut off at one run");
+        assert.equal(loaded.get("Customers")?.counts?.silver, 50);
+        assert.equal(loaded.get("Purchase Order Lines")?.counts?.silver, 300, "composite keys identify every line");
+        assert.deepEqual(loaded.get("Customers")?.protectedFields, ["email", "first_name"]);
+
+        // Nothing personal is readable anywhere in the Brain's own tables, and Bronze is sealed.
+        const leaks = await connection.db.execute(sql`SELECT 'bronze' AS zone, count(*)::int AS n FROM brain_bronze_records WHERE payload::text ~* '(buyer[0-9]+@|Person[0-9]+)'
+            UNION ALL SELECT 'silver', count(*)::int FROM brain_silver_records WHERE data::text ~* '(buyer[0-9]+@|Person[0-9]+)'
+            UNION ALL SELECT 'entities', count(*)::int FROM brain_entities WHERE attributes::text ~* '(buyer[0-9]+@|Person[0-9]+)' OR display_name ~* '(buyer[0-9]+@|Person[0-9]+)'
+            UNION ALL SELECT 'quarantine', count(*)::int FROM brain_quarantine_records WHERE payload::text ~* '(buyer[0-9]+@|Person[0-9]+)'
+            UNION ALL SELECT 'datasets', count(*)::int FROM brain_datasets WHERE cursor::text ~* '(buyer[0-9]+@|Person[0-9]+)'`);
+        assert.deepEqual([...leaks].map(row => Number(row.n)), [0, 0, 0, 0, 0], JSON.stringify([...leaks]));
+        const [sealing] = await connection.db.execute(sql`SELECT count(*) FILTER (WHERE NOT (payload ? '$sealed'))::int AS unsealed FROM brain_bronze_records`);
+        assert.equal(Number(sealing.unsealed), 0);
+        const [customer] = await connection.db.execute(sql`SELECT s.data FROM brain_silver_records s JOIN brain_datasets d ON d.id = s.dataset_id WHERE d.name = 'Customers' LIMIT 1`);
+        const data = customer.data as Record<string, unknown>;
+        assert.ok(isPseudonym(data.email) && isPseudonym(data.first_name));
+        assert.match(String(data.company), /^Company \d+$/, "business columns stay usable for analysis");
+
+        // Loading again adds nothing; the views can still be chosen explicitly.
+        const again = await brain.sources.loadDatabase(owner, database.id, { scope: "database", domain: "Operations" });
+        assert.equal(again.created.length, 0);
+        assert.ok(again.skipped.every(item => item.reason.startsWith("Already loaded")));
+        // Loads are rate limited per person (three a minute), so a second administrator loads the view.
+        await assert.rejects(brain.sources.loadDatabase(owner, database.id, { scope: "database", domain: "Operations" }), /Too many requests/);
+        const view = await brain.sources.loadDatabase(admin, database.id, { scope: "tables", tables: [{ schema: "sales", name: "big_orders" }], domain: "Sales" });
+        assert.equal(view.created[0]?.name, "Big Orders");
+
+        // Rows stored before sealing existed are sealed by the scheduler and still open.
+        const [legacy] = await connection.db.insert(schema.brainBronzeRecords).values({ workspaceId, datasetId: load.created[0].id, sourceKey: "legacy-1", payload: { email: "old@client.com" }, payloadHash: "0".repeat(64), schemaVersion: 1 }).returning();
+        assert.equal(await brain.pipeline.sealLegacyRecords(50), 1);
+        const [resealed] = await connection.db.select().from(schema.brainBronzeRecords).where(eq(schema.brainBronzeRecords.id, legacy.id));
+        assert.equal(JSON.stringify(resealed.payload).includes("old@client.com"), false);
     });
 });

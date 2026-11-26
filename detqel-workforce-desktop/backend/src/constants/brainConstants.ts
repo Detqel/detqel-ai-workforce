@@ -216,12 +216,20 @@ export const BRAIN_LIMITS = {
     maxRecordsPerFile: 10_000,
     maxRecordBytes: 64 * 1024,
     maxFields: 200,
-    maxDatasetsPerWorkspace: 100,
+    maxDatasetsPerWorkspace: 300,
+    /** Tables one Data Layer load may register, and tables discovery may list. */
+    maxTablesPerLoad: 300,
+    maxDiscoveredTables: 1_000,
+    /** Concurrent column lookups while preparing a database load. */
+    discoveryConcurrency: 4,
+    databaseLoadsPerMinute: 3,
+    /** Bronze rows written before sealing existed, sealed per scheduler tick. */
+    legacySealBatch: 200,
     maxQualityRulesPerDataset: 100,
     maxSourceKeyCharacters: 512,
     sampleValuesPerField: 5,
     /** Datasets started by one scheduler tick, so a backlog cannot starve the API. */
-    datasetsPerTick: 2,
+    datasetsPerTick: 4,
     eventsPerTick: 50,
     workflowRunsPerTick: 5,
     schedulerTickMs: 15_000,
@@ -272,11 +280,25 @@ export const BRAIN_LIMITS = {
     auditListLimit: 200,
 } as const;
 
+/** How business records are protected before they are stored (see BrainDataProtector). */
+export const BRAIN_DATA_PROTECTION = {
+    rawRecordPurpose: "brain-raw-records",
+    pseudonymPurpose: "brain-pseudonyms",
+    pseudonymPrefix: "pii_",
+    pseudonymHexLength: 24,
+    /** A text field is personal when at least this share of its values are e-mail addresses. */
+    emailShareThreshold: 0.6,
+    /** Column names that hold personal data. Generic names such as "name" or "city" stay readable for analysis. */
+    personalFieldPattern: /(?:^|_)(?:e_?mail|email_?address|phone|phone_?number|mobile|telephone|tel|fax|first_?name|last_?name|middle_?name|full_?name|surname|given_?name|maiden_?name|contact_?name|person_?name|dob|date_?of_?birth|birth_?date|birthday|address|address_?line_?\d?|street|street_?address|postcode|post_?code|postal_?code|zip|zip_?code|passport|passport_?number|national_?id|nin|tax_?id|tin|vat_?number|driver_?licen[cs]e|licen[cs]e_?number|ip_?address|ip|mac_?address|device_?id|gender|sex|ethnicity|religion|nationality|marital_?status|medical|diagnosis|health|biometric|geo_?location|latitude|longitude|lat|lng|lon)(?:_|$)/,
+} as const;
+
 export const BRAIN_ERRORS = {
     datasetNotFound: "Dataset not found",
     runNotFound: "Pipeline run not found",
     connectionNotFound: "The connection was not found in this workspace.",
     unsupportedConnector: "This connector cannot supply a dataset. Use a database, HTTP API or file connector.",
+    sourceNotLinked: "Link this connection in the Data Layer before the Business Brain uses it.",
+    tablesUnsupported: "Table discovery is available for database connections only.",
     sourceKindMismatch: "The dataset source does not match the connector type.",
     datasetRevoked: "This dataset was revoked. Register it again to resume ingestion.",
     datasetBusy: "This dataset is already syncing. Wait for the current run to finish.",

@@ -145,6 +145,8 @@ export function createWorkflowActions(deps: WorkflowActionDependencies): Map<str
                 payloadPreview: JSON.stringify(redactValue(input.body)).slice(0, 1_500),
             }),
             handler: async (context, input: { connectionId: string; path: string; body: Record<string, unknown> }) => {
+                // Checked at execution, not only at request time, so unlinking a source stops approved deliveries too.
+                if (!await deps.unit.brainData.findSourceLink(context.actor.workspaceId, input.connectionId)) throw new AppError(409, BRAIN_ERRORS.sourceNotLinked);
                 const reader = await deps.connections.readerFor(input.connectionId, context.actor.workspaceId);
                 if (agentKindOf(reader.adapterKey) !== AGENT_CONNECTOR_KINDS.api || typeof reader.handle.execute !== "function") throw new AppError(422, "External delivery needs an HTTP API connection.");
                 const result = await reader.handle.execute({ operation: CONNECTOR_OPERATIONS.write, parameters: { path: input.path, body: { ...input.body, idempotencyKey: context.idempotencyKey } } });

@@ -48,6 +48,7 @@ export class BrainScheduler {
 
     async tick(): Promise<void> {
         await this.step("recover", () => this.pipeline.recoverInterrupted());
+        await this.step("seal-legacy", () => this.pipeline.sealLegacyRecords(BRAIN_LIMITS.legacySealBatch));
         await this.step("datasets", async () => {
             const due = await this.unit.brainData.claimDueDatasets(this.pipeline.workerId, BRAIN_LIMITS.leaseMs, BRAIN_LIMITS.datasetsPerTick);
             await Promise.allSettled(due.map(dataset => this.pipeline.run(dataset, dataset.lastRunId ? BRAIN_RUN_TRIGGERS.schedule : BRAIN_RUN_TRIGGERS.initial, systemActor(dataset.workspaceId))));

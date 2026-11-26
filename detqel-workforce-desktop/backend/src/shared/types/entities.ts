@@ -17,7 +17,7 @@ export type {
     BrainConversation, BrainDataset, BrainEntity, BrainEntityAttribute, BrainEntityLink, BrainEntityType, BrainEvent, BrainFilter,
     BrainMessage, BrainMetricDefinition, BrainMetricObservation, BrainPipelineRun, BrainPolicySettings, BrainQualityRule,
     BrainQuarantineRecord, BrainReason, BrainRelationshipType, BrainRetryEntry, BrainScenario, BrainSchemaChanges, BrainSchemaField,
-    BrainSchemaVersion, BrainSemanticMapping, BrainSilverRecord, BrainSourceRef, BrainTaskStep, BrainWorkflowDefinition, BrainWorkflowRun,
+    BrainSchemaVersion, BrainSemanticMapping, BrainSilverRecord, BrainSourceLink, BrainSourceRef, BrainTaskStep, BrainWorkflowDefinition, BrainWorkflowRun,
     BrainWorkflowStepRun, NewBrainAccessPolicy, NewBrainActionApproval, NewBrainAgentTask, NewBrainAnalysisRun, NewBrainAuditEvent,
     NewBrainDataset, NewBrainEntityType, NewBrainEvent, NewBrainMetricDefinition, NewBrainPipelineRun, NewBrainQualityRule,
     NewBrainRelationshipType, NewBrainScenario, NewBrainSemanticMapping, NewBrainTaskStep, NewBrainWorkflowDefinition, NewBrainWorkflowRun,

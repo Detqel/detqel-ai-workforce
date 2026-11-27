@@ -15,6 +15,7 @@ import {
   PanelRightOpen,
 } from "lucide-react";
 import { formatFileSize } from "@/lib/download";
+import { readKnowledgeUpload } from "@/lib/knowledge-upload";
 import { pageIds } from "@/lib/navigation";
 import { useNavigation } from "@/context/NavigationContext";
 import { connectorsApi, type ConnectorRecord } from "@/lib/api/connectors";
@@ -87,11 +88,10 @@ export const DiscussionRightPane: React.FC<DiscussionRightPaneProps> = ({
     if (file.size > KNOWLEDGE_UPLOAD_MAX_BYTES) { toast.error(`"${file.name}" is larger than ${formatFileSize(KNOWLEDGE_UPLOAD_MAX_BYTES)}.`); return; }
     setIsUploading(true);
     try {
-      const content = await file.text();
-      const result = await apiUploadSessionKnowledge(workspaceId, activeSessionId, { fileName: file.name, mimeType: file.type || "text/plain", content, encoding: "utf8" });
+      const result = await apiUploadSessionKnowledge(workspaceId, activeSessionId, await readKnowledgeUpload(file));
       // Uploading a document with the same name replaces it.
-      setKnowledgeDocs((prev) => [...prev.filter((doc) => doc.name !== file.name), { name: file.name, size: file.size }].sort((left, right) => left.name.localeCompare(right.name)));
-      toast.success(`Added "${file.name}" (${result.chunks} chunk${result.chunks === 1 ? "" : "s"} indexed).`);
+      setKnowledgeDocs((prev) => [...prev.filter((doc) => doc.name !== result.name), { name: result.name, size: file.size }].sort((left, right) => left.name.localeCompare(right.name)));
+      toast.success(result.indexed ? `Added "${result.name}" (${result.chunks} chunk${result.chunks === 1 ? "" : "s"} indexed).` : `Added "${result.name}". It is not searchable yet, but agents can still read it.`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not add the knowledge file.");
     } finally {

@@ -252,9 +252,6 @@ export interface BrainForecastView {
   freshnessLabel: string;
 }
 
-/** The approvals card item that stands for proposed ontology mappings rather than an action approval. */
-export const MAPPING_REVIEW_ID = "mapping-review";
-
 export interface BrainApprovalsView {
   items: BrainApprovalItem[];
   pendingCount: number;
@@ -685,11 +682,11 @@ export const BRAIN_PENDING_APPROVALS: BrainApprovalItem[] = [
     detail: "42 Enterprise recipients · Requires human preview approval",
   },
   {
-    id: MAPPING_REVIEW_ID,
-    title: "Review 3 low-confidence entity mappings",
-    reference: "FR-BRAIN-003 · CRM → Account",
+    id: "wf-418",
+    title: "Approve weekly forecast brief distribution",
+    reference: "WF-418 · Workflow step",
     riskTier: "Moderate",
-    detail: "Ambiguous subsidiary IDs held before Gold publish",
+    detail: "6 managers · Internal document share",
   },
 ];
 

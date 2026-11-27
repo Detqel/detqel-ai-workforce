@@ -12,6 +12,7 @@ import type { BronzeInsert, QuarantineInsert, SilverUpsert } from "../../reposit
 import { entryFor, type BrainAuditService } from "../brain-audit.service.js";
 import { actorId, hashOf, round, type BrainActor } from "../brain-types.js";
 import type { EntityResolutionService } from "../semantic/entity-resolution.service.js";
+import type { OntologyBuilder } from "../semantic/ontology-builder.js";
 import type { MetricService } from "../semantic/metric.service.js";
 import { evaluateRecord, normalizeRecord, recordTooLarge, sourceKeyOf } from "./quality-engine.js";
 import { diffSchema, hasChanges, isBreaking, profileSchema } from "./schema-profiler.js";
@@ -55,6 +56,7 @@ export class MedallionPipeline {
         private readonly extractor: SourceExtractor,
         private readonly metrics: MetricService,
         private readonly entities: EntityResolutionService,
+        private readonly ontology: OntologyBuilder,
         private readonly audit: BrainAuditService,
         private readonly protector: BrainDataProtector,
         readonly workerId: string,
@@ -79,10 +81,10 @@ export class MedallionPipeline {
 
     /** Starts a run for a dataset this worker has already leased. */
     async start(dataset: BrainDataset, trigger: BrainRunTrigger, actor: BrainActor): Promise<StartedRun> {
-        const run = await this.unit.brainData.createRun({
-            workspaceId: dataset.workspaceId, datasetId: dataset.id, trigger, status: BRAIN_RUN_STATUSES.running,
-            attempt: dataset.consecutiveFailures + 1, transformationVersion: BRAIN_TRANSFORMATION_VERSION, configHash: configHash(dataset),
-            cursorFrom: dataset.cursor, schemaVersion: dataset.schemaVersion, correlationId: randomUUID(), startedBy: actor.userId,
+        // If the run cannot even be recorded, the lease is released so the dataset is not stuck until it expires.
+        const run = await this.createRun(dataset, trigger, actor).catch(async error => {
+            await this.unit.brainData.releaseDataset(dataset.id, this.workerId, {}).catch(() => undefined);
+            throw error;
         });
         const completion = this.process(dataset, run, actor).catch(async error => {
             logger.error({ datasetId: dataset.id, runId: run.id, error: String(error) }, "Pipeline run failed unexpectedly");
@@ -90,6 +92,14 @@ export class MedallionPipeline {
             return run;
         });
         return { run, completion };
+    }
+
+    private createRun(dataset: BrainDataset, trigger: BrainRunTrigger, actor: BrainActor): Promise<BrainPipelineRun> {
+        return this.unit.brainData.createRun({
+            workspaceId: dataset.workspaceId, datasetId: dataset.id, trigger, status: BRAIN_RUN_STATUSES.running,
+            attempt: dataset.consecutiveFailures + 1, transformationVersion: BRAIN_TRANSFORMATION_VERSION, configHash: configHash(dataset),
+            cursorFrom: dataset.cursor, schemaVersion: dataset.schemaVersion, correlationId: randomUUID(), startedBy: actor.userId,
+        });
     }
 
     async run(dataset: BrainDataset, trigger: BrainRunTrigger, actor: BrainActor): Promise<BrainPipelineRun> {
@@ -263,6 +273,12 @@ export class MedallionPipeline {
             errorCode: outcome.errorCode, errorMessage: outcome.errorMessage, finishedAt: now,
         });
         const updated: BrainDataset = { ...dataset, publishedVersion, publishedZone, currentSchema: outcome.schema.fields, schemaVersion: outcome.schema.version };
+        if (outcome.status !== BRAIN_RUN_STATUSES.failed && outcome.schema.fields.length) {
+            // The ontology is derived from the data as part of the run: the new schema is recorded first so the
+            // builder sees it, then types, mappings and relationships are brought up to date for the whole workspace.
+            await this.unit.brainData.updateDataset(dataset.id, dataset.workspaceId, { currentSchema: outcome.schema.fields, schemaVersion: outcome.schema.version, protectedFields: dataset.protectedFields });
+            await this.ontology.rebuild(dataset.workspaceId);
+        }
         if (outcome.published) {
             await this.metrics.recomputeDataset(updated).catch(error => logger.warn({ datasetId: dataset.id, error: String(error) }, "Gold metrics could not be recomputed"));
             await this.entities.materialize(updated).catch(error => logger.warn({ datasetId: dataset.id, error: String(error) }, "Entities could not be materialized"));

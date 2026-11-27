@@ -147,7 +147,7 @@ export function createBrainTools(deps: ToolDependencies): Map<string, ToolDefini
         },
         {
             key: BRAIN_TOOL_KEYS.describeOntology, version: "1.0.0", riskTier: BRAIN_RISK_TIERS.low, access: "read", external: false,
-            description: "Summarise the governed ontology: entity types, relationships, business rules and pending mappings.",
+            description: "Summarise the governed ontology: entity types, relationships and business rules. It is derived automatically from the synced data.",
             input: z.object({}).strict(), example: "{}",
             handler: async context => {
                 const summary = await deps.ontology.summary(context.actor);
@@ -155,29 +155,30 @@ export function createBrainTools(deps: ToolDependencies): Map<string, ToolDefini
                     data: summary, summary: "Read the ontology summary.",
                     statements: [
                         { kind: "fact", text: `The ontology has ${summary.entityTypes} entity type(s), ${summary.relationshipTypes} relationship type(s) linking ${summary.relationships} entity pair(s), ${summary.entities} canonical entities and ${summary.rules} active business rule(s).` },
-                        ...(summary.pendingMappings ? [{ kind: "caveat" as const, text: `${summary.pendingMappings} mapping(s) are waiting for review before they are used.` }] : []),
                     ],
                     evidence: [{ type: "entity", title: "Ontology registry", reference: "ontology:summary" }],
                 };
             },
         },
         {
-            key: BRAIN_TOOL_KEYS.pendingMappings, version: "1.0.0", riskTier: BRAIN_RISK_TIERS.low, access: "read", external: false,
-            description: "List source-to-canonical mappings that need human review because of low or ambiguous confidence.",
-            input: z.object({ limit: z.number().int().min(1).max(25).optional() }).strict(), example: "{\"limit\":10}",
-            handler: async (context, input: { limit?: number }) => {
-                const [mappings, types] = await Promise.all([deps.ontology.listMappings(context.actor, { status: BRAIN_MAPPING_STATUSES.proposed, limit: input.limit ?? 10 }), deps.unit.brainSemantic.listEntityTypes(context.actor.workspaceId)]);
-                const typeKey = new Map(types.map(type => [type.id, type.key]));
+            key: BRAIN_TOOL_KEYS.describeRelationships, version: "1.0.0", riskTier: BRAIN_RISK_TIERS.low, access: "read", external: false,
+            description: "Explain how business entity types relate to each other across all connected sources, optionally for one entity type.",
+            input: z.object({ entityType: optionalText(80) }).strict(), example: "{\"entityType\":\"Customer\"}",
+            handler: async (context, input: { entityType?: string }) => {
+                const graph = await deps.ontology.graph(context.actor);
+                const name = new Map(graph.nodes.map(node => [node.id, node.name]));
+                const focus = input.entityType ? graph.nodes.find(node => node.key.toLowerCase() === input.entityType!.toLowerCase() || node.name.toLowerCase() === input.entityType!.toLowerCase()) : undefined;
+                const edges = graph.edges.filter(edge => !focus || edge.from === focus.id || edge.to === focus.id).slice(0, 25);
                 return {
-                    data: { mappings: mappings.map(mapping => ({ id: mapping.id, sourceField: mapping.sourceField, target: `${typeKey.get(mapping.entityTypeId)}.${mapping.attributeKey}`, confidence: mapping.confidence, method: mapping.method })) },
-                    summary: `${mappings.length} mapping(s) await review.`,
-                    statements: mappings.length ? mappings.map(mapping => ({ kind: "fact" as const, text: `${mapping.sourceField} → ${typeKey.get(mapping.entityTypeId)}.${mapping.attributeKey} (confidence ${mapping.confidence.toFixed(2)}, ${mapping.method}).` })) : [{ kind: "fact", text: "No mappings are waiting for review." }],
-                    evidence: [{ type: "entity", title: "Mapping review queue", reference: "ontology:mappings:proposed" }],
-                    followUps: mappings.length ? [{ label: "Review mappings in the ontology studio", prompt: "Explain the evidence for the pending mappings", icon: "clipboard" }] : [],
+                    data: { entityType: focus?.key ?? null, relationships: edges.map(edge => ({ from: name.get(edge.from), to: name.get(edge.to), through: edge.fromAttribute, method: edge.method, links: edge.links })) },
+                    summary: `${edges.length} relationship(s).`,
+                    statements: edges.length
+                        ? edges.slice(0, 10).map(edge => ({ kind: "fact" as const, text: `${name.get(edge.from)} refers to ${name.get(edge.to)} through ${edge.fromAttribute} (${edge.method === "foreign_key" ? "declared foreign key" : "naming convention"}, ${edge.links} linked pair(s)).` }))
+                        : [{ kind: "fact", text: focus ? `${focus.name} has no relationships yet.` : input.entityType ? `No entity type called "${input.entityType}" exists.` : "No relationships have been derived yet." }],
+                    evidence: [{ type: "entity", title: "Ontology graph", reference: "ontology:graph" }],
                 };
             },
-        },
-        {
+        },        {
             key: BRAIN_TOOL_KEYS.searchEntities, version: "1.0.0", riskTier: BRAIN_RISK_TIERS.low, access: "read", external: false,
             description: "Find canonical business entities (accounts, customers, products) by name or identifier.",
             input: z.object({ query: z.string().trim().min(1).max(120), entityType: optionalText(80) }).strict(), example: "{\"query\":\"Acme\",\"entityType\":\"Account\"}",

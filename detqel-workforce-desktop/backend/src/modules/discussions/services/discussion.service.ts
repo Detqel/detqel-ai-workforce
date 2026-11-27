@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existingDocumentDelivery } from "../../../shared/documents/delivery-intent.js";
+import { attachmentConversion, existingDocumentDelivery } from "../../../shared/documents/delivery-intent.js";
 import { documentImageAssets, documentImageRequests, documentRequirementIssues } from "../../../shared/documents/document-requirements.js";
 import { explicitDeliverableRequirements } from "../../../shared/agents/graphs/task-plan.js";
 import { ZERO_USAGE } from "../../../shared/agents/graphs/discussion-runtime.js";
@@ -34,7 +34,7 @@ import {
 } from "../../../shared/agents/graphs/discussion-turn.graph.js";
 import type { DocumentExporter, DocumentInfo } from "../../../shared/documents/document-exporter.js";
 import { fileStem, numberedNames } from "../../../shared/documents/file-names.js";
-import type { StoredFile } from "../../../shared/rag/file-server.js";
+import type { SessionLocation, StoredFile } from "../../../shared/rag/file-server.js";
 import { extname } from "node:path";
 import {
     ARTIFACT_DEFAULT_MIME_TYPE,
@@ -63,7 +63,7 @@ import type { ChatMessage, ChatSession, PendingResponder, PendingTurn, RestoredC
 import type { DiscussionParticipants } from "./discussion-participants.js";
 import type { DiscussionToolboxFactory } from "./discussion-toolbox.js";
 import { workspaceBrief } from "./workspace-brief.js";
-import { knowledgeText, type KnowledgeDocument, type SessionKnowledge } from "../../../shared/rag/session-knowledge.js";
+import { uploadedText, type KnowledgeDocument, type SessionKnowledge } from "../../../shared/rag/session-knowledge.js";
 
 const logger = createScopedLogger("discussion-service");
 
@@ -86,6 +86,8 @@ export interface PostMessageInput {
     readonly responseMode: DiscussionResponseMode;
     readonly capabilityMode: DiscussionCapabilityMode;
     readonly webEnabled: boolean;
+    /** Knowledge file names the user attached to this message. */
+    readonly attachments?: ReadonlyArray<string>;
 }
 
 /** Running gateway totals for a session. */
@@ -167,7 +169,8 @@ function toTranscript(messages: ReadonlyArray<ChatMessage>): TranscriptMessage[]
             const delivery = message.activity?.find(step => step.detail?.sourceMessageId);
             const duplicate = Boolean(delivery && previousContent.has(message.content));
             previousContent.add(message.content);
-            return duplicate ? `The completed document "${delivery?.detail?.title ?? "Document"}" was packaged without content changes. Its full content appears earlier in this conversation.` : message.content;
+            if (duplicate) return `The completed document "${delivery?.detail?.title ?? "Document"}" was packaged without content changes. Its full content appears earlier in this conversation.`;
+            return message.attachments?.length ? `${message.content}\n[Attached: ${message.attachments.map(file => file.name).join(", ")}]` : message.content;
         })(),
         speakerName: message.speakerName ?? null,
     }));
@@ -427,16 +430,24 @@ export class DiscussionService {
      * Stores an uploaded knowledge document for the session and indexes it for retrieval. Uploading a document with
      * the same name replaces it. Only text documents are accepted, so agents never read binary noise.
      */
-    async addKnowledge(workspaceId: string, sessionId: string, fileName: string, mimeType: string, contents: Buffer): Promise<{ chunks: number }> {
+    async addKnowledge(workspaceId: string, sessionId: string, fileName: string, mimeType: string, contents: Buffer): Promise<{ name: string; chunks: number; indexed: boolean; characters: number }> {
         const session = await this.getSession(workspaceId, sessionId);
         if (contents.byteLength > DOCUMENT_LIMITS.maxKnowledgeBytes) throw new AppError(413, DOCUMENT_ERRORS.knowledgeTooLarge);
-        const text = knowledgeText(contents);
-        // Embedding the document needs the workspace's gateway models, so make sure they are provisioned first.
-        await this.models.ensure(workspaceId);
-        const stored = await this.fileServer.storeKnowledgeFile({ workspaceId, scope: scopeOf(session), sessionId }, fileName, mimeType, contents);
-        const chunks = await this.rag.ingestDocument({ workspaceId, sessionId, source: stored.name, text });
-        logger.info({ workspaceId, sessionId, chunks }, "Ingested session knowledge file");
-        return { chunks };
+        const upload = uploadedText(fileName, contents);
+        const stored = await this.fileServer.storeKnowledgeFile({ workspaceId, scope: scopeOf(session), sessionId }, upload.fileName, mimeType, upload.contents);
+        // Indexing for search needs the workspace's embedding model. The document is still stored and readable
+        // by agents when that is not available, so a missing model does not reject the upload.
+        let chunks = 0;
+        let indexed = false;
+        try {
+            await this.models.ensure(workspaceId);
+            chunks = await this.rag.ingestDocument({ workspaceId, sessionId, source: stored.name, text: upload.text });
+            indexed = true;
+        } catch (error) {
+            logger.warn({ workspaceId, sessionId, error: String(error) }, "Session knowledge file stored but not indexed for search");
+        }
+        logger.info({ workspaceId, sessionId, chunks, indexed }, "Stored session knowledge file");
+        return { name: stored.name, chunks, indexed, characters: upload.text.length };
     }
 
     async listKnowledge(workspaceId: string, sessionId: string): Promise<KnowledgeDocument[]> {
@@ -456,11 +467,13 @@ export class DiscussionService {
     private async toolboxFor(session: ChatSession): Promise<AgentToolbox | undefined> {
         try {
             const attached = await this.unit.discussions.listAttachedConnections(session.id);
+            const attachedNames = await this.attachedNames(session.id);
             return await this.toolboxes.build({
                 workspaceId: session.workspaceId,
                 sessionId: session.id,
                 location: this.locationOf(session),
                 connectionIds: attached.map(row => row.connectionId),
+                attachedNames,
                 workspaceBrief: await workspaceBrief(this.unit.business, session.workspaceId),
             });
         } catch (error) {
@@ -469,6 +482,13 @@ export class DiscussionService {
         }
     }
 
+    /** File names attached to the discussion's messages, newest first and without repeats. */
+    private async attachedNames(sessionId: string): Promise<string[]> {
+        const messages = await this.unit.discussions.listMessages(sessionId);
+        const names = new Set<string>();
+        for (const message of [...messages].reverse()) for (const file of message.attachments ?? []) names.add(file.name);
+        return [...names];
+    }
     /**
      * Saves the user's message and prepares the turn that answers it. A turn still running in the session is
      * stopped first: a new message starts a new turn, and teammates still due from the previous one do not reply.
@@ -477,6 +497,16 @@ export class DiscussionService {
         return this.mutateSession(input.sessionId, () => this.prepareMessage(input));
     }
 
+    /** The named attachments with their sizes; each must still be a knowledge file of this discussion. */
+    private async verifiedAttachments(session: ChatSession, names: ReadonlyArray<string>): Promise<Array<{ name: string; size: number }>> {
+        if (!names.length) return [];
+        const documents = new Map((await this.knowledge.documents(this.locationOf(session))).map(document => [document.name, document.size]));
+        return [...new Set(names)].map(name => {
+            const size = documents.get(name);
+            if (size === undefined) throw new AppError(400, DISCUSSION_ERRORS.attachmentMissing);
+            return { name, size };
+        });
+    }
     private async prepareMessage(input: PostMessageInput): Promise<PreparedTurn> {
         let message = input.message;
         if (message.trim().length === 0) throw new AppError(400, DISCUSSION_ERRORS.emptyMessage);
@@ -488,23 +518,26 @@ export class DiscussionService {
             message = answeredQuestionRequest(question, input.message);
         }
         const settings: TurnSettings = { responseMode: input.responseMode, capabilityMode: input.capabilityMode, webEnabled: input.webEnabled };
+        const attachments = await this.verifiedAttachments(session, input.attachments ?? []);
         // Provision, check web search, and resolve the speakers before saving the message, so a configuration
         // problem does not leave an unanswered message behind.
-        const deliveryIntent = input.answerToQuestionId ? null : existingDocumentDelivery(message);
-        if (!deliveryIntent) await this.prepare(input.workspaceId);
+        // Converting an attached document to PDF or Word needs no model: it is exported exactly as written.
+        const attachmentDelivery = input.answerToQuestionId ? null : await this.attachmentDelivery(session.id, message, attachments);
+        const deliveryIntent = input.answerToQuestionId || attachmentDelivery ? null : existingDocumentDelivery(message);
+        if (!deliveryIntent && !attachmentDelivery) await this.prepare(input.workspaceId);
         const table = await this.resolveTable(session);
-
         await this.stopRunningTurn(session.id);
         const deliverySource = deliveryIntent ? await this.deliverySource(session.id) : null;
         const slot = this.claim(session.id);
         try {
             const turnId = randomUUID();
             const queue = deliverySource ? [this.deliverySpeaker(table, deliverySource)] : this.firstSpeakers(table);
-            const userMessage = await this.unit.discussions.appendMessage({ sessionId: session.id, role: DISCUSSION_MESSAGE_ROLES.user, content: input.message, turnId }, input.answerToQuestionId, this.pendingQueue(turnId, queue, settings), input.actorUserId);
-            if (deliverySource && deliveryIntent) {
+            const userMessage = await this.unit.discussions.appendMessage({ sessionId: session.id, role: DISCUSSION_MESSAGE_ROLES.user, content: input.message, turnId, attachments }, input.answerToQuestionId, this.pendingQueue(turnId, queue, settings), input.actorUserId);
+            const delivery = attachmentDelivery ?? (deliverySource && deliveryIntent ? { sourceMessageId: deliverySource.id, ...deliveryIntent } : null);
+            if (delivery) {
                 const current = await this.getSession(session.workspaceId, session.id);
                 if (!current.pendingTurn || current.pendingTurn.turnId !== turnId) throw new AppError(409, "The discussion changed before document delivery started.");
-                await this.unit.discussions.setPendingTurn(session.id, { ...current.pendingTurn, delivery: { sourceMessageId: deliverySource.id, ...deliveryIntent } }, turnId);
+                await this.unit.discussions.setPendingTurn(session.id, { ...current.pendingTurn, delivery }, turnId);
             }
             return {
                 run: (emit, signal) => {
@@ -539,11 +572,17 @@ export class DiscussionService {
         if (!userMessage) throw new AppError(409, DISCUSSION_ERRORS.nothingPending);
         const answeredQuestion = await this.unit.discussions.findQuestionForAnswer(sessionId, userMessage.id);
         const message = answeredQuestion ? answeredQuestionRequest(answeredQuestion, userMessage.content) : userMessage.content;
+        if (pending.delivery?.attachment) {
+            const queue = this.firstSpeakers(table);
+            await this.unit.discussions.setPendingTurn(sessionId, { ...pending, checkpoint: undefined, queue: queue.map(toResponder), document: null, taskPlan: null, repositorySnapshots: [] }, pending.turnId);
+            const slot = this.claim(sessionId);
+            return { run: (emit, signal) => this.runTurn(session, table, pending.turnId, userMessage.content, settings, queue, null, slot, emit, signal) };
+        }
         const deliveryIntent = pending.delivery ?? (answeredQuestion ? null : existingDocumentDelivery(message));
         if (deliveryIntent) {
             const source = await this.deliverySource(sessionId, pending.delivery?.sourceMessageId);
             const queue = [this.deliverySpeaker(table, source)];
-            await this.unit.discussions.setPendingTurn(sessionId, { ...pending, checkpoint: undefined, queue: queue.map(toResponder), document: null, taskPlan: null, repositorySnapshots: [], delivery: { sourceMessageId: source.id, format: deliveryIntent.format } }, pending.turnId);
+            await this.unit.discussions.setPendingTurn(sessionId, { ...pending, checkpoint: undefined, queue: queue.map(toResponder), document: null, taskPlan: null, repositorySnapshots: [], delivery: { sourceMessageId: source.id, format: deliveryIntent.format, ...(deliveryIntent.font ? { font: deliveryIntent.font } : {}) } }, pending.turnId);
             const slot = this.claim(sessionId);
             return { run: (emit, signal) => this.runTurn(session, table, pending.turnId, userMessage.content, settings, queue, null, slot, emit, signal) };
         }
@@ -574,6 +613,20 @@ export class DiscussionService {
         return { run: (emit, signal) => this.runTurn(session, table, pending.turnId, message, settings, queue, document, slot, emit, signal, pending.taskPlan, pending.repositorySnapshots) };
     }
 
+    /**
+     * A request to convert one attached document into a file, as written. The document is the one attached to this
+     * message, or, when the message names an attachment without adding one, the latest single attached document.
+     */
+    private async attachmentDelivery(sessionId: string, message: string, attachments: ReadonlyArray<{ name: string }>): Promise<NonNullable<PendingTurn["delivery"]> | null> {
+        const intent = attachmentConversion(message);
+        if (!intent) return null;
+        let name = attachments.length === 1 ? attachments[0].name : null;
+        if (!attachments.length && /\b(?:attached|uploaded|attachment)\b/i.test(message)) {
+            const latest = [...await this.unit.discussions.listMessages(sessionId)].reverse().find(item => item.role === DISCUSSION_MESSAGE_ROLES.user && item.attachments?.length);
+            if (latest?.attachments.length === 1) name = latest.attachments[0].name;
+        }
+        return name ? { attachment: name, ...intent } : null;
+    }
     private async deliverySource(sessionId: string, messageId?: string): Promise<ChatMessage> {
         const messages = await this.unit.discussions.listMessages(sessionId);
         const source = [...messages].reverse().find(item => (!messageId || item.id === messageId) && item.role === "assistant" && item.turnRole !== "delegate" && item.content.trim() && !item.activity.some(step => step.detail?.interruption));
@@ -588,6 +641,7 @@ export class DiscussionService {
     }
 
     private async deliverExistingDocument(session: ChatSession, turnId: string, settings: TurnSettings, plan: SpeakerPlan, delivery: NonNullable<PendingTurn["delivery"]>, emit: (event: TurnStreamEvent) => void, signal: AbortSignal): Promise<void> {
+        if (delivery.attachment) return this.deliverAttachment(session, turnId, settings, plan, delivery, emit, signal);
         const source = await this.deliverySource(session.id, delivery.sourceMessageId);
         if (documentImageRequests(source.content).length) throw new AppError(422, "The existing response still contains unrendered image instructions. Complete its document generation before exporting it; a format-only request does not regenerate content or images.");
         const history = await this.unit.discussions.listMessages(session.id);
@@ -621,14 +675,7 @@ export class DiscussionService {
                 fileName = completed.fileName; content = completed.content; usage = completed.usage;
             } else {
                 const info: DocumentInfo = { title: document.title, subtitle: session.title, author: source.speakerName ?? plan.participant.name, exportedAt: exportTimestamp() };
-                const exported = await this.exporter.export(delivery.format, info, content, asset => this.fileServer.readDocumentAsset(location, asset));
-                const stem = fileStem(document.title);
-                if (!stem) throw new AppError(422, "The existing response needs a valid document title before it can be saved.");
-                for (const candidate of numberedNames(stem, exported.extension)) {
-                    signal.throwIfAborted();
-                    if (await this.fileServer.storeArtifactIfAbsent(location, candidate, exported.mimeType, exported.contents)) { fileName = candidate; break; }
-                }
-                if (!fileName) throw new AppError(409, DOCUMENT_ERRORS.namesExhausted);
+                fileName = await this.storeExport(location, delivery, info, content, signal);
             }
         }
         if (!fileName) throw new AppError(500, "Document delivery finished without a saved artifact.");
@@ -639,6 +686,38 @@ export class DiscussionService {
         logger.info({ workspaceId: session.workspaceId, sessionId: session.id, sourceMessageId: source.id, format: delivery.format }, "Delivered existing document without model regeneration");
     }
 
+    /** Exports content to the requested format and saves it as a new artifact; returns the file name. */
+    private async storeExport(location: SessionLocation, delivery: NonNullable<PendingTurn["delivery"]>, info: DocumentInfo, content: string, signal: AbortSignal): Promise<string> {
+        const exported = await this.exporter.export(delivery.format, info, content, asset => this.fileServer.readDocumentAsset(location, asset), { fontFamily: delivery.font });
+        const stem = fileStem(info.title);
+        if (!stem) throw new AppError(422, "The document needs a valid title before it can be saved.");
+        for (const candidate of numberedNames(stem, exported.extension)) {
+            signal.throwIfAborted();
+            if (await this.fileServer.storeArtifactIfAbsent(location, candidate, exported.mimeType, exported.contents)) return candidate;
+        }
+        throw new AppError(409, DOCUMENT_ERRORS.namesExhausted);
+    }
+    /** Exports an attached document to the requested format without passing it through a model, so its content is unchanged. */
+    private async deliverAttachment(session: ChatSession, turnId: string, settings: TurnSettings, plan: SpeakerPlan, delivery: NonNullable<PendingTurn["delivery"]>, emit: (event: TurnStreamEvent) => void, signal: AbortSignal): Promise<void> {
+        const name = delivery.attachment!;
+        const location = this.locationOf(session);
+        const [document] = await this.knowledge.fullTexts(location, [name]);
+        if (!document?.text) throw new AppError(404, DISCUSSION_ERRORS.attachmentMissing);
+        const stem = name.replace(/\.docx\.txt$/i, "").replace(/\.[^.]+$/, "");
+        const title = (/^#\s+(.+)$/m.exec(document.text)?.[1]?.trim() || stem || session.title).slice(0, DOCUMENT_LIMITS.maxTitleCharacters);
+        const started = Date.now();
+        const step: DiscussionActivityStep = { id: randomUUID(), kind: DISCUSSION_ACTIVITY_KINDS.savingDocument, status: "running", startedAt: new Date().toISOString(), detail: { title, count: 0, requiredSections: [] } };
+        emit({ type: DISCUSSION_STREAM_EVENTS.speaker, agentId: plan.participant.agentId, name: plan.participant.name, role: plan.participant.role, isLead: plan.participant.isLead, turnRole: plan.speakerRole });
+        emit({ type: DISCUSSION_STREAM_EVENTS.activity, agentId: plan.participant.agentId, step });
+        const info: DocumentInfo = { title, subtitle: session.title, author: plan.participant.name, exportedAt: exportTimestamp() };
+        const fileName = await this.storeExport(location, delivery, info, document.text, signal);
+        const completedStep: DiscussionActivityStep = { ...step, status: "done", durationMs: Date.now() - started, detail: { ...step.detail, fileName } };
+        emit({ type: DISCUSSION_STREAM_EVENTS.activity, agentId: plan.participant.agentId, step: completedStep });
+        const format = delivery.format === DOCUMENT_FORMATS.pdf ? "PDF" : delivery.format === DOCUMENT_FORMATS.word ? "Word" : "Markdown";
+        const content = `Converted "${name}" to ${format} as written${delivery.font ? `, in the ${delivery.font} font` : ""}. The content was not changed. Saved as "${fileName}".`;
+        for (const event of await this.saveReply(session, turnId, settings, { plan, content, sources: [], usage: ZERO_USAGE, steps: [completedStep] }, [], null)) emit(event);
+        logger.info({ workspaceId: session.workspaceId, sessionId: session.id, format: delivery.format }, "Converted an attached document without model regeneration");
+    }
     /** Ensure the configured model before saving; web credentials are checked only if the plan needs a search. */
     private async prepare(workspaceId: string): Promise<void> {
         await this.models.ensure(workspaceId);

@@ -11,7 +11,6 @@ import {
   Sparkles,
 } from "lucide-react";
 import {
-  MAPPING_REVIEW_ID,
   type BrainApprovalItem,
   type BrainApprovalsView,
   type BrainForecastView,
@@ -337,7 +336,7 @@ export const WorkforceApprovalsCard: React.FC<BrainCardProps & { approvals: Brai
             <button
               key={item.id}
               type="button"
-              onClick={() => onOpenPanel(item.id === MAPPING_REVIEW_ID ? { kind: "mappings" } : { kind: "approvals" })}
+              onClick={() => onOpenPanel({ kind: "approvals" })}
               className="w-full rounded-xl bg-white dark:bg-[#182234] border border-slate-200/80 dark:border-slate-800 hover:border-primary-border p-2.5 text-left transition-colors cursor-pointer group"
             >
               <div className="flex items-center justify-between gap-2">

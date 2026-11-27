@@ -92,6 +92,7 @@ export function chooseTimeField(columns: ReadonlyArray<ColumnInfo>): string | nu
  */
 export class DataSourceService {
     private readonly loads = new SlidingWindowLimiter(BRAIN_LIMITS.databaseLoadsPerMinute, 60_000);
+    private readonly syncs = new SlidingWindowLimiter(BRAIN_LIMITS.sourceSyncsPerMinute, 60_000);
 
     constructor(
         private readonly unit: IUnitOfWork,
@@ -99,6 +100,8 @@ export class DataSourceService {
         private readonly connections: ConnectionReaderPort,
         private readonly datasets: DatasetService,
         private readonly onChange: (workspaceId: string) => void,
+        /** Starts due syncs at once instead of at the next scheduler tick. */
+        private readonly wakeScheduler: () => void = () => {},
     ) {}
 
     async list(actor: BrainActor): Promise<DataSourceView[]> {
@@ -147,6 +150,21 @@ export class DataSourceService {
         return result;
     }
 
+    /**
+     * Syncs every dataset of a linked source. They are queued rather than started together, and the scheduler
+     * runs a few at a time, so a source with many tables is not flooded with queries. Paused datasets stay paused;
+     * failed ones are retried.
+     */
+    async syncAll(actor: BrainActor, connectionId: string) {
+        this.syncs.consume(`${actor.workspaceId}:${actor.userId}`);
+        await this.requireLinked(actor.workspaceId, connectionId);
+        const result = await this.unit.brainData.queueSourceSync(actor.workspaceId, connectionId);
+        await this.audit.record(entryFor(actor, "data_source.sync_all", "connection", connectionId, { metadata: result }));
+        this.wakeScheduler();
+        this.onChange(actor.workspaceId);
+        return result;
+    }
+
     /** Business tables and views of a linked database source. Catalog, migration and other system tables are left out. */
     async tables(actor: BrainActor, connectionId: string): Promise<SourceTable[]> {
         const reader = await this.databaseReader(actor, connectionId);
@@ -173,7 +191,7 @@ export class DataSourceService {
      * Loads a whole database, or chosen tables, as datasets. Every query is built here from discovered catalog
      * names (quoted, validated read-only), never from text the caller sends. Each table gets its key, a time
      * field and its business domain; tables already loaded from this source are skipped, not duplicated.
-     * The first datasets start syncing at once; the scheduler works through the rest a few at a time.
+     * The datasets are due at once and the scheduler syncs them a few at a time.
      */
     async loadDatabase(actor: BrainActor, connectionId: string, input: DatabaseLoadInput) {
         this.loads.consume(`${actor.workspaceId}:${actor.userId}`);
@@ -242,6 +260,7 @@ export class DataSourceService {
             });
         });
         const created = prepared.length ? await this.datasets.registerDiscovered(actor, BRAIN_SOURCE_KINDS.database, prepared) : [];
+        if (created.length) this.wakeScheduler();
         await this.audit.record(entryFor(actor, "data_source.loaded", "connection", connectionId, {
             metadata: { scope: input.scope, created: created.length, skipped: skipped.length, domains: [...new Set(prepared.map(item => item.domain))] },
         }));

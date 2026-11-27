@@ -189,8 +189,7 @@ export const BRAIN_EVENT_TYPES = {
     pipelineCompleted: "dataset.pipeline.completed",
     pipelineFailed: "dataset.pipeline.failed",
     schemaDrift: "dataset.schema.drift",
-    mappingProposed: "ontology.mapping.proposed",
-    mappingReviewed: "ontology.mapping.reviewed",
+    ontologyUpdated: "ontology.updated",
     metricApproved: "semantic.metric.approved",
     analysisCompleted: "intelligence.analysis.completed",
     approvalRequested: "workforce.approval.requested",
@@ -204,7 +203,7 @@ export const BRAIN_EVENT_VERSION = 1;
 export const BRAIN_MESSAGE_ROLES = { user: "user", assistant: "assistant" } as const;
 
 /** Markdown prompts (backend/prompts) used by the Business Brain agents. */
-export const BRAIN_PROMPT_IDS = { planner: "brain-orchestrator", composer: "brain-composer", ontologySteward: "brain-ontology-steward" } as const;
+export const BRAIN_PROMPT_IDS = { planner: "brain-orchestrator", composer: "brain-composer" } as const;
 
 /** Silver normalizer version; recorded on every run so a transformation can be reproduced (FR-DATA-013). */
 export const BRAIN_TRANSFORMATION_VERSION = "silver-normalizer@1.0.0";
@@ -228,8 +227,14 @@ export const BRAIN_LIMITS = {
     maxQualityRulesPerDataset: 100,
     maxSourceKeyCharacters: 512,
     sampleValuesPerField: 5,
-    /** Datasets started by one scheduler tick, so a backlog cannot starve the API. */
+    /** Datasets started at once by a single registration, before the scheduler takes over. */
     datasetsPerTick: 4,
+    /** Dataset syncs running at the same time; a finished sync starts the next due one. */
+    datasetSyncConcurrency: 4,
+    /** While the app is open, a dataset whose last sync started longer ago than this is synced again. */
+    staleAfterMs: 24 * 60 * 60_000,
+    staleQueueBatch: 500,
+    sourceSyncsPerMinute: 3,
     eventsPerTick: 50,
     workflowRunsPerTick: 5,
     schedulerTickMs: 15_000,
@@ -242,11 +247,6 @@ export const BRAIN_LIMITS = {
     maxTransientRetries: 3,
     retryBaseDelayMs: 60_000,
     defaultQualityThreshold: 0.95,
-    mappingConfidenceThreshold: 0.85,
-    /** A rule-based proposal is approved automatically only above the threshold and with no close runner-up. */
-    mappingAmbiguityMargin: 0.1,
-    /** Agent proposals are capped below the threshold, so a person always reviews them. */
-    agentMappingConfidenceCap: 0.84,
     maxEntityTypes: 200,
     maxAttributesPerEntity: 100,
     maxMetrics: 500,
@@ -307,9 +307,6 @@ export const BRAIN_ERRORS = {
     schemaDriftHeld: "The source schema changed in a way the drift policy holds for review. Review the schema change, then retry.",
     qualityBelowThreshold: "The run passed fewer records than the dataset's quality threshold, so it was not published to Gold.",
     entityTypeNotFound: "Entity type not found",
-    relationshipNotFound: "Relationship type not found",
-    mappingNotFound: "Mapping not found",
-    mappingReviewed: "This mapping was already reviewed.",
     entityNotFound: "Entity not found",
     metricNotFound: "Metric not found",
     metricNotApproved: "This metric is not approved yet. Approve its definition before using it for analysis.",
@@ -334,18 +331,3 @@ export const BRAIN_ERRORS = {
     modelUnavailable: "No AI model is configured, so the assistant answered from governed data only.",
 } as const;
 
-/** Small synonyms used by the deterministic mapping suggester; agents may add evidence but never approve. */
-export const BRAIN_FIELD_SYNONYMS: Readonly<Record<string, readonly string[]>> = {
-    id: ["identifier", "key", "code", "ref", "reference", "uuid", "number", "no"],
-    name: ["title", "label", "display", "fullname"],
-    email: ["mail", "emailaddress", "e_mail"],
-    phone: ["telephone", "mobile", "tel", "contact_number"],
-    amount: ["value", "total", "price", "revenue", "sum", "net", "gross"],
-    status: ["state", "stage", "phase", "lifecycle"],
-    created: ["createdat", "created_on", "opened", "start", "date"],
-    closed: ["closedat", "close", "end", "won", "completed"],
-    region: ["territory", "geo", "area", "zone", "country"],
-    segment: ["tier", "category", "class", "type"],
-    owner: ["rep", "manager", "assignee", "user"],
-    account: ["customer", "client", "company", "organization", "organisation"],
-};

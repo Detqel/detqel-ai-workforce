@@ -20,9 +20,6 @@ export const columnsQuery = z.object({ schema: text(128), table: text(128) });
 export const ruleParams = datasetParams.extend({ ruleId: uuid });
 export const runParams = workspaceParams.extend({ runId: uuid });
 export const recordParams = workspaceParams.extend({ recordId: uuid });
-export const entityTypeParams = workspaceParams.extend({ entityTypeId: uuid });
-export const relationshipParams = workspaceParams.extend({ relationshipTypeId: uuid });
-export const mappingParams = workspaceParams.extend({ mappingId: uuid });
 export const entityParams = workspaceParams.extend({ entityId: uuid });
 export const metricParams = workspaceParams.extend({ metricId: uuid });
 export const policyParams = workspaceParams.extend({ policyId: uuid });
@@ -31,7 +28,6 @@ export const taskParams = workspaceParams.extend({ taskId: uuid });
 export const workflowParams = workspaceParams.extend({ workflowId: uuid });
 export const approvalParams = workspaceParams.extend({ approvalId: uuid });
 export const conversationParams = workspaceParams.extend({ conversationId: uuid });
-export const templateParams = workspaceParams.extend({ templateKey: z.string().regex(/^[a-z0-9-]{1,40}$/) });
 
 export const overviewQuery = z.object({ timeframe: z.enum(BRAIN_TIMEFRAMES).default("30d") });
 export const contextQuery = z.object({ question: text(BRAIN_LIMITS.maxQuestionCharacters) });
@@ -100,23 +96,8 @@ const attributeSchema = z.object({
     key: z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,59}$/), name: text(120), type: z.enum(values(BRAIN_FIELD_TYPES)),
     required: z.boolean().default(false), identifier: z.boolean().default(false), classification: z.enum(values(BRAIN_CLASSIFICATIONS)).default("internal"),
 }).strict();
-export const entityTypeBody = z.object({
-    key: z.string().regex(/^[A-Z][A-Za-z0-9]{0,79}$/, "Use a PascalCase key such as Account."), name: text(255),
-    description: z.string().trim().max(2_000).nullish(), attributes: z.array(attributeSchema).max(BRAIN_LIMITS.maxAttributesPerEntity),
-}).strict();
-export const entityTypeUpdateBody = entityTypeBody.omit({ key: true });
-export const relationshipBody = z.object({
-    key: z.string().regex(/^[a-z][a-z0-9_]{0,79}$/), name: text(255), description: z.string().trim().max(2_000).nullish(),
-    fromTypeId: uuid, toTypeId: uuid, fromAttribute: z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,59}$/),
-    cardinality: z.enum(["one_to_one", "one_to_many", "many_to_many"]).default("one_to_many"),
-}).strict();
-export const relationshipUpdateBody = relationshipBody.omit({ key: true });
 export const mappingsQuery = z.object({ datasetId: uuid.optional(), status: z.enum(["proposed", "approved", "rejected"]).optional(), limit: z.coerce.number().int().min(1).max(500).optional() });
-export const mappingBody = z.object({ datasetId: uuid, sourceField: text(255), entityTypeId: uuid, attributeKey: z.string().max(120), transform: z.enum(values(BRAIN_MAPPING_TRANSFORMS)).default("identity") }).strict();
-export const suggestBody = z.object({ useAgent: z.boolean().default(true) }).strict();
-export const reviewBody = z.object({ decision: z.enum(["approved", "rejected"]), note: z.string().trim().max(1_000).nullish() }).strict();
 export const entitiesQuery = z.object({ entityType: z.string().max(80).optional(), q: z.string().trim().max(120).optional(), limit });
-export const mergeBody = z.object({ targetId: uuid }).strict();
 
 export const metricBody = z.object({
     key: z.string().regex(/^[a-z][a-z0-9_]{0,79}$/, "Use a snake_case key such as net_revenue."), name: text(255), description: z.string().trim().max(2_000).nullish(),

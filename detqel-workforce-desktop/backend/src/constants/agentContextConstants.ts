@@ -77,6 +77,8 @@ export const AGENT_CONTEXT_CACHE = {
     /** Total characters of session knowledge preloaded whole into the prefix. */
     maxKnowledgeCharacters: 24_000,
     maxBusinessCharacters: 6_000,
+    /** Characters of documents attached to messages that are placed whole in the prompt; the rest is read in pages. */
+    maxAttachmentCharacters: 120_000,
     maxSchemaCharacters: 8_000,
     /** How long a connector's discovered structure is reused before it is read again. */
     schemaTtlMs: 10 * 60_000,

@@ -132,7 +132,7 @@ export function rulePlan(question: string, catalog: PlanningCatalog): BrainPlan 
         case BRAIN_INTENTS.ontology:
             return { intent, clarification: null, steps: [
                 { agent: "ontology-steward", tool: T.describeOntology, purpose: "Summarise the ontology and rules.", input: {}, dependsOn: [] },
-                { agent: "ontology-steward", tool: T.pendingMappings, purpose: "List mappings that need review.", input: { limit: 10 }, dependsOn: [] },
+                { agent: "ontology-steward", tool: T.describeRelationships, purpose: "Explain how entity types relate across sources.", input: {}, dependsOn: [] },
             ] };
         case BRAIN_INTENTS.approvals:
             return { intent, clarification: null, steps: [{ agent: "workflow", tool: T.listApprovals, purpose: "List actions waiting for approval.", input: {}, dependsOn: [] }] };

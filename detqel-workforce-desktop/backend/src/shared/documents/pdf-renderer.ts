@@ -1,9 +1,10 @@
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
+import { extname, join } from "node:path";
 import PDFDocument from "pdfkit";
 import SVGtoPDF from "svg-to-pdfkit";
 import { openSync, type Font } from "fontkit";
 import { AppError } from "../errors/app-error.js";
-import { DOCUMENT_ATTRIBUTION, DOCUMENT_ERRORS, PDF_LAYOUT, pdfFontCandidates } from "../../constants/documentConstants.js";
+import { DOCUMENT_ATTRIBUTION, DOCUMENT_ERRORS, PDF_LAYOUT, fontDirectories, pdfFontCandidates } from "../../constants/documentConstants.js";
 import { DOCUMENT_IMAGE_ERRORS, DOCUMENT_RENDER_LIMITS } from "../../constants/documentImageConstants.js";
 import type { Block, DocumentVisual, InlineRun, ListEntry } from "./markdown-model.js";
 import type { DocumentInfo } from "./document-exporter.js";
@@ -22,6 +23,39 @@ export function resolvePdfFonts(platform: NodeJS.Platform = process.platform, en
     return fonts as Record<FontRole, string>;
 }
 
+const FONT_FILE_EXTENSIONS = new Set([".ttf", ".otf"]);
+const FONT_SEARCH_DEPTH = 3;
+function fontFiles(directory: string, depth: number): string[] {
+    let entries;
+    try { entries = readdirSync(directory, { withFileTypes: true }); } catch { return []; }
+    return entries.flatMap(entry => {
+        const path = join(directory, entry.name);
+        if (entry.isDirectory()) return depth > 0 ? fontFiles(path, depth - 1) : [];
+        return FONT_FILE_EXTENSIONS.has(extname(entry.name).toLowerCase()) ? [path] : [];
+    });
+}
+/**
+ * The installed files of a named font family, by their usual file names (Raleway-Regular.ttf, Raleway-Bold.ttf,
+ * Raleway-Italic.ttf, or one variable Raleway[wght].ttf). Code keeps the default monospace font. A family that
+ * is not installed is an explicit error, so a requested font is never silently replaced.
+ */
+export function resolveFontFamily(family: string, platform: NodeJS.Platform = process.platform, environment: NodeJS.ProcessEnv = process.env): Record<FontRole, string> {
+    const key = family.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const styleOf = (path: string) => {
+        const stem = path.slice(path.lastIndexOf(path.includes("\\") ? "\\" : "/") + 1, -extname(path).length).toLowerCase();
+        const compact = stem.replace(/\[[^\]]*\]/g, "").replace(/[^a-z0-9]/g, "");
+        if (!compact.startsWith(key)) return null;
+        const style = compact.slice(key.length).replace(/^(?:vf|variable|static)/, "");
+        return /^(?:|regular|book|normal|roman)$/.test(style) ? "regular" : style === "bold" ? "bold" : style === "italic" ? "italic" : null;
+    };
+    const found: Partial<Record<FontRole, string>> = {};
+    for (const path of fontDirectories(platform, environment).flatMap(directory => fontFiles(directory, FONT_SEARCH_DEPTH))) {
+        const style = styleOf(path);
+        if (style && !found[style]) found[style] = path;
+    }
+    if (!found.regular) throw new AppError(422, `The "${family}" font is not installed on this computer, so the PDF was not created with a different font. Install ${family} (its .ttf or .otf files) and ask again, or ask without a font.`);
+    return { regular: found.regular, bold: found.bold ?? found.regular, italic: found.italic ?? found.regular, mono: resolvePdfFonts(platform, environment).mono };
+}
 /** Measure full lines before drawing. No content relies on PDFKit's continued-text cursor state. */
 class PdfLayout {
     readonly left: number;

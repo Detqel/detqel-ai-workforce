@@ -35,6 +35,8 @@ export interface ToolboxRequest {
     readonly connectionIds: ReadonlyArray<string>;
     /** Business profile, goals and rules, already formatted. */
     readonly workspaceBrief: string;
+    /** Knowledge files the user attached to messages in this discussion, newest first. */
+    readonly attachedNames?: ReadonlyArray<string>;
 }
 
 const REPOSITORY_ACTIONS = {
@@ -58,10 +60,12 @@ export class DiscussionToolboxFactory {
         ]);
         const cachedKnowledge = documents.length ? await this.knowledge.cacheable(request.location).catch(() => null) : null;
         const structures = await this.structures(request.workspaceId, connectors);
+        const attachments = await this.attachmentsContext(request, cachedKnowledge !== null);
         const cachedContext = [
             request.workspaceBrief,
             connectorsContext(connectors, structures),
             knowledgeContext(documents, cachedKnowledge),
+            attachments,
         ].filter(Boolean).join("\n\n");
         const available = connectors.filter(connector => !connector.unavailable);
         return {
@@ -73,6 +77,34 @@ export class DiscussionToolboxFactory {
         };
     }
 
+    /**
+     * Documents the user attached to messages, placed whole (within a budget) so the agent answers from them or works
+     * on them directly. When the whole knowledge base is already in the prompt they are only named, not repeated.
+     */
+    private async attachmentsContext(request: ToolboxRequest, alreadyInPrompt: boolean): Promise<string> {
+        const names = request.attachedNames ?? [];
+        if (!names.length) return "";
+        if (alreadyInPrompt) return `## Documents attached to this discussion\nThe user attached these documents; their full text is in the knowledge documents above.\n${names.map(name => `- ${name}`).join("\n")}`;
+        try {
+            const texts = await this.knowledge.fullTexts(request.location, names);
+            let remaining = AGENT_CONTEXT_CACHE.maxAttachmentCharacters;
+            const parts: string[] = [];
+            const partial: string[] = [];
+            for (const { name, text } of texts) {
+                if (remaining <= 0) { partial.push(name); continue; }
+                const shown = truncate(text, remaining);
+                remaining -= Math.min(text.length, remaining);
+                if (shown.truncated) partial.push(name);
+                parts.push(`### ${name}\n${shown.text}`);
+            }
+            if (!parts.length) return "";
+            const note = partial.length ? ` Only the start of ${partial.map(name => `"${name}"`).join(", ")} is included; read the rest with read_knowledge_document.` : "";
+            return `## Documents attached to this discussion\nThe user attached these documents to their messages. Answer from them, or do the work the user asks of them.${note}\n${untrusted("attached documents", parts.join("\n\n"))}`;
+        } catch (error) {
+            logger.warn({ sessionId: request.sessionId, error: String(error) }, "Attached documents could not be read");
+            return "";
+        }
+    }
     /** KAG: each connector's structure, described once and cached by the access layer. */
     private async structures(workspaceId: string, connectors: ReadonlyArray<AgentConnector>): Promise<Map<string, string>> {
         const result = new Map<string, string>();

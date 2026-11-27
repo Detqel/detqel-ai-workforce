@@ -166,7 +166,8 @@ function levels(format: (typeof LevelFormat)[keyof typeof LevelFormat], text: (l
 }
 
 /** Renders a document as a Word (.docx) file. */
-export async function renderDocx(info: DocumentInfo, content: ReadonlyArray<Block>): Promise<Buffer> {
+/** fontFamily names the body font (for example "Raleway"); Word uses it where it is installed. */
+export async function renderDocx(info: DocumentInfo, content: ReadonlyArray<Block>, fontFamily?: string): Promise<Buffer> {
     const bullets = ["•", "◦", "▪"];
     const layout = new WordLayout();
     const body = layout.blocks(content);
@@ -174,7 +175,7 @@ export async function renderDocx(info: DocumentInfo, content: ReadonlyArray<Bloc
         title: info.title,
         creator: info.author,
         description: info.subtitle,
-        styles: { default: { document: { run: { font: DOCX_FONTS.body, size: DOCX_LAYOUT.bodySizeHalfPoints }, paragraph: { spacing: { line: 280, after: 140 } } } } },
+        styles: { default: { document: { run: { font: fontFamily ?? DOCX_FONTS.body, size: DOCX_LAYOUT.bodySizeHalfPoints }, paragraph: { spacing: { line: 280, after: 140 } } } } },
         numbering: {
             config: [
                 { reference: NUMBERING.bullets, levels: levels(LevelFormat.BULLET, level => bullets[level % bullets.length]) },

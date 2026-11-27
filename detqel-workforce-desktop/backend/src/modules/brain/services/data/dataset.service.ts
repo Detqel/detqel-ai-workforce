@@ -14,6 +14,7 @@ import { evaluateAccess, maskRecord } from "../semantic/access-policy.js";
 import { metricFormula } from "../semantic/metric.service.js";
 import { freshnessState, isSafePattern } from "./quality-engine.js";
 import type { MedallionPipeline } from "./medallion-pipeline.service.js";
+import type { OntologyBuilder } from "../semantic/ontology-builder.js";
 import { isSafeIdentifier, type SourceExtractor } from "./source-extractor.js";
 
 const logger = createScopedLogger("brain-datasets");
@@ -59,6 +60,8 @@ export function datasetView(dataset: BrainDataset, counts?: { bronze: number; si
         zone: dataset.publishedZone, publishedVersion: dataset.publishedVersion, transformationVersion: BRAIN_TRANSFORMATION_VERSION,
         lastRunId: dataset.lastRunId, lastRunStatus: dataset.lastRunStatus, lastSuccessAt: dataset.lastSuccessAt, lastAttemptAt: dataset.lastAttemptAt,
         nextSyncAt: dataset.nextSyncAt, consecutiveFailures: dataset.consecutiveFailures, syncing: Boolean(dataset.leaseExpiresAt && dataset.leaseExpiresAt > new Date()),
+        /** Due and waiting for a free sync slot. */
+        queued: dataset.status === BRAIN_DATASET_STATUSES.active && !(dataset.leaseExpiresAt && dataset.leaseExpiresAt > new Date()) && Boolean(dataset.nextSyncAt && dataset.nextSyncAt <= new Date()),
         freshness: freshnessState(dataset), counts: counts ?? null, createdAt: dataset.createdAt, updatedAt: dataset.updatedAt,
     };
 }
@@ -75,6 +78,7 @@ export class DatasetService {
         private readonly audit: BrainAuditService,
         private readonly extractor: SourceExtractor,
         private readonly pipeline: MedallionPipeline,
+        private readonly ontology: OntologyBuilder,
     ) {}
 
     async list(actor: BrainActor) {
@@ -123,7 +127,7 @@ export class DatasetService {
 
     /**
      * Registers datasets prepared by a database load in one transaction, so a failure leaves none half-created.
-     * The first few start syncing at once; the rest are due now and the scheduler works through them.
+     * All are due now; the scheduler syncs them a few at a time so the source is not flooded.
      */
     async registerDiscovered(actor: BrainActor, sourceKind: string, inputs: ReadonlyArray<DiscoveredDataset>) {
         for (const input of inputs) {
@@ -142,7 +146,6 @@ export class DatasetService {
             }
             return rows;
         });
-        for (const dataset of created.slice(0, BRAIN_LIMITS.datasetsPerTick)) this.background(actor, dataset.id, BRAIN_RUN_TRIGGERS.initial);
         return created.map(dataset => datasetView(dataset));
     }
 
@@ -190,6 +193,7 @@ export class DatasetService {
         await this.require(actor, id);
         const updated = await this.unit.brainData.updateDataset(id, actor.workspaceId, { status: BRAIN_DATASET_STATUSES.revoked, nextSyncAt: null, connectionId: null });
         await this.audit.record(entryFor(actor, "dataset.revoked", "dataset", id));
+        this.ontology.schedule(actor.workspaceId);
         return datasetView(updated!);
     }
 
@@ -206,7 +210,7 @@ export class DatasetService {
             await repositories.brainData.deleteDataset(id, actor.workspaceId);
             await this.audit.record(entryFor(actor, "dataset.purged", "dataset", id, { metadata: { name: dataset.name, ...counts, entitiesRemoved } }), repositories);
             return { success: true, removed: { ...counts, entities: entitiesRemoved } };
-        });
+        }).finally(() => this.ontology.schedule(actor.workspaceId));
     }
 
     /** Accepts a held schema change (FR-DATA-006): the newest detected version becomes current and syncing resumes. */

@@ -7,6 +7,7 @@ import { brainApi, type BrainDataSource, type BrainDatasetView } from "@/lib/api
 import { canAccess } from "@/lib/brain-view";
 import { useBrainQuery } from "@/hooks/useBrainQuery";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
+import { PrimaryButton } from "@/components/ui/primary-button";
 import { SecondaryButton } from "@/components/ui/secondary-button";
 import { BrainModal } from "./BrainModal";
 import { DatabaseLoadForm, EndpointLoadForm } from "./LoadDataForm";
@@ -221,6 +222,16 @@ interface SourceDetailProps {
 const SourceDetail: React.FC<SourceDetailProps> = ({ workspaceId, source, datasets, allDatasets, datasetsError, canManage, canWrite, busyId, onUnlink, onAction, onCreated }) => {
   const active = datasets.filter((dataset) => dataset.status !== "revoked");
   const domains = useMemo(() => [...new Set(allDatasets.map((dataset) => dataset.domain))], [allDatasets]);
+  const progress = useMemo(() => ({
+    syncing: active.filter((dataset) => dataset.syncing).length,
+    queued: active.filter((dataset) => dataset.queued).length,
+    failed: active.filter((dataset) => dataset.status === "error" || (!dataset.syncing && dataset.lastRunStatus === "failed")).length,
+    synced: active.filter((dataset) => dataset.lastSuccessAt).length,
+    paused: active.filter((dataset) => dataset.status === "paused").length,
+    lastSuccessAt: active.map((dataset) => dataset.lastSuccessAt).filter((value): value is string => Boolean(value)).sort().at(-1) ?? null,
+  }), [active]);
+  const syncable = active.length - progress.paused;
+  const inProgress = progress.syncing + progress.queued;
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -230,16 +241,46 @@ const SourceDetail: React.FC<SourceDetailProps> = ({ workspaceId, source, datase
             {KIND_LABEL[source.sourceKind ?? ""]} · linked {formatDateTime(source.linkedAt)}
           </p>
         </div>
-        <SecondaryButton
-          value="Unlink"
-          icon={<Unlink className="w-3 h-3" />}
-          iconPosition="left"
-          className="px-2.5 py-1 text-[11px]"
-          disabled={!canManage || busyId !== null}
-          title={canManage ? "Stop using this connection as a business source" : "Owner or administrator access is required"}
-          onClick={onUnlink}
-        />
+        <div className="flex items-center gap-2">
+          {canWrite && (
+            <PrimaryButton
+              value={inProgress > 0 ? `Syncing ${inProgress}…` : "Sync all"}
+              icon={<RefreshCw className={`w-3 h-3 ${inProgress > 0 ? "animate-spin" : ""}`} />}
+              iconPosition="left"
+              className="px-3 py-1.5 text-[11px]"
+              disabled={syncable === 0 || inProgress >= syncable || busyId !== null}
+              title={syncable === 0 ? "Nothing to sync" : "Sync every dataset of this source, a few at a time"}
+              onClick={() => void onAction(`sync-all:${source.connectionId}`, () => brainApi.syncSource(workspaceId, source.connectionId))}
+            />
+          )}
+          <SecondaryButton
+            value="Unlink"
+            icon={<Unlink className="w-3 h-3" />}
+            iconPosition="left"
+            className="px-2.5 py-1 text-[11px]"
+            disabled={!canManage || busyId !== null}
+            title={canManage ? "Stop using this connection as a business source" : "Owner or administrator access is required"}
+            onClick={onUnlink}
+          />
+        </div>
       </div>
+
+      {active.length > 0 && (
+        <div className="rounded-xl border border-slate-200/80 dark:border-slate-800 px-3 py-2.5 space-y-1.5">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600 dark:text-slate-300">
+            <span><strong className="font-semibold">{progress.synced}</strong> of {active.length} synced</span>
+            {progress.syncing > 0 && <Pill tone="blue">{`${progress.syncing} syncing`}</Pill>}
+            {progress.queued > 0 && <Pill tone="slate">{`${progress.queued} queued`}</Pill>}
+            {progress.failed > 0 && <Pill tone="red">{`${progress.failed} failed`}</Pill>}
+            {progress.paused > 0 && <Pill tone="amber">{`${progress.paused} paused`}</Pill>}
+            <span className="text-slate-400">last success {formatDateTime(progress.lastSuccessAt)}</span>
+          </div>
+          <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden" role="progressbar" aria-label="Datasets synced" aria-valuemin={0} aria-valuemax={active.length} aria-valuenow={progress.synced}>
+            <div className="h-full bg-primary transition-all" style={{ width: `${Math.round((progress.synced / active.length) * 100)}%` }} />
+          </div>
+          <p className="text-[10px] text-slate-400">While the app is open, any dataset last synced more than 24 hours ago syncs again automatically.</p>
+        </div>
+      )}
 
       <section>
         <SectionTitle>Loaded datasets</SectionTitle>
@@ -252,7 +293,7 @@ const SourceDetail: React.FC<SourceDetailProps> = ({ workspaceId, source, datase
                     <span className="text-xs font-semibold text-slate-800 dark:text-slate-100 truncate">{dataset.name}</span>
                     <Pill tone="primary">{dataset.domain}</Pill>
                     <Pill tone={statusTone(dataset.zone)}>{dataset.zone}</Pill>
-                    {dataset.syncing ? <Pill tone="blue">syncing</Pill> : <Pill tone={statusTone(dataset.status)}>{dataset.status}</Pill>}
+                    {dataset.syncing ? <Pill tone="blue">syncing</Pill> : dataset.queued ? <Pill tone="slate">queued</Pill> : <Pill tone={statusTone(dataset.status)}>{dataset.status}</Pill>}
                   </div>
                   {canWrite && (
                     <div className="flex items-center gap-1.5">
@@ -261,7 +302,7 @@ const SourceDetail: React.FC<SourceDetailProps> = ({ workspaceId, source, datase
                         icon={<RefreshCw className="w-3 h-3" />}
                         iconPosition="left"
                         className="px-2.5 py-1 text-[11px]"
-                        disabled={dataset.syncing || dataset.status === "paused" || busyId !== null}
+                        disabled={dataset.syncing || dataset.queued || dataset.status === "paused" || busyId !== null}
                         onClick={() => void onAction(dataset.id, () => brainApi.syncDataset(workspaceId, dataset.id))}
                       />
                       <SecondaryButton

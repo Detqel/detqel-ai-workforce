@@ -56,6 +56,8 @@ export interface ChatMessage {
   capabilityMode: CapabilityMode | null;
   /** The steps the agent worked through for this reply. */
   activity: ActivityStep[];
+  /** Documents the user attached to this message. */
+  attachments?: Array<{ name: string; size: number }>;
   tokensUsed: number;
   createdAt: string;
 }
@@ -322,7 +324,7 @@ export async function apiDeleteDiscussionSession(workspaceId: string, sessionId:
 export function apiStreamDiscussionMessage(
   workspaceId: string,
   sessionId: string,
-  payload: { message: string; responseMode: ResponseMode; capabilityMode: CapabilityMode; webEnabled: boolean; answerToQuestionId?: string },
+  payload: { message: string; responseMode: ResponseMode; capabilityMode: CapabilityMode; webEnabled: boolean; answerToQuestionId?: string; attachments?: string[] },
   onEvent: (event: TurnEvent) => void,
   signal: AbortSignal,
 ): Promise<void> {
@@ -358,7 +360,7 @@ export async function apiUploadSessionKnowledge(
   workspaceId: string,
   sessionId: string,
   payload: { fileName: string; mimeType: string; content: string; encoding: "utf8" | "base64" },
-): Promise<{ chunks: number }> {
+): Promise<{ name: string; chunks: number; indexed: boolean; characters: number }> {
   const response = await authorizedFetch(`${workspaceUrl(workspaceId)}/${encodeURIComponent(sessionId)}/knowledge`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

@@ -5,9 +5,9 @@ import { diffSchema, isBreaking, profileSchema } from "../../src/modules/brain/s
 import { parseCsv, sourceKindOf } from "../../src/modules/brain/services/data/source-extractor.js";
 import { isTransient } from "../../src/modules/brain/services/data/medallion-pipeline.service.js";
 import { evaluateAccess, combineAccess, maskRecord } from "../../src/modules/brain/services/semantic/access-policy.js";
-import { suggestMappings, applyTransform } from "../../src/modules/brain/services/semantic/mapping-suggester.js";
+import { applyTransform } from "../../src/modules/brain/services/semantic/mapping-transforms.js";
 import { AppError } from "../../src/shared/errors/app-error.js";
-import type { BrainAccessPolicy, BrainEntityType, BrainQualityRule } from "../../src/shared/types/entities.js";
+import type { BrainAccessPolicy, BrainQualityRule } from "../../src/shared/types/entities.js";
 
 const rule = (overrides: Partial<BrainQualityRule>): BrainQualityRule => ({
     id: "r1", workspaceId: "w", datasetId: "d", ruleType: "required", field: "amount", config: {}, severity: "error", enabled: true, createdAt: new Date(), updatedAt: new Date(), ...overrides,
@@ -140,32 +140,7 @@ describe("row and column policies", () => {
     });
 });
 
-describe("semantic mapping suggestions", () => {
-    const account: BrainEntityType = {
-        id: "t1", workspaceId: "w", key: "Account", name: "Account", description: null, version: 1, status: "active", ownerUserId: null, effectiveFrom: new Date(), createdAt: new Date(), updatedAt: new Date(),
-        attributes: [
-            { key: "accountId", name: "Account ID", type: "string", identifier: true, required: true, classification: "internal" },
-            { key: "name", name: "Name", type: "string", identifier: false, required: true, classification: "internal" },
-            { key: "region", name: "Region", type: "string", identifier: false, required: false, classification: "internal" },
-        ],
-    };
-
-    test("clear names map with high confidence and unrelated fields are not mapped", () => {
-        const suggestions = suggestMappings([
-            { name: "account_id", type: "string", nullable: false },
-            { name: "account_name", type: "string", nullable: false },
-            { name: "territory", type: "string", nullable: true },
-            { name: "zzq_flag", type: "boolean", nullable: true },
-        ], [account]);
-        const byField = Object.fromEntries(suggestions.map(item => [item.sourceField, item]));
-        assert.equal(byField.account_id.attributeKey, "accountId");
-        assert.ok(byField.account_id.confidence >= 0.85);
-        assert.equal(byField.account_name.attributeKey, "name");
-        assert.equal(byField.territory.attributeKey, "region", "synonyms map territory to region");
-        assert.ok(byField.territory.confidence < 0.85, "a synonym match is not confident enough to approve itself");
-        assert.equal(byField.zzq_flag, undefined);
-    });
-
+describe("mapping transforms", () => {
     test("transforms normalise values before they become attributes", () => {
         assert.equal(applyTransform("  A@B.COM ", "lowercase"), "a@b.com");
         assert.equal(applyTransform("12.5", "number"), 12.5);

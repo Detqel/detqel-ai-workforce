@@ -202,6 +202,10 @@ export const brainRelationshipTypes = pgTable("brain_relationship_types", {
     /** The attribute on the "from" entity whose value is the canonical key of the "to" entity. */
     fromAttribute: varchar("from_attribute", { length: 120 }).notNull(),
     cardinality: varchar("cardinality", { length: 20 }).notNull().default("one_to_many"),
+    /** "foreign_key" (declared in the source), "naming" (a reference-style field name) or "manual". */
+    method: varchar("method", { length: 20 }).notNull().default("manual"),
+    confidence: doublePrecision("confidence").notNull().default(1),
+    evidence: jsonb("evidence").$type<Record<string, unknown>>().notNull().default({}),
     version: integer("version").notNull().default(1),
     status: varchar("status", { length: 20 }).notNull().default("active"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),

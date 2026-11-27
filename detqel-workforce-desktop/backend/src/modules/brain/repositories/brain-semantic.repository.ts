@@ -9,7 +9,6 @@ export interface EntityUpsert {
     readonly attributes: Record<string, unknown>;
     readonly sourceRef: { datasetId: string; sourceKey: string };
 }
-export interface LinkInsert { readonly relationshipTypeId: string; readonly fromEntityId: string; readonly toEntityId: string; readonly sourceDatasetId: string }
 
 /** One aggregate row computed from Silver for a metric; dimensionValue is '' for the total. */
 export interface AggregateRow { readonly periodStart: string; readonly dimensionValue: string; readonly value: number; readonly sampleCount: number }
@@ -25,7 +24,6 @@ export interface AggregateQuery {
     readonly to?: string;
 }
 export interface ObservationInsert { readonly periodStart: string; readonly dimension: string; readonly dimensionValue: string; readonly value: number; readonly sampleCount: number }
-export interface MergeCandidate { readonly entityTypeId: string; readonly normalizedName: string; readonly entityIds: string[]; readonly names: string[] }
 
 /** Business Brain persistence: ontology, semantic mappings, canonical entities, metrics, Gold observations, access policies. */
 export interface IBrainSemanticRepository {
@@ -37,26 +35,26 @@ export interface IBrainSemanticRepository {
     updateEntityType(id: string, workspaceId: string, data: Partial<NewBrainEntityType>): Promise<BrainEntityType | null>;
 
     listRelationshipTypes(workspaceId: string): Promise<BrainRelationshipType[]>;
-    findRelationshipType(id: string, workspaceId: string): Promise<BrainRelationshipType | null>;
     createRelationshipType(data: NewBrainRelationshipType): Promise<BrainRelationshipType>;
     updateRelationshipType(id: string, workspaceId: string, data: Partial<NewBrainRelationshipType>): Promise<BrainRelationshipType | null>;
-    deleteRelationshipType(id: string, workspaceId: string): Promise<boolean>;
 
     listMappings(workspaceId: string, options: { datasetId?: string; status?: string; limit: number }): Promise<BrainSemanticMapping[]>;
-    findMapping(id: string, workspaceId: string): Promise<BrainSemanticMapping | null>;
     /** Creates a mapping, or refreshes the evidence of an unreviewed proposal for the same target. Reviewed mappings are untouched. */
     upsertMapping(data: NewBrainSemanticMapping): Promise<BrainSemanticMapping>;
     updateMapping(id: string, workspaceId: string, data: Partial<NewBrainSemanticMapping>, expectedStatus?: string): Promise<BrainSemanticMapping | null>;
-    countMappings(workspaceId: string, status: string): Promise<number>;
 
     /** Upserts canonical entities by key, merging new source references. Returns entity ids by canonical key. */
     upsertEntities(workspaceId: string, entityTypeId: string, rows: ReadonlyArray<EntityUpsert>): Promise<Map<string, string>>;
     findEntityIdsByKeys(workspaceId: string, entityTypeId: string, keys: ReadonlyArray<string>): Promise<Map<string, string>>;
-    insertLinks(workspaceId: string, rows: ReadonlyArray<LinkInsert>): Promise<number>;
+    /**
+     * Links every entity of the "from" type to the entity of the "to" type whose canonical key equals its
+     * referencing attribute, in one statement. Idempotent; returns the links added.
+     */
+    linkByAttribute(workspaceId: string, relationship: { id: string; fromTypeId: string; toTypeId: string; fromAttribute: string }): Promise<number>;
+    linkCounts(workspaceId: string): Promise<Array<{ relationshipTypeId: string; count: number }>>;
     searchEntities(workspaceId: string, options: { entityTypeId?: string; query?: string; limit: number }): Promise<BrainEntity[]>;
     findEntity(id: string, workspaceId: string): Promise<BrainEntity | null>;
     updateEntity(id: string, workspaceId: string, data: Partial<Pick<BrainEntity, "status" | "mergedInto" | "sourceRefs" | "attributes" | "confidence">>): Promise<BrainEntity | null>;
-    listMergeCandidates(workspaceId: string, limit: number): Promise<MergeCandidate[]>;
     entityCounts(workspaceId: string): Promise<Array<{ entityTypeId: string; count: number }>>;
     countLinks(workspaceId: string): Promise<number>;
     /** Deletion propagation: removes a dataset's references and deletes entities left with no source. */

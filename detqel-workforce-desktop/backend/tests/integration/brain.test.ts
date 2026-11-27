@@ -194,25 +194,29 @@ describe("Business Brain on PostgreSQL", { skip: !adminUrl }, () => {
         assert.ok((await brain.datasets.quarantine(owner, { datasetId: opportunities.id })).length >= 3);
     });
 
-    test("ontology mappings resolve canonical entities and relationships without clobbering names", async () => {
-        await brain.ontology.applyTemplate(owner, "sales");
-        await brain.ontology.suggestMappings(owner, opportunities.id, { useAgent: false });
-        await brain.ontology.suggestMappings(owner, accounts.id, { useAgent: false });
-        const proposed = await brain.ontology.listMappings(owner, { status: "proposed" });
-        const pick = (datasetId: string, field: string) => proposed.find(mapping => mapping.datasetId === datasetId && mapping.sourceField === field);
-        for (const mapping of [pick(opportunities.id, "account_id"), pick(accounts.id, "account_id"), pick(accounts.id, "name")]) {
-            if (mapping) await brain.ontology.reviewMapping(admin, mapping.id, "approved", null);
-        }
-        await syncNow(opportunities);
-        await syncNow(accounts);
-        assert.ok((await unit.brainSemantic.entityCounts(workspaceId)).length >= 2);
-        assert.ok(await unit.brainSemantic.countLinks(workspaceId) > 0, "opportunities link to their accounts");
-        const acme = await brain.entities.search(owner, { entityTypeKey: "Account", query: "acme" });
-        assert.equal(acme.length, 2, "a reference-only source keeps the account names");
-        assert.ok((await brain.entities.mergeCandidates(owner)).length >= 1, "Acme Corp and ACME Corp. are suggested as duplicates");
-        await brain.ontology.summary(owner);
+    test("syncing builds the ontology, mappings, entities and links automatically, with no manual modelling", async () => {
+        // Nothing was modelled by hand: the earlier syncs derived every type, mapping and relationship.
+        const graph = await brain.ontology.graph(owner);
+        const node = (key: string) => graph.nodes.find(item => item.key === key)!;
+        assert.deepEqual(graph.nodes.map(item => item.key).sort(), ["Account", "Opportunity"]);
+        const edge = graph.edges.find(item => item.from === node("Opportunity").id)!;
+        assert.equal(edge.to, node("Account").id, "opportunities refer to accounts through account_id");
+        assert.equal(edge.method, "naming");
+        assert.ok(edge.links > 0, "the link is resolved between entities, whichever dataset synced first");
+        assert.equal(node("Account").entityCount, 6);
+        assert.ok(node("Opportunity").entityCount >= 160);
+        assert.equal(node("Opportunity").attributes.find(attribute => attribute.key === "owner")?.classification, "restricted", "personal data is classified");
+        assert.equal(node("Opportunity").sources[0].source, "CRM API");
+        const mappings = await brain.ontology.listMappings(owner, { limit: 500 });
+        assert.ok(mappings.length >= 12 && mappings.every(mapping => mapping.status === "approved" && mapping.proposedBy === "ontology-builder@1.0.0"));
+        assert.deepEqual((await brain.entities.search(owner, { entityTypeKey: "Account", query: "acme" })).map(entity => entity.displayName).sort(), ["ACME Corp.", "Acme Corp"]);
+        // Rebuilding with unchanged data changes nothing, and every real change is audited.
+        const again = await brain.ontologyBuilder.rebuild(workspaceId);
+        assert.ok(again && Object.values(again).every(count => count === 0), JSON.stringify(again));
+        assert.ok((await brain.audit.list(owner, { targetType: "ontology", limit: 10 })).some(event => event.action === "ontology.derived"));
+        const summary = await brain.ontology.summary(owner);
+        assert.equal(summary.entityTypes, 2);
     });
-
     test("governed metrics compute Gold values and honour access policies", async () => {
         const metric = await brain.metrics.create(owner, {
             key: "pipeline_amount", name: "Pipeline amount", datasetId: opportunities.id, aggregation: "sum", valueField: "amount", timeField: "close_date",
@@ -340,7 +344,7 @@ describe("Business Brain on PostgreSQL", { skip: !adminUrl }, () => {
         await sourceSql.unsafe(`
             CREATE SCHEMA sales; CREATE SCHEMA procurement;
             CREATE TABLE sales.customers (id integer PRIMARY KEY, company text NOT NULL, email text, first_name text, region text, created_at timestamptz NOT NULL DEFAULT now());
-            CREATE TABLE sales.orders (id bigint PRIMARY KEY, customer_id integer, amount numeric(12,2), order_date date NOT NULL);
+            CREATE TABLE sales.orders (id bigint PRIMARY KEY, customer_id integer REFERENCES sales.customers (id), amount numeric(12,2), order_date date NOT NULL);
             CREATE TABLE procurement.purchase_order_lines (order_id integer, line_no integer, sku text, quantity integer, PRIMARY KEY (order_id, line_no));
             CREATE TABLE public._prisma_migrations (id text PRIMARY KEY);
             CREATE VIEW sales.big_orders AS SELECT * FROM sales.orders WHERE amount > 500;
@@ -368,18 +372,37 @@ describe("Business Brain on PostgreSQL", { skip: !adminUrl }, () => {
         ], "views are left out of a whole-database load unless asked for");
         assert.equal(load.created.every(dataset => dataset.classification === "confidential"), true);
 
-        // The first datasets start at once; the scheduler continues the 10,500-row table across runs until its scan completes.
-        for (let attempt = 0; attempt < 60; attempt++) {
-            const rows = (await unit.brainData.listDatasets(workspaceId)).filter(dataset => dataset.connectionId === database.id);
-            if (rows.every(dataset => dataset.lastSuccessAt && !dataset.leaseOwner && Object.keys(dataset.cursor).length === 0 && !dataset.nextSyncAt)) break;
-            await sleep(150);
-            await brain.scheduler.tick();
-        }
+        // The load wakes the scheduler; its sync pool continues the 10,500-row table across runs until the scan completes.
+        const settled = async () => {
+            for (let attempt = 0; attempt < 150; attempt++) {
+                const rows = (await unit.brainData.listDatasets(workspaceId)).filter(dataset => dataset.connectionId === database.id && dataset.status === "active");
+                if (brain.scheduler.activeSyncs === 0 && rows.every(dataset => dataset.lastSuccessAt && !dataset.leaseOwner && Object.keys(dataset.cursor).length === 0 && (!dataset.nextSyncAt || dataset.nextSyncAt.getTime() > Date.now() + 60_000))) return rows;
+                await sleep(150);
+                if (attempt % 10 === 9) await brain.scheduler.tick();
+            }
+            throw new Error("The database syncs did not finish in time");
+        };
+        await settled();
         const loaded = new Map((await brain.datasets.list(owner)).filter(dataset => dataset.connectionId === database.id).map(dataset => [dataset.name, dataset]));
         assert.equal(loaded.get("Orders")?.counts?.silver, 10_500, "a large table is read completely, not cut off at one run");
         assert.equal(loaded.get("Customers")?.counts?.silver, 50);
         assert.equal(loaded.get("Purchase Order Lines")?.counts?.silver, 300, "composite keys identify every line");
         assert.deepEqual(loaded.get("Customers")?.protectedFields, ["email", "first_name"]);
+
+        // The ontology was derived while the data synced: one type per table, the declared foreign key as an edge,
+        // every order linked to its customer, and the unlinked CRM source no longer part of the ontology.
+        const graph = await brain.ontology.graph(owner);
+        const node = (key: string) => graph.nodes.find(item => item.key === key);
+        assert.deepEqual(graph.nodes.map(item => item.key).sort(), ["Customer", "Order", "PurchaseOrderLine"]);
+        const ordersToCustomers = graph.edges.find(item => item.from === node("Order")!.id)!;
+        assert.equal(ordersToCustomers.to, node("Customer")!.id);
+        assert.equal(ordersToCustomers.method, "foreign_key");
+        assert.equal(ordersToCustomers.links, 10_500);
+        assert.deepEqual(node("Customer")!.domains, ["Sales"]);
+        assert.deepEqual(node("PurchaseOrderLine")!.domains, ["Operations"]);
+        assert.deepEqual(node("Customer")!.attributes.filter(attribute => attribute.classification === "restricted").map(attribute => attribute.key).sort(), ["email", "firstName"]);
+        assert.match(node("Customer")!.description ?? "", /Asterion Business Group/);
+        assert.equal((await brain.entities.search(staff, { entityTypeKey: "Customer", query: "Company 7" }))[0]?.attributes.email, "[masked]", "restricted attributes are hidden below administrator");
 
         // Nothing personal is readable anywhere in the Brain's own tables, and Bronze is sealed.
         const leaks = await connection.db.execute(sql`SELECT 'bronze' AS zone, count(*)::int AS n FROM brain_bronze_records WHERE payload::text ~* '(buyer[0-9]+@|Person[0-9]+)'
@@ -403,6 +426,25 @@ describe("Business Brain on PostgreSQL", { skip: !adminUrl }, () => {
         await assert.rejects(brain.sources.loadDatabase(owner, database.id, { scope: "database", domain: "Operations" }), /Too many requests/);
         const view = await brain.sources.loadDatabase(admin, database.id, { scope: "tables", tables: [{ schema: "sales", name: "big_orders" }], domain: "Sales" });
         assert.equal(view.created[0]?.name, "Big Orders");
+
+        // "Sync all" queues every dataset of the source and the pool syncs them, a few at a time.
+        await settled();
+        const before = new Map((await unit.brainData.listDatasets(workspaceId)).map(dataset => [dataset.id, dataset.lastAttemptAt!.getTime()]));
+        const queued = await brain.sources.syncAll(owner, database.id);
+        assert.equal(queued.queued + queued.syncing, 4);
+        const synced = await settled();
+        assert.ok(synced.every(dataset => dataset.lastAttemptAt!.getTime() > before.get(dataset.id)!), "every dataset ran again");
+        await assert.rejects(brain.sources.syncAll(owner, connectionId), /Link this connection/, "an unlinked source cannot be synced");
+
+        // While the app is open, data whose last sync is over a day old is queued again; recent data is left alone.
+        const [customers, orders] = ["Customers", "Orders"].map(label => synced.find(dataset => dataset.name === label)!);
+        await unit.brainData.updateDataset(customers.id, workspaceId, { lastAttemptAt: new Date(Date.now() - 25 * 3_600_000), nextSyncAt: null });
+        await unit.brainData.updateDataset(orders.id, workspaceId, { lastAttemptAt: new Date(Date.now() - 23 * 3_600_000), nextSyncAt: null });
+        assert.equal(await unit.brainData.queueStaleDatasets(new Date(Date.now() - 24 * 3_600_000), 100), 1);
+        assert.equal((await unit.brainData.findDataset(orders.id, workspaceId))!.nextSyncAt, null);
+        await brain.scheduler.tick();
+        await settled();
+        assert.ok((await unit.brainData.findDataset(customers.id, workspaceId))!.lastAttemptAt! > new Date(Date.now() - 60_000), "the scheduler synced the stale dataset");
 
         // Rows stored before sealing existed are sealed by the scheduler and still open.
         const [legacy] = await connection.db.insert(schema.brainBronzeRecords).values({ workspaceId, datasetId: load.created[0].id, sourceKey: "legacy-1", payload: { email: "old@client.com" }, payloadHash: "0".repeat(64), schemaVersion: 1 }).returning();

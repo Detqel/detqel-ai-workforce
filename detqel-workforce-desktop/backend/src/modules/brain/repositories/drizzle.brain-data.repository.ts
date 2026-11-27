@@ -64,6 +64,26 @@ export class BrainDataRepository implements IBrainDataRepository {
         return this.database.update(brainDatasets).set({ leaseOwner: owner, leaseExpiresAt: leaseUntil(leaseMs), lastAttemptAt: new Date() })
             .where(inArray(brainDatasets.id, due)).returning();
     }
+    async queueSourceSync(workspaceId: string, connectionId: string): Promise<{ queued: number; syncing: number }> {
+        const scope = and(eq(brainDatasets.workspaceId, workspaceId), eq(brainDatasets.connectionId, connectionId), inArray(brainDatasets.status, ["active", "error"]));
+        const [busy] = await this.database.select({ value: count() }).from(brainDatasets).where(and(scope, gt(brainDatasets.leaseExpiresAt, sql`now()`)));
+        // A failed dataset is retried too; one already syncing keeps its run.
+        const rows = await this.database.update(brainDatasets).set({
+            nextSyncAt: sql`now()`, status: "active", consecutiveFailures: 0, updatedAt: new Date(),
+        }).where(and(scope, leaseFree)).returning({ id: brainDatasets.id });
+        return { queued: rows.length, syncing: busy?.value ?? 0 };
+    }
+    async queueStaleDatasets(staleBefore: Date, limit: number): Promise<number> {
+        const stale = this.database.select({ id: brainDatasets.id }).from(brainDatasets).where(and(
+            eq(brainDatasets.status, "active"), leaseFree,
+            or(isNull(brainDatasets.lastAttemptAt), lt(brainDatasets.lastAttemptAt, staleBefore)),
+            // Already due, or waiting for a retry it was given, is left alone.
+            or(isNull(brainDatasets.nextSyncAt), gt(brainDatasets.nextSyncAt, sql`now()`)),
+            sql`EXISTS (SELECT 1 FROM brain_source_links l WHERE l.workspace_id = ${brainDatasets.workspaceId} AND l.connection_id = ${brainDatasets.connectionId})`,
+        )).limit(limit).for("update", { skipLocked: true });
+        const rows = await this.database.update(brainDatasets).set({ nextSyncAt: sql`now()` }).where(inArray(brainDatasets.id, stale)).returning({ id: brainDatasets.id });
+        return rows.length;
+    }
     async releaseDataset(id: string, owner: string, data: Partial<NewBrainDataset>): Promise<void> {
         await this.database.update(brainDatasets).set({ ...data, leaseOwner: null, leaseExpiresAt: null, updatedAt: new Date() })
             .where(and(eq(brainDatasets.id, id), eq(brainDatasets.leaseOwner, owner)));
@@ -245,6 +265,10 @@ export class BrainDataRepository implements IBrainDataRepository {
             .where(and(eq(brainBronzeRecords.id, id), sql`NOT (${brainBronzeRecords.payload} ? '$sealed')`));
     }
 
+    async listDatasetWorkspaces(): Promise<string[]> {
+        const rows = await this.database.selectDistinct({ workspaceId: brainDatasets.workspaceId }).from(brainDatasets).where(sql`${brainDatasets.status} <> 'revoked'`);
+        return rows.map(row => row.workspaceId);
+    }
     listSourceLinks(workspaceId: string): Promise<BrainSourceLink[]> {
         return this.database.select().from(brainSourceLinks).where(eq(brainSourceLinks.workspaceId, workspaceId)).orderBy(asc(brainSourceLinks.createdAt));
     }

@@ -42,6 +42,10 @@ export interface IBrainDataRepository {
     claimDataset(id: string, workspaceId: string, owner: string, leaseMs: number): Promise<BrainDataset | null>;
     /** Leases due datasets for scheduled syncs, skipping rows another worker has locked. */
     claimDueDatasets(owner: string, leaseMs: number, limit: number): Promise<BrainDataset[]>;
+    /** Makes every active or failed dataset of a source due now. Datasets already syncing are counted, not restarted. */
+    queueSourceSync(workspaceId: string, connectionId: string): Promise<{ queued: number; syncing: number }>;
+    /** Makes due the active datasets of linked sources whose last sync started before `staleBefore`. Returns how many. */
+    queueStaleDatasets(staleBefore: Date, limit: number): Promise<number>;
     /** Releases a lease held by `owner` and applies the post-run state in the same statement. */
     releaseDataset(id: string, owner: string, data: Partial<NewBrainDataset>): Promise<void>;
     /** Datasets whose worker stopped while holding a lease, for restart recovery. */
@@ -83,6 +87,9 @@ export interface IBrainDataRepository {
     listUnsealedBronze(limit: number): Promise<Array<{ id: string; datasetId: string; sourceKey: string; payload: Record<string, unknown> }>>;
     /** Replaces a Bronze payload with its sealed form, only if it is still unsealed. */
     sealBronze(id: string, sealed: Record<string, unknown>): Promise<void>;
+
+    /** Workspaces that hold at least one dataset still in use. */
+    listDatasetWorkspaces(): Promise<string[]>;
 
     /** Connections linked to the Business Brain as business sources. */
     listSourceLinks(workspaceId: string): Promise<BrainSourceLink[]>;

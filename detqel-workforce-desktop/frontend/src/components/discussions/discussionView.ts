@@ -21,6 +21,8 @@ export interface ChatMessage {
   sources?: ChatMessageSource[];
   /** The steps the agent worked through for this reply. */
   activity?: ActivityStep[];
+  /** Documents attached to a user message. */
+  attachments?: Array<{ name: string; size: number }>;
   /** The reply is still being written; it is not saved yet. */
   streaming?: boolean;
   interruption?: string;
@@ -49,6 +51,7 @@ export function toViewMessage(message: ApiChatMessage, target: DiscussionTarget 
     timestamp: formatTime(new Date(message.createdAt)),
     sources: sources?.map((source) => ({ title: source.title, url: source.url, reference: source.reference })),
     activity: assistant ? message.activity : undefined,
+    attachments: message.attachments?.length ? message.attachments : undefined,
     interruption: message.activity?.find(step => step.detail?.interruption)?.detail?.interruption,
     turnRole: assistant ? message.turnRole ?? undefined : undefined,
   };

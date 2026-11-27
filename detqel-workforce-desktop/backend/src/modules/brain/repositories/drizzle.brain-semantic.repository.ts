@@ -8,7 +8,7 @@ import type {
     BrainAccessPolicy, BrainEntity, BrainEntityType, BrainFilter, BrainMetricDefinition, BrainMetricObservation, BrainRelationshipType,
     BrainSemanticMapping, NewBrainAccessPolicy, NewBrainEntityType, NewBrainMetricDefinition, NewBrainRelationshipType, NewBrainSemanticMapping,
 } from "../../../shared/types/entities.js";
-import type { AggregateQuery, AggregateRow, EntityUpsert, IBrainSemanticRepository, LinkInsert, MergeCandidate, ObservationInsert } from "./brain-semantic.repository.js";
+import type { AggregateQuery, AggregateRow, EntityUpsert, IBrainSemanticRepository, ObservationInsert } from "./brain-semantic.repository.js";
 
 const CHUNK = 200;
 const MAX_SOURCE_REFS = 50;
@@ -85,10 +85,6 @@ export class BrainSemanticRepository implements IBrainSemanticRepository {
     listRelationshipTypes(workspaceId: string): Promise<BrainRelationshipType[]> {
         return this.database.select().from(brainRelationshipTypes).where(eq(brainRelationshipTypes.workspaceId, workspaceId)).orderBy(asc(brainRelationshipTypes.name));
     }
-    async findRelationshipType(id: string, workspaceId: string): Promise<BrainRelationshipType | null> {
-        const [row] = await this.database.select().from(brainRelationshipTypes).where(and(eq(brainRelationshipTypes.id, id), eq(brainRelationshipTypes.workspaceId, workspaceId))).limit(1);
-        return row ?? null;
-    }
     async createRelationshipType(data: NewBrainRelationshipType): Promise<BrainRelationshipType> {
         const [row] = await this.database.insert(brainRelationshipTypes).values(data).returning();
         return row;
@@ -98,21 +94,12 @@ export class BrainSemanticRepository implements IBrainSemanticRepository {
             .where(and(eq(brainRelationshipTypes.id, id), eq(brainRelationshipTypes.workspaceId, workspaceId))).returning();
         return row ?? null;
     }
-    async deleteRelationshipType(id: string, workspaceId: string): Promise<boolean> {
-        const rows = await this.database.delete(brainRelationshipTypes).where(and(eq(brainRelationshipTypes.id, id), eq(brainRelationshipTypes.workspaceId, workspaceId))).returning({ id: brainRelationshipTypes.id });
-        return rows.length > 0;
-    }
-
     listMappings(workspaceId: string, options: { datasetId?: string; status?: string; limit: number }): Promise<BrainSemanticMapping[]> {
         return this.database.select().from(brainSemanticMappings).where(and(
             eq(brainSemanticMappings.workspaceId, workspaceId),
             options.datasetId ? eq(brainSemanticMappings.datasetId, options.datasetId) : undefined,
             options.status ? eq(brainSemanticMappings.status, options.status) : undefined,
         )).orderBy(asc(brainSemanticMappings.confidence), asc(brainSemanticMappings.sourceField)).limit(options.limit);
-    }
-    async findMapping(id: string, workspaceId: string): Promise<BrainSemanticMapping | null> {
-        const [row] = await this.database.select().from(brainSemanticMappings).where(and(eq(brainSemanticMappings.id, id), eq(brainSemanticMappings.workspaceId, workspaceId))).limit(1);
-        return row ?? null;
     }
     async upsertMapping(data: NewBrainSemanticMapping): Promise<BrainSemanticMapping> {
         const [row] = await this.database.insert(brainSemanticMappings).values(data).onConflictDoUpdate({
@@ -135,11 +122,6 @@ export class BrainSemanticRepository implements IBrainSemanticRepository {
         )).returning();
         return row ?? null;
     }
-    async countMappings(workspaceId: string, status: string): Promise<number> {
-        const [row] = await this.database.select({ value: count() }).from(brainSemanticMappings).where(and(eq(brainSemanticMappings.workspaceId, workspaceId), eq(brainSemanticMappings.status, status)));
-        return row?.value ?? 0;
-    }
-
     async upsertEntities(workspaceId: string, entityTypeId: string, rows: ReadonlyArray<EntityUpsert>): Promise<Map<string, string>> {
         const ids = new Map<string, string>();
         // Duplicate keys in one statement would make ON CONFLICT touch a row twice; merge them first.
@@ -178,14 +160,19 @@ export class BrainSemanticRepository implements IBrainSemanticRepository {
         }
         return result;
     }
-    async insertLinks(workspaceId: string, rows: ReadonlyArray<LinkInsert>): Promise<number> {
-        let inserted = 0;
-        for (const part of chunks(rows)) {
-            const result = await this.database.insert(brainEntityLinks).values(part.map(row => ({ workspaceId, ...row })))
-                .onConflictDoNothing().returning({ id: brainEntityLinks.id });
-            inserted += result.length;
-        }
-        return inserted;
+    async linkByAttribute(workspaceId: string, relationship: { id: string; fromTypeId: string; toTypeId: string; fromAttribute: string }): Promise<number> {
+        const rows = await this.database.execute(sql`INSERT INTO brain_entity_links (workspace_id, relationship_type_id, from_entity_id, to_entity_id)
+            SELECT ${workspaceId}, ${relationship.id}, a.id, b.id
+            FROM brain_entities a
+            JOIN brain_entities b ON b.workspace_id = a.workspace_id AND b.entity_type_id = ${relationship.toTypeId} AND b.status = 'active'
+                AND b.canonical_key = a.attributes->>${relationship.fromAttribute}
+            WHERE a.workspace_id = ${workspaceId} AND a.entity_type_id = ${relationship.fromTypeId} AND a.status = 'active' AND a.id <> b.id
+            ON CONFLICT DO NOTHING RETURNING id`);
+        return [...rows].length;
+    }
+    async linkCounts(workspaceId: string): Promise<Array<{ relationshipTypeId: string; count: number }>> {
+        return this.database.select({ relationshipTypeId: brainEntityLinks.relationshipTypeId, count: sql<number>`count(*)::int` }).from(brainEntityLinks)
+            .where(eq(brainEntityLinks.workspaceId, workspaceId)).groupBy(brainEntityLinks.relationshipTypeId);
     }
     searchEntities(workspaceId: string, options: { entityTypeId?: string; query?: string; limit: number }): Promise<BrainEntity[]> {
         const pattern = options.query ? `%${options.query.replace(/[\\%_]/g, character => `\\${character}`)}%` : null;
@@ -203,15 +190,6 @@ export class BrainSemanticRepository implements IBrainSemanticRepository {
         const [row] = await this.database.update(brainEntities).set({ ...data, updatedAt: new Date() })
             .where(and(eq(brainEntities.id, id), eq(brainEntities.workspaceId, workspaceId))).returning();
         return row ?? null;
-    }
-    async listMergeCandidates(workspaceId: string, limit: number): Promise<MergeCandidate[]> {
-        const rows = await this.database.execute(sql`SELECT entity_type_id AS "entityTypeId", regexp_replace(lower(display_name), '[^a-z0-9]+', '', 'g') AS "normalizedName",
-                array_agg(id::text ORDER BY created_at) AS "entityIds", array_agg(display_name ORDER BY created_at) AS names
-            FROM brain_entities WHERE workspace_id = ${workspaceId} AND status = 'active'
-                AND length(regexp_replace(lower(display_name), '[^a-z0-9]+', '', 'g')) > 2
-            GROUP BY 1, 2 HAVING count(*) > 1
-            ORDER BY count(*) DESC LIMIT ${limit}`);
-        return [...rows] as unknown as MergeCandidate[];
     }
     async entityCounts(workspaceId: string): Promise<Array<{ entityTypeId: string; count: number }>> {
         return this.database.select({ entityTypeId: brainEntities.entityTypeId, count: sql<number>`count(*)::int` }).from(brainEntities)

@@ -53,7 +53,7 @@ export class BrainOverviewService implements OverviewPort {
     private async compute(actor: BrainActor, timeframe: BrainTimeframe) {
         const range = timeframeRange(timeframe);
         const startOfDay = new Date(new Date().setUTCHours(0, 0, 0, 0));
-        const [allConnections, links, datasets, ontology, entityTypes, current, previous, forecast, scenarios, approvals, pendingMappings, verifiedToday, mappings, runs] = await Promise.all([
+        const [allConnections, links, datasets, ontology, entityTypes, current, previous, forecast, scenarios, approvals, verifiedToday, mappings, runs] = await Promise.all([
             this.unit.connections.listByWorkspace(actor.workspaceId),
             this.unit.brainData.listSourceLinks(actor.workspaceId),
             this.datasets.list(actor),
@@ -64,7 +64,6 @@ export class BrainOverviewService implements OverviewPort {
             this.intelligence.latestForecast(actor),
             this.intelligence.listScenarios(actor),
             this.unit.brainWorkforce.listApprovals(actor.workspaceId, { status: BRAIN_APPROVAL_STATUSES.pending, limit: 5 }),
-            this.unit.brainSemantic.countMappings(actor.workspaceId, BRAIN_MAPPING_STATUSES.proposed),
             this.unit.brainWorkforce.countTasks(actor.workspaceId, BRAIN_TASK_STATUSES.succeeded, startOfDay),
             this.unit.brainSemantic.listMappings(actor.workspaceId, { status: BRAIN_MAPPING_STATUSES.approved, limit: 1_000 }),
             this.unit.brainData.listRuns(actor.workspaceId, { limit: 100 }),
@@ -102,7 +101,7 @@ export class BrainOverviewService implements OverviewPort {
                     entityTypes: ontology.entityTypes,
                     entityTypesAddedInPeriod: entityTypes.filter(type => type.createdAt >= range.from).length,
                     relationships: ontology.relationships, relationshipTypes: ontology.relationshipTypes,
-                    rules: ontology.rules, entities: ontology.entities, pendingMappings,
+                    rules: ontology.rules, entities: ontology.entities,
                 },
                 quality: {
                     passRate, previousPassRate,
@@ -138,7 +137,6 @@ export class BrainOverviewService implements OverviewPort {
             approvals: {
                 pending: approvals.map(approval => ({ id: approval.id, title: approval.title, riskTier: approval.riskTier, action: approval.action, runId: approval.runId, taskId: approval.taskId, createdAt: approval.createdAt, expiresAt: approval.expiresAt, requiredApprovals: approval.requiredApprovals, decisions: approval.decisions.length })),
                 pendingCount: await this.unit.brainWorkforce.countApprovals(actor.workspaceId, BRAIN_APPROVAL_STATUSES.pending),
-                pendingMappings,
                 verifiedToday,
             },
         };

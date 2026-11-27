@@ -10,7 +10,6 @@ import { PrimaryButton } from "@/components/ui/primary-button";
 import { Field, inputClass, PanelState, Pill, SectionTitle } from "./panelParts";
 
 const SYNC_OPTIONS = [
-  { value: "", label: "Manual syncs only" },
   { value: "60", label: "Every hour" },
   { value: "360", label: "Every 6 hours" },
   { value: "1440", label: "Every day" },
@@ -241,7 +240,7 @@ export const DatabaseLoadForm: React.FC<DatabaseLoadFormProps> = ({ workspaceId,
         <Field label="Business domain *" hint={schemas.length > 1 ? "Used for every schema without its own domain below." : "Groups these datasets for metrics, ontology and access."}>
           <DomainInput value={domain} onChange={setDomain} suggestions={suggestions} />
         </Field>
-        <Field label="Sync schedule" hint="Large tables continue across runs until fully read.">
+        <Field label="Sync schedule" hint="While the app is open, data last synced over 24 hours ago also syncs automatically.">
           <CustomDropdown options={SYNC_OPTIONS} value={syncInterval} onChange={setSyncInterval} />
         </Field>
       </div>
@@ -389,7 +388,7 @@ export const EndpointLoadForm: React.FC<EndpointLoadFormProps> = ({ workspaceId,
         <Field label="Time field" hint="Used for trends and forecasts.">
           <input value={timeField} onChange={(event) => setTimeField(event.target.value.trim())} className={inputClass} placeholder="created_at" />
         </Field>
-        <Field label="Sync schedule">
+        <Field label="Sync schedule" hint="While the app is open, data last synced over 24 hours ago also syncs automatically.">
           <CustomDropdown options={SYNC_OPTIONS} value={syncInterval} onChange={setSyncInterval} />
         </Field>
       </div>

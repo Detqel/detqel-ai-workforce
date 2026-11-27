@@ -24,7 +24,8 @@ export interface PendingResponder {
 /** The queue of teammates who still have to reply in the current turn, in speaking order, with the turn's settings. */
 export interface PendingTurn {
     readonly checkpoint?: TurnCheckpoint;
-    readonly delivery?: { readonly sourceMessageId: string; readonly format: "md" | "docx" | "pdf" };
+    /** A format-only request: a saved reply (sourceMessageId) or an attached document (attachment), exported as written. */
+    readonly delivery?: { readonly sourceMessageId?: string; readonly attachment?: string; readonly format: "md" | "docx" | "pdf"; readonly font?: string };
     readonly taskPlan?: TaskExecutionPlan | null;
     readonly repositorySnapshots?: ReadonlyArray<RepositorySnapshot>;
     readonly turnId: string;
@@ -93,6 +94,8 @@ export const chatMessages = pgTable("chat_messages", {
     tokensUsed: integer("tokens_used").notNull().default(0),
     // The steps the agent worked through for this reply, shown as activity traces.
     activity: jsonb("activity").$type<DiscussionActivityStep[]>().notNull().default([]),
+    // Documents the user attached to this message (stored as session knowledge files).
+    attachments: jsonb("attachments").$type<Array<{ name: string; size: number }>>().notNull().default([]),
     // Gateway usage for the model calls that produced this message.
     inputTokens: integer("input_tokens").notNull().default(0),
     outputTokens: integer("output_tokens").notNull().default(0),

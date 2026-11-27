@@ -44,6 +44,7 @@ export const postMessageSchema = z.object({
     responseMode: z.enum([DISCUSSION_RESPONSE_MODES.brief, DISCUSSION_RESPONSE_MODES.detailed]).default(DISCUSSION_RESPONSE_MODES.detailed),
     capabilityMode: z.enum([DISCUSSION_CAPABILITY_MODES.fast, DISCUSSION_CAPABILITY_MODES.expert]).default(DISCUSSION_CAPABILITY_MODES.fast),
     webEnabled: z.boolean().default(false),
+    attachments: z.array(z.string().min(1).max(255)).max(DISCUSSION_LIMITS.maxAttachments).default([]),
 }).strict();
 
 export const pendingQuestionsQuerySchema = z.object({

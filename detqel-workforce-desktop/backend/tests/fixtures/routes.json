@@ -508,10 +508,6 @@
         "url":  "/api/brain/workspaces/:workspaceId/datasets/:datasetId/quality-rules/:ruleId"
     },
     {
-        "method":  "POST",
-        "url":  "/api/brain/workspaces/:workspaceId/datasets/:datasetId/mappings/suggest"
-    },
-    {
         "method":  "GET",
         "url":  "/api/brain/workspaces/:workspaceId/pipeline-runs"
     },
@@ -533,55 +529,15 @@
     },
     {
         "method":  "GET",
-        "url":  "/api/brain/workspaces/:workspaceId/ontology/templates"
-    },
-    {
-        "method":  "POST",
-        "url":  "/api/brain/workspaces/:workspaceId/ontology/templates/:templateKey/apply"
-    },
-    {
-        "method":  "GET",
         "url":  "/api/brain/workspaces/:workspaceId/entity-types"
-    },
-    {
-        "method":  "POST",
-        "url":  "/api/brain/workspaces/:workspaceId/entity-types"
-    },
-    {
-        "method":  "PUT",
-        "url":  "/api/brain/workspaces/:workspaceId/entity-types/:entityTypeId"
-    },
-    {
-        "method":  "POST",
-        "url":  "/api/brain/workspaces/:workspaceId/entity-types/:entityTypeId/retire"
     },
     {
         "method":  "GET",
         "url":  "/api/brain/workspaces/:workspaceId/relationship-types"
     },
     {
-        "method":  "POST",
-        "url":  "/api/brain/workspaces/:workspaceId/relationship-types"
-    },
-    {
-        "method":  "PUT",
-        "url":  "/api/brain/workspaces/:workspaceId/relationship-types/:relationshipTypeId"
-    },
-    {
-        "method":  "DELETE",
-        "url":  "/api/brain/workspaces/:workspaceId/relationship-types/:relationshipTypeId"
-    },
-    {
         "method":  "GET",
         "url":  "/api/brain/workspaces/:workspaceId/mappings"
-    },
-    {
-        "method":  "POST",
-        "url":  "/api/brain/workspaces/:workspaceId/mappings"
-    },
-    {
-        "method":  "POST",
-        "url":  "/api/brain/workspaces/:workspaceId/mappings/:mappingId/review"
     },
     {
         "method":  "GET",
@@ -589,19 +545,7 @@
     },
     {
         "method":  "GET",
-        "url":  "/api/brain/workspaces/:workspaceId/entities/merge-candidates"
-    },
-    {
-        "method":  "GET",
         "url":  "/api/brain/workspaces/:workspaceId/entities/:entityId"
-    },
-    {
-        "method":  "POST",
-        "url":  "/api/brain/workspaces/:workspaceId/entities/:entityId/merge"
-    },
-    {
-        "method":  "POST",
-        "url":  "/api/brain/workspaces/:workspaceId/entities/:entityId/unmerge"
     },
     {
         "method":  "GET",
@@ -814,5 +758,13 @@
     {
         "method":  "POST",
         "url":  "/api/brain/workspaces/:workspaceId/data-sources/:connectionId/load"
+    },
+    {
+        "method":  "POST",
+        "url":  "/api/brain/workspaces/:workspaceId/data-sources/:connectionId/sync"
+    },
+    {
+        "method":  "GET",
+        "url":  "/api/brain/workspaces/:workspaceId/ontology/graph"
     }
 ]

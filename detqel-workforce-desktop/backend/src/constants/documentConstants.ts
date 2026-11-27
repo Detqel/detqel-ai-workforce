@@ -86,6 +86,17 @@ export function pdfFontCandidates(platform: NodeJS.Platform, environment: NodeJS
     return { regular: at("DejaVuSans.ttf"), bold: at("DejaVuSans-Bold.ttf"), italic: at("DejaVuSans-Oblique.ttf"), mono: at("DejaVuSansMono.ttf") };
 }
 
+/** Where installed fonts live, so a font the user names (for example "Raleway") can be embedded in a PDF. */
+export function fontDirectories(platform: NodeJS.Platform, environment: NodeJS.ProcessEnv): string[] {
+    const home = environment.USERPROFILE ?? environment.HOME;
+    if (platform === "win32") return [
+        ...(environment.SystemRoot ? [join(environment.SystemRoot, "Fonts")] : []),
+        ...(environment.LOCALAPPDATA ? [join(environment.LOCALAPPDATA, "Microsoft", "Windows", "Fonts")] : []),
+    ];
+    if (platform === "darwin") return ["/Library/Fonts", "/System/Library/Fonts", ...(home ? [join(home, "Library", "Fonts")] : [])];
+    return ["/usr/share/fonts", "/usr/local/share/fonts", ...(home ? [join(home, ".local", "share", "fonts"), join(home, ".fonts")] : [])];
+}
+
 export const DOCUMENT_ERRORS = {
     noPdfFont: "No system font was found for PDF export on this computer.",
     unknownFormat: "That export format is not supported.",

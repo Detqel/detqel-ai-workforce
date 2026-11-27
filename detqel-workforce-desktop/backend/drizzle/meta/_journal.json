@@ -246,6 +246,20 @@
       "when": 1795560000000,
       "tag": "0034_brain_data_protection",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1795570000000,
+      "tag": "0035_brain_derived_ontology",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1795580000000,
+      "tag": "0036_chat_message_attachments",
+      "breakpoints": true
     }
   ]
 }

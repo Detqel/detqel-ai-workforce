@@ -29,6 +29,8 @@ export const DISCUSSION_CAPABILITY_SHAPING: Readonly<Record<DiscussionCapability
 
 export const DISCUSSION_LIMITS = {
     maxMessageCharacters: 32_000,
+    /** Documents one message can carry; each is a session knowledge file. */
+    maxAttachments: 5,
     expertRetrievalTopK: 5,
     expertWebResults: 5,
     /** Teammates the lead may hand one turn to, so a single message cannot fan out across a whole team. */
@@ -146,6 +148,7 @@ export const DISCUSSION_TEMPERATURE = 0.3;
 
 export const DISCUSSION_ERRORS = {
     emptyMessage: "A message is required.",
+    attachmentMissing: "An attached document is no longer in this discussion. Attach it again.",
     messageTooLong: "The message is longer than the allowed limit.",
     sessionNotFound: "The discussion session was not found.",
     connectionNotInWorkspace: "The connector does not belong to this workspace.",

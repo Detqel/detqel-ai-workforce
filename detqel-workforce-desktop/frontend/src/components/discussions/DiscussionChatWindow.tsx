@@ -18,6 +18,7 @@ import {
   Play,
   RotateCcw,
   CornerDownRight,
+  Paperclip,
 } from "lucide-react";
 import type { DiscussionTarget } from "@/lib/discussionStore";
 import type { AgentTeam, RecruitedAgent } from "@/lib/api";
@@ -40,13 +41,14 @@ import { useToast } from "@/context/ToastContext";
 import { useConfirm } from "@/context/ConfirmContext";
 import { ContextTracker } from "./ContextTracker";
 import { MarkdownContent } from "@/components/ui/markdown-content";
-import { listNames } from "@/constants/discussionConstants";
+import { CHAT_ATTACHMENT_DEFAULT_REQUEST, KNOWLEDGE_UPLOAD_ACCEPT, listNames } from "@/constants/discussionConstants";
 import { AgentActivity } from "./AgentActivity";
 import { ReplyLine } from "./ReplyLine";
 import { ReplyViewer } from "./ReplyViewer";
 import { MessageSurface } from "./MessageSurface";
 import { CopyMessageButton } from "./CopyMessageButton";
 import { MarkdownComposer } from "./MarkdownComposer";
+import { AttachmentChips, useComposerAttachments } from "./ChatAttachments";
 import { PendingQuestionCard, questionIntro } from "./PendingQuestionCard";
 import { saveDownload } from "@/lib/download";
 import { MessageSources } from "./MessageSources";
@@ -118,6 +120,7 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
   const [contextState, setContextState] = useState<ConversationContext | null | undefined>(undefined);
   const [isRestoring, setIsRestoring] = useState(false);
   const [inputText, setInputText] = useState(initialDraft ?? "");
+  const attachments = useComposerAttachments(workspaceId, activeSessionId);
   const [questions, setQuestions] = useState<PendingQuestion[]>([]);
   const [answerToQuestionId, setAnswerToQuestionId] = useState<string | null>(initialQuestionId ?? null);
   const [questionsError, setQuestionsError] = useState<string | null>(null);
@@ -498,13 +501,15 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
     if (e) e.preventDefault();
     void sendMessage(inputText, answerToQuestionId, true);
   };
+  const attachmentInput = useRef<HTMLInputElement>(null);
 
   /**
    * Sends a message. With a question id it answers that question, and the server resumes the original request.
    * A composer draft goes back to the chat box if nothing was saved; a question card keeps its own choices.
    */
   const sendMessage = async (text: string, questionId: string | null, fromComposer: boolean) => {
-    if (!text.trim() || isStreaming || isRestoring || questionsLoading) return;
+    const attached = fromComposer ? attachments.items : [];
+    if ((!text.trim() && !attached.length) || isStreaming || isRestoring || questionsLoading || (fromComposer && attachments.uploading)) return;
     if (!workspaceId) {
       toast.error("Select a workspace before starting a discussion.");
       return;
@@ -514,19 +519,25 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
       return;
     }
 
+    // A document with no instruction still needs one, so the agent knows to read it.
+    const typed = text;
+    if (!text.trim()) text = CHAT_ATTACHMENT_DEFAULT_REQUEST;
+    const attachedNames = attachments.names;
     const optimisticUser: ChatMessage = {
       id: `pending-${Date.now()}`,
       role: "user",
       content: text,
       timestamp: formatTime(new Date()),
+      ...(attached.length ? { attachments: attached.map(item => ({ name: item.name ?? item.label, size: item.size })) } : {}),
     };
     setMessages((prev) => [...prev, optimisticUser]);
-    if (fromComposer) setInputText("");
+    if (fromComposer) { setInputText(""); attachments.clear(); }
     // A new message starts a new turn: agents still due from an earlier one no longer reply.
     await runTurn(
       (onEvent, signal) => apiStreamDiscussionMessage(workspaceId, activeSessionId, {
         message: text,
         ...(questionId ? { answerToQuestionId: questionId } : {}),
+        ...(attachedNames.length ? { attachments: attachedNames } : {}),
         responseMode,
         capabilityMode,
         // Web search is only meaningful on the expert path.
@@ -537,7 +548,7 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
         // Nothing was saved (for example, no model is configured), so the message goes back to the input.
         onFailedBeforeSaving: () => {
           setMessages((prev) => prev.filter((message) => message.id !== optimisticUser.id));
-          if (fromComposer) setInputText(text);
+          if (fromComposer) { setInputText(typed); attachments.restore(attached); }
         },
       },
     );
@@ -706,6 +717,7 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
               ) : (
                 <p data-chat-text className="select-text cursor-text break-words leading-relaxed whitespace-pre-wrap">{msg.content}</p>
               )}
+              {msg.role === "user" && msg.attachments && <div className="mt-2"><AttachmentChips items={msg.attachments.map(file => ({ key: file.name, label: file.name, size: file.size }))} /></div>}
 
               {msg.role === "assistant" && msg.sources && <MessageSources sources={msg.sources} idPrefix={msg.id} />}
               {msg.interruption && <p role="status" className="mt-2 rounded-lg bg-amber-50 dark:bg-amber-950/40 p-2.5 text-amber-800 dark:text-amber-200 text-xs">{msg.interruption}</p>}
@@ -789,7 +801,19 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
           onSubmit={handleSendMessage}
           className="flex w-full min-w-0 flex-col gap-2 bg-slate-100/90 dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700/80 rounded-2xl px-3 py-2 shadow-xs focus-within:ring-2 focus-within:ring-primary-ring focus-within:border-primary transition-colors"
         >
+          {attachments.items.length > 0 && <AttachmentChips items={attachments.items.map(item => ({ key: item.key, label: item.label, size: item.size, uploading: !item.name }))} onRemove={attachments.remove} />}
           <div className="flex w-full min-w-0 items-end gap-2">
+          <input ref={attachmentInput} type="file" multiple accept={KNOWLEDGE_UPLOAD_ACCEPT} className="hidden" onChange={event => { const files = Array.from(event.target.files ?? []); event.target.value = ""; if (files.length) void attachments.add(files); }} />
+          <button
+            type="button"
+            onClick={() => attachmentInput.current?.click()}
+            title="Attach a document for the agents to read"
+            aria-label="Attach a document"
+            disabled={isRestoring || questionsLoading || isStreaming}
+            className="shrink-0 p-2 rounded-xl text-slate-400 hover:text-primary hover:bg-slate-200/70 dark:hover:bg-slate-700 disabled:opacity-40 transition-all cursor-pointer"
+          >
+            <Paperclip className="h-4 w-4" />
+          </button>
           {/* Voice Activated Speech Recognition Button */}
           <button
             type="button"
@@ -829,7 +853,7 @@ export const DiscussionChatWindow: React.FC<DiscussionChatWindowProps> = ({
           ) : (
             <button
               type="submit"
-              disabled={!inputText.trim() || isRestoring || questionsLoading}
+              disabled={(!inputText.trim() && !attachments.names.length) || attachments.uploading || isRestoring || questionsLoading}
               title="Send directive"
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary hover:bg-primary-hover disabled:opacity-40 text-primary-fg shadow-xs transition-all cursor-pointer"
             >

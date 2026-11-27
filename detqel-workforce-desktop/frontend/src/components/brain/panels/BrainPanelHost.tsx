@@ -9,11 +9,10 @@ import { DataLayerModal } from "./DataLayerModal";
 import { LineageModal } from "./LineageModal";
 import { OntologyModal } from "./OntologyModal";
 
-/** A Business Brain panel to show: a toolbox item, the approval queue, or ontology mappings. */
+/** A Business Brain panel to show: a toolbox item or the approval queue. */
 export type BrainPanel =
   | { kind: BrainCapabilityId; datasetId?: string }
-  | { kind: "approvals" }
-  | { kind: "mappings" };
+  | { kind: "approvals" };
 
 interface BrainPanelHostProps {
   panel: BrainPanel | null;
@@ -31,9 +30,7 @@ export const BrainPanelHost: React.FC<BrainPanelHostProps> = ({ panel, onOpen, o
     case "lineage":
       return <LineageModal initialDatasetId={panel.datasetId} onClose={onClose} onOpenDataLayer={() => onOpen({ kind: "data-layer" })} />;
     case "ontology":
-      return <OntologyModal onClose={onClose} onDataChanged={onDataChanged} />;
-    case "mappings":
-      return <OntologyModal initialTab="mappings" onClose={onClose} onDataChanged={onDataChanged} />;
+      return <OntologyModal onClose={onClose} onOpenDataLayer={() => onOpen({ kind: "data-layer" })} />;
     case "admin":
       return <AdminModal onClose={onClose} onDataChanged={onDataChanged} />;
     case "approvals":

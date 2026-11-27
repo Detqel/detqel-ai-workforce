@@ -110,11 +110,20 @@ export const EXPORT_FORMATS = [
 /** Largest file the user can add to a discussion's artifacts; it travels as base64 through the desktop bridge. */
 export const ARTIFACT_UPLOAD_MAX_BYTES = 700 * 1024;
 
+/** Largest document attached to a chat message; it travels as one JSON request, so it stays under the 1 MiB request limit. */
+export const CHAT_ATTACHMENT_MAX_BYTES = ARTIFACT_UPLOAD_MAX_BYTES;
+
+/** Most documents one message can carry. */
+export const CHAT_MAX_ATTACHMENTS = 5;
+
+/** Sent with an attachment when the message box is empty, so the agent knows to read it. */
+export const CHAT_ATTACHMENT_DEFAULT_REQUEST = "Read the attached document and summarize it.";
+
 /** Largest knowledge document the server accepts. */
 export const KNOWLEDGE_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
 
 /** Knowledge must be text the agents can read; the file picker offers these types. */
-export const KNOWLEDGE_UPLOAD_ACCEPT = ".txt,.md,.markdown,.csv,.tsv,.json,.jsonl,.yaml,.yml,.xml,.html,.htm,.log,.sql,.ts,.tsx,.jsx,.py,.java,.cs,.go,.rb,.php,.rs,.kt,.swift,.c,.h,.cpp,.css,text/*";
+export const KNOWLEDGE_UPLOAD_ACCEPT = ".txt,.md,.markdown,.csv,.tsv,.json,.jsonl,.yaml,.yml,.xml,.html,.htm,.docx,.log,.sql,.ts,.tsx,.jsx,.py,.java,.cs,.go,.rb,.php,.rs,.kt,.swift,.c,.h,.cpp,.css,text/*";
 
 /** Longest discussion title the server accepts. */
 export const DISCUSSION_TITLE_MAX_LENGTH = 255;

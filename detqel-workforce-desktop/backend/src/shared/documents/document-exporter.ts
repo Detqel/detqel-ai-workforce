@@ -2,7 +2,7 @@ import { AppError } from "../errors/app-error.js";
 import { DOCUMENT_ATTRIBUTION, DOCUMENT_ERRORS, DOCUMENT_FORMATS, DOCUMENT_MIME_TYPES, type DocumentFormat } from "../../constants/documentConstants.js";
 import { parseMarkdown, plainText } from "./markdown-model.js";
 import { renderDocx } from "./docx-renderer.js";
-import { renderPdf } from "./pdf-renderer.js";
+import { renderPdf, resolveFontFamily } from "./pdf-renderer.js";
 import { documentImageAssets, documentImageRequests, documentRequirementIssues } from "./document-requirements.js";
 import { createHash } from "node:crypto";
 import { DOCUMENT_IMAGE_ERRORS, DOCUMENT_RENDER_LIMITS } from "../../constants/documentImageConstants.js";
@@ -101,7 +101,7 @@ export class DocumentExporter {
         return prepareDocumentVisuals(content, resolveAsset);
     }
 
-    async export(format: DocumentFormat, info: DocumentInfo, markdown: string, resolveAsset?: DocumentAssetResolver): Promise<ExportedFile> {
+    async export(format: DocumentFormat, info: DocumentInfo, markdown: string, resolveAsset?: DocumentAssetResolver, options: { fontFamily?: string } = {}): Promise<ExportedFile> {
         if (!markdown.trim()) throw new AppError(400, DOCUMENT_ERRORS.emptyDocument);
         const content = await this.prepare(info, markdown, resolveAsset);
         if (format === DOCUMENT_FORMATS.markdown) {
@@ -117,8 +117,8 @@ export class DocumentExporter {
             }
             return { contents: Buffer.from(header + portable.trim() + "\n", "utf8"), mimeType: DOCUMENT_MIME_TYPES.md, extension: format };
         }
-        if (format === DOCUMENT_FORMATS.word) return { contents: await renderDocx(info, content), mimeType: DOCUMENT_MIME_TYPES.docx, extension: format };
-        if (format === DOCUMENT_FORMATS.pdf) return { contents: await renderPdf(info, content), mimeType: DOCUMENT_MIME_TYPES.pdf, extension: format };
+        if (format === DOCUMENT_FORMATS.word) return { contents: await renderDocx(info, content, options.fontFamily), mimeType: DOCUMENT_MIME_TYPES.docx, extension: format };
+        if (format === DOCUMENT_FORMATS.pdf) return { contents: await renderPdf(info, content, options.fontFamily ? resolveFontFamily(options.fontFamily) : undefined), mimeType: DOCUMENT_MIME_TYPES.pdf, extension: format };
         throw new AppError(400, DOCUMENT_ERRORS.unknownFormat);
     }
 }

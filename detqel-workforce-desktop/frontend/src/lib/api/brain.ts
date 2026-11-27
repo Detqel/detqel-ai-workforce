@@ -42,7 +42,6 @@ export interface BrainOverviewResponse {
       relationshipTypes: number;
       rules: number;
       entities: number;
-      pendingMappings: number;
     };
     quality: {
       passRate: number | null;
@@ -103,7 +102,6 @@ export interface BrainOverviewResponse {
       decisions: number;
     }>;
     pendingCount: number;
-    pendingMappings: number;
     verifiedToday: number;
   };
 }
@@ -208,6 +206,8 @@ export interface BrainDatasetView {
   nextSyncAt: string | null;
   consecutiveFailures: number;
   syncing: boolean;
+  /** Due and waiting for a free sync slot. */
+  queued: boolean;
   freshness: string;
   counts: { bronze: number; silver: number; quarantinedOpen: number } | null;
 }
@@ -269,40 +269,57 @@ export interface BrainEntityType {
   status: string;
   entityCount: number;
 }
-export interface BrainRelationshipType {
+export interface BrainOntologyAttribute {
+  key: string;
+  name: string;
+  type: string;
+  identifier: boolean;
+  required: boolean;
+  /** "restricted" marks personal data: stored pseudonymised and shown only to owners and administrators. */
+  classification: string;
+}
+export interface BrainOntologyNode {
   id: string;
   key: string;
   name: string;
-  fromTypeId: string;
-  toTypeId: string;
+  description: string | null;
+  version: number;
+  effectiveFrom: string;
+  domains: string[];
+  entityCount: number;
+  displayAttribute: string | null;
+  attributes: BrainOntologyAttribute[];
+  sources: Array<{
+    datasetId: string;
+    name: string;
+    domain: string;
+    source: string | null;
+    table: { schema: string; name: string } | null;
+    zone: string;
+    lastSuccessAt: string | null;
+    records: number;
+  }>;
+}
+export interface BrainOntologyEdge {
+  id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  from: string;
+  to: string;
   fromAttribute: string;
   cardinality: string;
-  status: string;
-}
-export interface BrainMapping {
-  id: string;
-  datasetId: string;
-  sourceField: string;
-  entityTypeId: string;
-  attributeKey: string;
-  transform: string;
-  confidence: number;
+  /** "foreign_key" when declared in the source database, "naming" when inferred from a reference-style field name. */
   method: string;
-  status: "proposed" | "approved" | "rejected" | string;
+  confidence: number;
+  links: number;
 }
-export interface BrainOntologySummary {
-  entityTypes: number;
-  entities: number;
-  relationshipTypes: number;
-  relationships: number;
-  rules: number;
-  pendingMappings: number;
-}
-export interface BrainOntologyTemplate {
-  key: string;
-  name: string;
-  description: string;
-  entities: string[];
+/** The automatically derived ontology (GET /ontology/graph). */
+export interface BrainOntologyGraph {
+  generatedAt: string;
+  summary: { entityTypes: number; relationships: number; entities: number; links: number; domains: string[]; sources: string[] };
+  nodes: BrainOntologyNode[];
+  edges: BrainOntologyEdge[];
 }
 export interface BrainMetricSummary {
   id: string;
@@ -422,6 +439,8 @@ export const brainApi = {
   sourceColumns: (workspaceId: string, connectionId: string, table: { schema: string; name: string }, signal?: AbortSignal) =>
     read<BrainSourceColumn[]>(workspaceId, `/data-sources/${id(connectionId)}/columns?${new URLSearchParams({ schema: table.schema, table: table.name })}`, signal),
 
+  syncSource: (workspaceId: string, connectionId: string) =>
+    send<{ queued: number; syncing: number }>(workspaceId, "POST", `/data-sources/${id(connectionId)}/sync`, {}),
   loadDatabase: (workspaceId: string, connectionId: string, input: BrainDatabaseLoadInput) =>
     send<BrainDatabaseLoadResult>(workspaceId, "POST", `/data-sources/${id(connectionId)}/load`, input),
   datasets: (workspaceId: string, signal?: AbortSignal) => read<BrainDatasetView[]>(workspaceId, "/datasets", signal),
@@ -432,15 +451,8 @@ export const brainApi = {
   setDatasetPaused: (workspaceId: string, datasetId: string, paused: boolean) =>
     send<BrainDatasetView>(workspaceId, "POST", `/datasets/${id(datasetId)}/${paused ? "pause" : "resume"}`, {}),
 
-  ontologySummary: (workspaceId: string, signal?: AbortSignal) => read<BrainOntologySummary>(workspaceId, "/ontology", signal),
-  ontologyTemplates: (workspaceId: string, signal?: AbortSignal) => read<BrainOntologyTemplate[]>(workspaceId, "/ontology/templates", signal),
-  applyTemplate: (workspaceId: string, templateKey: string) => send<unknown>(workspaceId, "POST", `/ontology/templates/${id(templateKey)}/apply`, {}),
+  ontologyGraph: (workspaceId: string, signal?: AbortSignal) => read<BrainOntologyGraph>(workspaceId, "/ontology/graph", signal),
   entityTypes: (workspaceId: string, signal?: AbortSignal) => read<BrainEntityType[]>(workspaceId, "/entity-types", signal),
-  relationshipTypes: (workspaceId: string, signal?: AbortSignal) => read<BrainRelationshipType[]>(workspaceId, "/relationship-types", signal),
-  mappings: (workspaceId: string, signal?: AbortSignal) => read<BrainMapping[]>(workspaceId, "/mappings?limit=200", signal),
-  suggestMappings: (workspaceId: string, datasetId: string) => send<BrainMapping[]>(workspaceId, "POST", `/datasets/${id(datasetId)}/mappings/suggest`, { useAgent: true }),
-  reviewMapping: (workspaceId: string, mappingId: string, decision: "approved" | "rejected") =>
-    send<BrainMapping>(workspaceId, "POST", `/mappings/${id(mappingId)}/review`, { decision }),
   metrics: (workspaceId: string, signal?: AbortSignal) => read<BrainMetricSummary[]>(workspaceId, "/metrics", signal),
 
   policySettings: (workspaceId: string, signal?: AbortSignal) => read<BrainPolicySettings>(workspaceId, "/policy", signal),

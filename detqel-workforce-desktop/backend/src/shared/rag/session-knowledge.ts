@@ -1,6 +1,7 @@
 import { AGENT_CONTEXT_CACHE, AGENT_TOOL_LIMITS } from "../../constants/agentContextConstants.js";
 import { AppError } from "../errors/app-error.js";
 import { redactText } from "../agents/context/data-guard.js";
+import { docxText } from "../documents/docx-reader.js";
 import type { FileServer, SessionLocation } from "./file-server.js";
 import type { RagService, RetrievedChunk } from "./rag.service.js";
 
@@ -24,6 +25,24 @@ export function knowledgeText(contents: Buffer): string {
     return text;
 }
 
+export interface UploadedText {
+    /** The name to store the file under; a Word document is stored as the text read from it. */
+    readonly fileName: string;
+    readonly text: string;
+    readonly contents: Buffer;
+}
+/** Reads an upload as text: Word documents are extracted, PDFs are refused with guidance, everything else must be text. */
+export function uploadedText(fileName: string, contents: Buffer): UploadedText {
+    const lower = fileName.toLowerCase();
+    if (lower.endsWith(".docx")) {
+        const text = docxText(contents);
+        return { fileName: `${fileName}.txt`, text, contents: Buffer.from(text, "utf8") };
+    }
+    if (lower.endsWith(".pdf") || contents.subarray(0, 5).toString("latin1") === "%PDF-") {
+        throw new AppError(415, "PDF files cannot be read yet. Save the document as Word (.docx), text or Markdown and attach that.");
+    }
+    return { fileName, text: knowledgeText(contents), contents };
+}
 /**
  * A discussion's uploaded knowledge, readable by its agents in three ways:
  * - CAG: when all documents fit the cache budget, they are preloaded whole into the cacheable prompt prefix.
@@ -55,6 +74,16 @@ export class SessionKnowledge {
         return parts.join("\n\n");
     }
 
+    /** The whole text of the named documents (redacted), in the order given; names that no longer exist are skipped. */
+    async fullTexts(location: SessionLocation, names: ReadonlyArray<string>): Promise<Array<{ name: string; text: string }>> {
+        const present = new Set((await this.documents(location)).map(document => document.name));
+        const result: Array<{ name: string; text: string }> = [];
+        for (const name of names) {
+            if (!present.has(name)) continue;
+            result.push({ name, text: redactText((await this.files.readKnowledgeFile(location, name)).toString("utf8")).trim() });
+        }
+        return result;
+    }
     async read(location: SessionLocation, name: string, page = 1): Promise<KnowledgePage> {
         const documents = await this.documents(location);
         if (!documents.some(document => document.name === name)) throw new AppError(404, `No knowledge document is named "${name}". List the documents to see their names.`);

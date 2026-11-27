@@ -1,7 +1,6 @@
 import {
   BRAIN_TIMEFRAME_OPTIONS,
   formatAssistantTimestamp,
-  MAPPING_REVIEW_ID,
   type BrainActionIconKey,
   type BrainApprovalItem,
   type BrainAssistantMessage,
@@ -81,7 +80,7 @@ function telemetryOf(overview: BrainOverviewResponse): BrainTelemetrySegment[] {
       id: "ontology-entities", label: "Ontology & Rules", icon: "network", tone: "primary",
       value: String(ontology.entityTypes),
       delta: ontology.entityTypesAddedInPeriod ? `+${ontology.entityTypesAddedInPeriod}` : "",
-      badge: ontology.pendingMappings ? `${ontology.pendingMappings} to review` : "Governed",
+      badge: ontology.entityTypes ? "Auto-built" : "Pending",
       detail: `${ontology.relationships} relations · ${ontology.rules} rules`,
       prompt: "List governed ontology entities, relationships, and active business rules",
     },
@@ -153,18 +152,9 @@ function approvalsOf(approvals: BrainOverviewResponse["approvals"]): BrainOvervi
     riskTier: tierLabel(approval.riskTier),
     detail: `${approval.decisions}/${approval.requiredApprovals} approvals · expires ${new Date(approval.expiresAt).toLocaleDateString()}`,
   }));
-  if (approvals.pendingMappings) {
-    items.push({
-      id: MAPPING_REVIEW_ID,
-      title: `Review ${approvals.pendingMappings} entity mapping${approvals.pendingMappings === 1 ? "" : "s"}`,
-      reference: "Ontology mappings",
-      riskTier: "Moderate",
-      detail: "Held for review before they shape entities",
-    });
-  }
   return {
     items: items.slice(0, MAX_APPROVAL_ITEMS),
-    pendingCount: approvals.pendingCount + approvals.pendingMappings,
+    pendingCount: approvals.pendingCount,
     verifiedToday: approvals.verifiedToday,
   };
 }

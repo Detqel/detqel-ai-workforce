@@ -19,6 +19,7 @@ export class BrainDataController {
         return this.brain.sources.columns(actorOf(request), sourceParams.parse(request.params).connectionId, schema, table);
     };
 
+    syncSource = async (request: FastifyRequest, reply: FastifyReply) => reply.status(202).send(await this.brain.sources.syncAll(actorOf(request), sourceParams.parse(request.params).connectionId));
     loadDatabase = async (request: FastifyRequest, reply: FastifyReply) =>
         reply.status(201).send(await this.brain.sources.loadDatabase(actorOf(request), sourceParams.parse(request.params).connectionId, databaseLoadBody.parse(request.body)));
     listDatasets = async (request: FastifyRequest) => this.brain.datasets.list(actorOf(request));

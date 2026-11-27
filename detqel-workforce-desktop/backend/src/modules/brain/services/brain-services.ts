@@ -12,6 +12,7 @@ import { BrainOverviewService } from "./brain-overview.service.js";
 import { BrainScheduler } from "./brain-scheduler.js";
 import { BrainDataProtector } from "./data/data-protection.js";
 import { DataSourceService } from "./data/data-source.service.js";
+import { SourceCatalog } from "./data/source-catalog.js";
 import { DatasetService } from "./data/dataset.service.js";
 import { MedallionPipeline } from "./data/medallion-pipeline.service.js";
 import { SourceExtractor, type ConnectionReaderPort } from "./data/source-extractor.js";
@@ -20,6 +21,7 @@ import { AccessPolicyService } from "./semantic/access-policy.service.js";
 import { ContextService } from "./semantic/context.service.js";
 import { EntityResolutionService } from "./semantic/entity-resolution.service.js";
 import { MetricService } from "./semantic/metric.service.js";
+import { OntologyBuilder } from "./semantic/ontology-builder.js";
 import { OntologyService } from "./semantic/ontology.service.js";
 import { SemanticQueryService } from "./semantic/semantic-query.service.js";
 import { createWorkflowActions } from "./workflow/workflow-actions.js";
@@ -27,7 +29,6 @@ import { WorkflowEngine, type RoleResolver } from "./workflow/workflow-engine.js
 import { WorkflowService } from "./workflow/workflow.service.js";
 import { BrainOrchestrator } from "./workforce/brain-orchestrator.js";
 import { BrainModel, type IBrainModel } from "./workforce/brain-model.js";
-import { OntologyStewardAdvisor } from "./workforce/ontology-steward.agent.js";
 import { BrainPolicyService } from "./workforce/policy-engine.js";
 import { BrainTaskService } from "./workforce/task.service.js";
 import { ToolGateway } from "./workforce/tool-gateway.js";
@@ -53,31 +54,37 @@ export function createBrainServices(unit: IUnitOfWork, deps: BrainDependencies) 
     const workerId = `${hostname().slice(0, 30)}:${process.pid}:${randomUUID().slice(0, 8)}`;
     const audit = new BrainAuditService(unit);
     const model = deps.model ?? new BrainModel(deps.gateway, deps.keys, deps.models, deps.prompts);
-    const entities = new EntityResolutionService(unit, audit);
+    const entities = new EntityResolutionService(unit);
     const metrics = new MetricService(unit, audit);
     const protector = new BrainDataProtector(deps.encryptionKey);
     const extractor = new SourceExtractor(deps.connections, protector);
-    const pipeline = new MedallionPipeline(unit, extractor, metrics, entities, audit, protector, workerId);
-    const datasets = new DatasetService(unit, audit, extractor, pipeline);
-    const ontology = new OntologyService(unit, audit, entities, new OntologyStewardAdvisor(model));
+    // The ontology is derived from the data on every sync; nobody models it by hand.
+    const ontologyBuilder = new OntologyBuilder(unit, audit, new SourceCatalog(deps.connections));
+    const pipeline = new MedallionPipeline(unit, extractor, metrics, entities, ontologyBuilder, audit, protector, workerId);
+    const datasets = new DatasetService(unit, audit, extractor, pipeline, ontologyBuilder);
+    const ontology = new OntologyService(unit, datasets);
     const semantic = new SemanticQueryService(unit);
     const intelligence = new IntelligenceService(unit, semantic, audit);
     const context = new ContextService(unit, semantic, datasets);
     const policies = new BrainPolicyService(unit, audit);
     const overview = new BrainOverviewService(unit, datasets, ontology, intelligence);
     const accessPolicies = new AccessPolicyService(unit, audit, workspaceId => overview.invalidate(workspaceId));
-    const sources = new DataSourceService(unit, audit, deps.connections, datasets, workspaceId => overview.invalidate(workspaceId));
+    // The scheduler is built last; sources wake it through this late-bound reference.
+    let scheduler: BrainScheduler | null = null;
+    const sourcesChanged = (workspaceId: string) => { overview.invalidate(workspaceId); ontologyBuilder.schedule(workspaceId); };
+    const sources = new DataSourceService(unit, audit, deps.connections, datasets, sourcesChanged, () => scheduler?.wake());
     let workflows: WorkflowService | null = null;
     const tools = createBrainTools({ unit, semantic, intelligence, datasets, ontology, entities, overview: () => overview, workflows: () => workflows!, webSearch: deps.webSearch, policies, audit });
     const toolGateway = new ToolGateway(unit, audit, tools, policies);
     const engine = new WorkflowEngine(unit, audit, createWorkflowActions({ unit, pipeline, intelligence, connections: deps.connections, audit }), policies, deps.roleOf, workerId);
     workflows = new WorkflowService(unit, audit, engine, toolGateway, deps.roleOf);
     const orchestrator = new BrainOrchestrator(unit, toolGateway, model, semantic, datasets, audit);
+    scheduler = new BrainScheduler(unit, pipeline, workflows, engine, ontologyBuilder, entities);
     return {
-        audit, sources, datasets, pipeline, ontology, entities, metrics, semantic, intelligence, context, policies, overview, accessPolicies,
+        audit, sources, datasets, pipeline, ontology, ontologyBuilder, entities, metrics, semantic, intelligence, context, policies, overview, accessPolicies,
         tools: toolGateway, tasks: new BrainTaskService(unit, toolGateway), engine, workflows,
         assistant: new BrainAssistantService(unit, orchestrator, audit),
-        scheduler: new BrainScheduler(unit, pipeline, workflows, engine),
+        scheduler,
     };
 }
 export type BrainServices = ReturnType<typeof createBrainServices>;

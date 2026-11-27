@@ -16,7 +16,6 @@ export class BrainWorkforceController {
         methods: this.brain.intelligence.methods(),
         workflowActions: this.brain.workflows.actions(),
         workflowTemplates: this.brain.workflows.templates(),
-        ontologyTemplates: this.brain.ontology.templates(),
     });
     listTasks = async (request: FastifyRequest) => this.brain.tasks.list(actorOf(request), listQuery.parse(request.query).limit);
     getTask = async (request: FastifyRequest) => this.brain.tasks.get(actorOf(request), taskParams.parse(request.params).taskId);
